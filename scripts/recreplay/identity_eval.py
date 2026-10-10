@@ -25,6 +25,9 @@ Metrics (all reported together — never accuracy alone):
   coverage          turns with a decided is_self / all turns
   time_to_confirm_s median over items of the first correct "that's you"
                     (an item that never confirms counts as its duration)
+  confirm_delay_s   the same, minus when the wearer's first turn was sent
+                    (time_to_confirm is bounded below by when the wearer
+                    first speaks: 64 s into ami_TS3004a)
   never_confirmed   items with no correct "that's you" at all
   alert_buzz_hits   wearer raised/shouted moments (annotation coach_moments,
                     rule raised-voice) with an ALERT haptic in [-1.5, +6] s
@@ -108,6 +111,8 @@ def score_item(name: str, phone: dict) -> dict:
         "wearer_hits": sum(1 for r in rows if r["truth"] is True and r["pred"] is True),
         "other_turns": len(other), "false_self": ph["false_self"],
         "first_confirmed_s": ph["first_confirmed_s"],
+        # The earliest a confirmation was possible: the first wearer turn's send.
+        "first_wearer_sent_s": min((r["sent_at"] for r in rows if r["truth"] is True), default=None),
         "moments": len(moms), "alert_hits": hits, "alerts": len(alerts), "alerts_nomoment": nomoment,
     }
 
@@ -126,6 +131,10 @@ def aggregate(items: list[dict]) -> dict:
             "coverage": round(sum(i["decided"] for i in honest) / tt, 3) if tt else None,
             "accuracy": round(sum(i["correct"] for i in honest) / max(1, sum(i["decided"] for i in honest)), 3),
             "time_to_confirm_s": round(statistics.median(ttc), 1),
+            # time_to_confirm minus the first moment it was possible
+            "confirm_delay_s": round(statistics.median(
+                [(i["first_confirmed_s"] if i["first_confirmed_s"] is not None else i["dur_s"]) - i["first_wearer_sent_s"]
+                 for i in honest if i["first_wearer_sent_s"] is not None]), 1),
             "never_confirmed": sum(1 for i in honest if i["first_confirmed_s"] is None),
             "id_items": len(honest),
         })

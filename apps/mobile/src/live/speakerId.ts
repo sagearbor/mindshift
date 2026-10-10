@@ -69,7 +69,10 @@ export const CROSS_MATCH_MIN_SETTINGS = 2;
  *  at >= CROSS_MATCH_THRESHOLD against a >= 2-recording self print —
  *  contrast can't run without a second voice, and a stranger measured
  *  <= 0.28 across settings. Never used for live coaching verdicts. */
-export type MatchBasis = "absolute" | "raised" | "contrast" | "solo";
+/** "session" is the labeler's in-session adaptation (`SpeakerLabelerOptions`
+ *  `sessionAdapt` / `sticky`): the owner accepted because THIS session already
+ *  proved the enrolled print. Not a server basis — sent as null on the wire. */
+export type MatchBasis = "absolute" | "raised" | "contrast" | "solo" | "session";
 // Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
 // LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
 // purpose: live turns are short and the on-device ECAPA embedding of the SAME
@@ -420,6 +423,33 @@ export interface SpeakerLabelerOptions {
   clusterThreshold?: number;
   minClusterSeconds?: number;
   raisedMatchThreshold?: number;
+  /**
+   * In-session adaptation of the OWNER's print. The enrolled print comes from
+   * another room / mic / day; the same voice in THIS session scores lower
+   * against it than against itself. Turns that clear `minScore` against the
+   * enrolled print (and last >= `minSeconds`) are pooled into a session print;
+   * once `minTurns` are pooled, a later turn is the owner (basis "session")
+   * when it scores >= `matchThreshold` against the session print AND still
+   * >= `printFloor` against the enrolled one. Drift guard: only turns the
+   * ENROLLED print vouched for are ever pooled — a session-matched turn is
+   * never folded back in, so the session print cannot walk away by
+   * reinforcing itself, and the floor keeps it tied to the enrolled voice.
+   */
+  sessionAdapt?: {
+    minScore: number;
+    minSeconds: number;
+    minTurns: number;
+    matchThreshold: number;
+    printFloor: number;
+  } | null;
+  /** After `after` enrolled-print matches of the owner this session, the
+   *  owner's bar against the enrolled print relaxes to `threshold` (basis
+   *  "session"): the print has proven itself in this room. */
+  sticky?: { after: number; threshold: number } | null;
+  /** A turn shorter than this that is NOT matched to the owner gets
+   *  `isSelf: null` (undecided) instead of `false`: a sub-second embedding
+   *  is not evidence that someone else spoke. */
+  shortUndecidedSeconds?: number;
 }
 
 export class SpeakerLabeler {
@@ -435,6 +465,14 @@ export class SpeakerLabeler {
   private readonly clusterThreshold: number;
   private readonly minClusterSeconds: number;
   private readonly raisedMatchThreshold: number;
+  private readonly sessionAdapt: SpeakerLabelerOptions["sessionAdapt"];
+  private readonly sticky: SpeakerLabelerOptions["sticky"];
+  private readonly shortUndecidedSeconds: number;
+  /** Running mean of the owner's print-vouched turns this session. */
+  private sessionSelf: Float32Array | null = null;
+  private sessionSelfCount = 0;
+  /** Owner matches against the ENROLLED print this session (sticky). */
+  private selfPrintMatches = 0;
 
   /** `opts` is either the tuning object or, for older callers, the match
    *  threshold followed by the cluster threshold and the minimum seconds. */
@@ -450,6 +488,9 @@ export class SpeakerLabeler {
     this.clusterThreshold = o.clusterThreshold ?? CLUSTER_THRESHOLD;
     this.minClusterSeconds = o.minClusterSeconds ?? MIN_CLUSTER_SECONDS;
     this.raisedMatchThreshold = o.raisedMatchThreshold ?? RAISED_MATCH_THRESHOLD;
+    this.sessionAdapt = o.sessionAdapt ?? null;
+    this.sticky = o.sticky ?? null;
+    this.shortUndecidedSeconds = o.shortUndecidedSeconds ?? 0;
     this.people = people.map((person) => ({
       person,
       vec: l2Normalize(person.embedding),
@@ -574,6 +615,7 @@ export class SpeakerLabeler {
       if (best === null || score > best.score) best = { person, score };
     }
     if (best && best.score >= this.matchThreshold) {
+      if (best.person.isSelf) this.noteSelfPrintMatch(embedding, best.score, seconds);
       return {
         speaker: best.person.displayName,
         personId: best.person.personId,
@@ -584,6 +626,55 @@ export class SpeakerLabeler {
         selfScore,
       };
     }
+    const session = this.sessionSelfMatch(embedding, selfScore);
+    if (session) return session;
+    const verdict = this.labelUnmatched(embedding, seconds, selfScore);
+    if (verdict.isSelf === false && seconds !== undefined && seconds < this.shortUndecidedSeconds) {
+      return { ...verdict, isSelf: null };
+    }
+    return verdict;
+  }
+
+  /** Session-print turns pooled so far (0 without `sessionAdapt`). */
+  get sessionSelfTurns(): number {
+    return this.sessionSelfCount;
+  }
+
+  private noteSelfPrintMatch(embedding: ArrayLike<number>, score: number, seconds: number | undefined): void {
+    this.selfPrintMatches += 1;
+    const a = this.sessionAdapt;
+    if (!a || score < a.minScore || seconds === undefined || seconds < a.minSeconds) return;
+    this.sessionSelf = runningMeanEmbedding(this.sessionSelf, this.sessionSelfCount, embedding);
+    this.sessionSelfCount += 1;
+  }
+
+  /** The owner by in-session evidence (sticky / session print), or null. */
+  private sessionSelfMatch(embedding: ArrayLike<number>, selfScore: number | null): SpeakerVerdict | null {
+    if (selfScore === null) return null;
+    const self = this.people.find((p) => p.person.isSelf)?.person;
+    if (!self) return null;
+    let score: number | null = null;
+    if (this.sticky && this.selfPrintMatches >= this.sticky.after && selfScore >= this.sticky.threshold) {
+      score = selfScore;
+    }
+    const a = this.sessionAdapt;
+    if (score === null && a && this.sessionSelf && this.sessionSelfCount >= a.minTurns && selfScore >= a.printFloor) {
+      const s = cosine(embedding, this.sessionSelf);
+      if (s >= a.matchThreshold) score = s;
+    }
+    if (score === null) return null;
+    return {
+      speaker: self.displayName,
+      personId: self.personId,
+      displayName: self.displayName,
+      isSelf: true,
+      score,
+      basis: "session",
+      selfScore,
+    };
+  }
+
+  private labelUnmatched(embedding: ArrayLike<number>, seconds: number | undefined, selfScore: number | null): SpeakerVerdict {
     // Unknown: online clustering, order-stable, same as assign_speakers.
     let bestIdx: number | null = null;
     let bestScore = -1;
@@ -648,6 +739,9 @@ export class SpeakerLabeler {
     this.counts = [];
     this.identities = new Map();
     this.revision = 0;
+    this.sessionSelf = null;
+    this.sessionSelfCount = 0;
+    this.selfPrintMatches = 0;
   }
 }
 

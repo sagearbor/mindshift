@@ -144,6 +144,7 @@ export interface RecordingReplayOutput {
   positives: ReplayResult["positives"];
   spoken: ReplayResult["spoken"];
   attribution: ReplayResult["attribution"];
+  labelLog: ReplayResult["labelLog"];
   boundaries: ReplayResult["boundaries"];
   latency: ReplayResult["latency"];
   wallMs: number;
@@ -176,6 +177,7 @@ export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingRe
     positives: r.positives,
     spoken: r.spoken,
     attribution: r.attribution,
+    labelLog: r.labelLog,
     boundaries: r.boundaries,
     latency: r.latency,
     wallMs: Math.round(r.wall.totalMs),

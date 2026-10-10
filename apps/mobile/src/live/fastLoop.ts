@@ -1414,8 +1414,9 @@ export class FastLoop {
         speaker_person_id: verdict.personId,
         speaker_match_score: verdict.score,
         // "solo" is journal-only and never reaches turn_local (the wire
-        // Literal is absolute|contrast); narrow defensively.
-        speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
+        // Literal is absolute|raised|contrast); "session" (in-session
+        // adaptation) is phone-only too. Narrow both to null.
+        speaker_match_basis: verdict.basis === "solo" || verdict.basis === "session" ? null : verdict.basis,
         is_self: verdict.isSelf,
         text: aligned.text,
         start_time: span.start,

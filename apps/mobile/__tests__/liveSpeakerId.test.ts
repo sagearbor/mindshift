@@ -334,6 +334,74 @@ describe("SpeakerLabeler", () => {
     expect(new SpeakerLabeler([you], 0.55).label(v, 2.0)).toMatchObject({ isSelf: true, basis: "absolute" });
   });
 
+  describe("session adaptation (in-room self print)", () => {
+    // The owner as THIS room/mic renders them: 0.72 against the enrolled print.
+    const inRoom = vectorAtCosine(D, 0.72, 0, 1);
+    // A later owner turn the enrolled print only scores 0.45 — but it sits
+    // 0.94 from the in-room voice.
+    const nearRoom = vectorAtCosine(D, 0.45, 0, 1);
+    const adapt = { sessionAdapt: { minScore: 0.7, minSeconds: 2, minTurns: 1, matchThreshold: 0.65, printFloor: 0.4 } };
+
+    it("off by default: a 0.45 turn is not self however close to earlier self turns", () => {
+      const lab = new SpeakerLabeler([you]);
+      lab.label(inRoom, 3);
+      expect(lab.label(nearRoom, 3)).toMatchObject({ isSelf: false });
+    });
+
+    it("confident self turns build a session print that later turns can match (basis session)", () => {
+      const lab = new SpeakerLabeler([you], adapt);
+      expect(lab.label(nearRoom, 3)).toMatchObject({ isSelf: false }); // nothing folded yet
+      expect(lab.label(inRoom, 3)).toMatchObject({ isSelf: true, basis: "absolute" });
+      const v = lab.label(nearRoom, 3);
+      expect(v).toMatchObject({ speaker: "You", personId: "p-you", isSelf: true, basis: "session" });
+      expect(v.score as number).toBeGreaterThan(0.9);
+    });
+
+    it("guards: a short confident turn is not folded; the print floor still applies", () => {
+      const lab = new SpeakerLabeler([you], adapt);
+      lab.label(inRoom, 1.0); // too short to fold
+      expect(lab.label(nearRoom, 3)).toMatchObject({ isSelf: false });
+      lab.label(inRoom, 3);
+      // Close to the session print but only 0.30 against the enrolled one.
+      const drifted = vectorAtCosine(D, 0.3, 0, 1);
+      expect(lab.label(drifted, 3)).toMatchObject({ isSelf: false });
+    });
+
+    it("never folds a session-matched turn back in (no self-reinforcing drift)", () => {
+      const lab = new SpeakerLabeler([you], { sessionAdapt: { ...adapt.sessionAdapt, minScore: 0.4 } });
+      lab.label(inRoom, 3);
+      lab.label(nearRoom, 3); // session match: 0.45 >= minScore 0.4, but NOT folded
+      expect(lab.sessionSelfTurns).toBe(1);
+    });
+
+    it("reset forgets the session print", () => {
+      const lab = new SpeakerLabeler([you], adapt);
+      lab.label(inRoom, 3);
+      lab.reset();
+      expect(lab.sessionSelfTurns).toBe(0);
+      expect(lab.label(nearRoom, 3)).toMatchObject({ isSelf: false });
+    });
+  });
+
+  it("sticky: after K print matches this session the self bar relaxes to stickyThreshold", () => {
+    const lab = new SpeakerLabeler([you], { sticky: { after: 2, threshold: 0.5 } });
+    const meh = vectorAtCosine(D, 0.55, 0, 1);
+    expect(lab.label(meh, 3)).toMatchObject({ isSelf: false });
+    lab.label(vectorAtCosine(D, 0.7, 0, 1), 3);
+    expect(lab.label(vectorAtCosine(D, 0.55, 0, 2), 3)).toMatchObject({ isSelf: false });
+    lab.label(vectorAtCosine(D, 0.7, 0, 1), 3);
+    expect(lab.label(vectorAtCosine(D, 0.55, 0, 3), 3)).toMatchObject({ isSelf: true, basis: "session" });
+  });
+
+  it("shortUndecidedSeconds: a short turn that is not the owner is undecided, never 'not self'", () => {
+    const lab = new SpeakerLabeler([you], { shortUndecidedSeconds: 1.5 });
+    lab.label(unitVector(D, 5), 2.0); // Speaker A
+    expect(lab.label(unitVector(D, 5, 0.1, 3), 1.0)).toMatchObject({ speaker: "Speaker A", isSelf: null });
+    expect(lab.label(unitVector(D, 5, 0.1, 4), 2.0)).toMatchObject({ speaker: "Speaker A", isSelf: false });
+    // A short turn that DOES match the print is still self.
+    expect(lab.label(vectorAtCosine(D, 0.7, 0, 1), 1.0)).toMatchObject({ isSelf: true });
+  });
+
   it("raisedMatchThreshold reaches the cluster identification", () => {
     const raised = unitVector(D, 3);
     const shouter = { ...you, raisedEmbedding: raised };
