@@ -20,16 +20,13 @@ from pathlib import Path
 
 import numpy as np
 
+from . import score as score_mod
 from .report import CSS
 
 GROUPS = [("heated", "Heated"), ("calm", "Calm control"), ("open-web", "Open-web (Gemini-annotated)")]
 NO_SPEAKER_TRUTH = ("CONFER",)
-RULE_BY_NUDGE = {
-    "Let them finish first.": "talks-over",
-    "Lower your voice, slow down.": "raised-voice",
-    "Pause, they're trying to speak.": "monologue-cuts-off",
-    "It's heating up: slow down, lower voice.": "conflict-peak",
-}
+RULE_BY_NUDGE = score_mod.RULE_BY_NUDGE
+SPLITS = Path(__file__).resolve().parents[2] / "tmp" / "recordings" / "landscape" / "splits.json"
 LAUGH_PRE_S, LAUGH_POST_S = 1.0, 4.0
 LEAK_RE = re.compile(r"\bSpeaker [A-Z]\b")
 GATES = (50, 70)
@@ -129,8 +126,8 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
     # The app's interject slider defaults to 0 (every coach line is spoken).
     # What a raised slider would have done: server lines gated on importance.
     gated = {}
-    moments_t = [float(it["t"]) for it in mom.get("items") or []]
-    pre, post = 1.5, float(mom.get("window_s") or 6.0)
+    moments_t = [float(it.get("anchor_t", it["t"])) for it in mom.get("items") or []]
+    pre, post = float(mom.get("pre_s") or 1.5), float(mom.get("window_s") or 6.0)
     for th in GATES:
         fz = [ln for ln in lines if (ln.get("source") == "phone" and ln.get("fires"))
               or (ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")
@@ -150,15 +147,24 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
     viol = sc.get("violations") or []
     lat = [float(ln["latency_ms"]) for ln in lines
            if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge") and ln.get("latency_ms") is not None]
+    if mom.get("chance_hits") is not None:
+        chance = (float(mom["chance_hits"]) / len(moments_t)) if moments_t else 0.0
+    else:     # legacy score: P(>= 1 fire in the window) for a Poisson stream at the same rate
+        chance = (1.0 - float(np.exp(-len(fires) / dur * (pre + post)))) if dur else None
+    tc = sc.get("turn_coverage") or {}
     return {
         "name": name, "corpus": corpus, "group": prov.get("group") or ("open-web" if corpus == "open-web" else "heated"),
         "heat_basis": prov.get("heat_basis"), "duration_s": dur, "hours": hours,
         "wearer": prov.get("wearer"), "window_s": prov.get("window_s"),
         "moments_hits": int(mom.get("hits") or 0), "moments_total": int(mom.get("total") or 0),
         "fires": len(fires), "false_fires": len(unmatched),
-        # What the same number of fires dropped at RANDOM times would catch:
-        # P(at least one fire in the 7.5 s window) for a Poisson stream.
-        "chance_hit_rate": (1.0 - float(np.exp(-len(fires) / dur * (pre + post)))) if dur else None,
+        # What the same fire train at a RANDOM offset would catch (score.chance_hits;
+        # a Poisson stream at the same rate for bundles scored before that existed).
+        "chance_hit_rate": chance,
+        "moment_anchor": mom.get("anchor") or "turn_start",
+        "vad_coverage": tc.get("vad_coverage"), "vad_precision": tc.get("vad_precision"),
+        "segment_recall": tc.get("segment_recall"), "wearer_segment_recall": tc.get("wearer_segment_recall"),
+        "turn_end_offset_p50_s": tc.get("end_offset_p50_s"),
         "fires_per_h": len(fires) / hours if hours else None,
         "false_fires_per_h": len(unmatched) / hours if hours else None,
         "server_lines": sum(1 for ln in lines if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")),
@@ -197,7 +203,10 @@ def _pctl(xs: list[float], q: float) -> float | None:
 
 
 def _agg(items: list[dict]) -> dict:
-    hours = sum(i["hours"] for i in items)
+    # An item whose phone produced no turns at all cannot fire: it says nothing
+    # about how often the coach speaks, so it is left out of every per-hour rate.
+    no_turns = sorted(i["name"] for i in items if not i.get("phone_turns"))
+    hours = sum(i["hours"] for i in items if i.get("phone_turns"))
     hits = sum(i["moments_hits"] for i in items)
     tot = sum(i["moments_total"] for i in items)
     idd = [i for i in items if i["identity_decided"]]
@@ -219,12 +228,18 @@ def _agg(items: list[dict]) -> dict:
         gate[th] = {"fires_per_h": f / hours if hours else None, "false_fires_per_h": ff / hours if hours else None,
                     "moment_hit_rate": h / tot if tot else None, "hits": h}
     imps = [x for i in items for x in i["importances"]]
+    vc = [i["vad_coverage"] for i in items if i.get("vad_coverage") is not None]
+    vp = [i["vad_precision"] for i in items if i.get("vad_precision") is not None]
+    sr = [i["segment_recall"] for i in items if i.get("segment_recall") is not None]
+    hr = hits / tot if tot else None
+    ch = (sum(i["chance_hit_rate"] * i["moments_total"] for i in items if i["chance_hit_rate"] is not None) / tot) if tot else None
     return {
-        "items": len(items), "hours": hours, "gated": gate,
+        "items": len(items), "hours": hours, "gated": gate, "no_phone_turns": no_turns,
+        "lift": (hr - ch) if hr is not None and ch is not None else None,
+        "vad_coverage": float(np.mean(vc)) if vc else None, "vad_precision": float(np.mean(vp)) if vp else None,
+        "segment_recall": float(np.mean(sr)) if sr else None,
         "importance_p50": _pctl(imps, 50), "importance_p90": _pctl(imps, 90),
-        "moments_hits": hits, "moments_total": tot, "moment_hit_rate": hits / tot if tot else None,
-        "chance_hit_rate": (sum(i["chance_hit_rate"] * i["moments_total"] for i in items if i["chance_hit_rate"] is not None) / tot)
-        if tot else None,
+        "moments_hits": hits, "moments_total": tot, "moment_hit_rate": hr, "chance_hit_rate": ch,
         "fires": sum(i["fires"] for i in items), "false_fires": sum(i["false_fires"] for i in items),
         "fires_per_h": sum(i["fires"] for i in items) / hours if hours else None,
         "false_fires_per_h": sum(i["false_fires"] for i in items) / hours if hours else None,
@@ -403,8 +418,11 @@ def _tiles(a: dict) -> str:
     def tile(v, label, cls=""):
         return f'<div class="tile"><b class="{cls}">{v}</b><span>{esc(label)}</span></div>'
     return '<div class="tiles">' + "".join([
+        tile(_num(None if a.get("lift") is None else 100 * a["lift"], "{:+.0f} pts"),
+             "lift: moments caught minus the same fires at a random offset", "bad" if (a.get("lift") or 0) <= 0 else ""),
         tile(f"{a['moments_hits']}/{a['moments_total']}",
              f"moments caught ({_pct(a['moment_hit_rate'])}; random fires at the same rate: {_pct(a['chance_hit_rate'])})"),
+        tile(_pct(a.get("vad_coverage")), "ground-truth speech inside a phone turn (segment times, not words)"),
         tile(_num(a["false_fires_per_h"]), "fires with no moment / hour", "bad" if (a["false_fires_per_h"] or 0) > 30 else ""),
         tile(_pct(a["identity_accuracy"]), f"phone voice-ID accuracy ({a['identity_items']} items)"),
         tile(_num(a["time_to_confirm_median_s"]), "median s to first correct “that's you”"),
@@ -495,7 +513,9 @@ def render(items: list[dict], agg: dict, defs: list[dict], *, notes: list[str] |
     parts.append(
         '<div class="card"><h2>How to read this</h2><ul class="plain">'
         "<li><b>Moments</b> come only from ground truth by written rules (talks-over, raised-voice, monologue-cuts-off, "
-        "CONFER's rated conflict peaks); a moment is caught when a fire lands 1.5 s before to 6 s after it.</li>"
+        "CONFER's rated conflict peaks); a moment is caught when a fire lands 1.5 s before to 6 s after its ANCHOR: the end "
+        "of the turn the rule is about (the coach cannot answer before the turn closes). <b>Lift</b> = hit rate minus the "
+        "hit rate of the same fire train at random circular offsets.</li>"
         "<li><b>Fires</b> = a spoken server line (importance cleared the interject threshold) or a phone alert buzz. "
         "<b>No-moment fires</b> are fires with no ground-truth moment nearby: in a calm control every fire is one.</li>"
         "<li><b>Voice-ID</b> = the phone's per-turn “is this the wearer” against transcript truth, with a print enrolled "
@@ -509,7 +529,77 @@ def render(items: list[dict], agg: dict, defs: list[dict], *, notes: list[str] |
     return "".join(parts)
 
 
-def collect(work_root: Path, inbox: Path, names: list[str] | None = None) -> list[dict]:
+def rescore(bundle: dict, *, window_s: float | None = None, pre_s: float = score_mod.MOMENT_PRE_S,
+            anchor: str = score_mod.MOMENT_ANCHOR) -> dict:
+    """Re-score a recorded run with the current scorer (in memory: run.json
+    on disk is never rewritten)."""
+    w = window_s if window_s is not None else float((bundle.get("settings") or {}).get("moment_window_s") or score_mod.MOMENT_WINDOW_S)
+    bundle["score"] = score_mod.score(bundle, moment_window_s=w, moment_pre_s=pre_s, moment_anchor=anchor)
+    return bundle
+
+
+def load_bundles(work_root: Path, inbox: Path, names: list[str] | None = None) -> list[tuple[dict, dict | None]]:
+    """(bundle, provenance) for every completed corpus/yt run under work_root."""
+    out = []
+    for run in sorted(Path(work_root).glob("*/run.json")):
+        name = run.parent.name
+        if names is not None and name not in names:
+            continue
+        prov_path = Path(inbox) / name / f"{name}.corpus.json"
+        prov = json.loads(prov_path.read_text()) if prov_path.exists() else None
+        if prov is None and not name.startswith(("yt_", "clip30_")):
+            continue
+        bundle = json.loads(run.read_text())
+        if not bundle.get("server"):
+            continue
+        out.append((bundle, prov))
+    return out
+
+
+def split_names(split: str, splits_path: Path = SPLITS) -> list[str] | None:
+    """Item names for a split from tmp/recordings/landscape/splits.json:
+    all | dev | held_out (held-out is for baseline rows only, never tuning)."""
+    if split == "all":
+        return None
+    sp = json.loads(Path(splits_path).read_text())
+    key = {"dev": "dev", "held_out": "held_out", "heldout": "held_out", "held-out": "held_out"}[split]
+    return list(sp[key])
+
+
+def landscape_metrics(items: list[dict]) -> dict:
+    """The standard landscape.py metric names over a set of item_metrics rows."""
+    def grp(g):
+        return [i for i in items if i["group"] == g]
+    allm = _agg(items)
+    heated, calm = _agg(grp("heated")) if grp("heated") else {}, _agg(grp("calm")) if grp("calm") else {}
+
+    def r(v, nd=3):
+        return None if v is None else round(float(v), nd)
+    srv = sum(i["server_lines"] for i in items)
+    return {k: v for k, v in {
+        "hit_rate": r(allm.get("moment_hit_rate")), "chance_hit_rate": r(allm.get("chance_hit_rate")),
+        "lift": r(allm.get("lift")),
+        "calm_fires_h": r(calm.get("fires_per_h"), 1), "heated_fires_h": r(heated.get("fires_per_h"), 1),
+        "nomoment_fires_h": r(allm.get("false_fires_per_h"), 1),
+        "wearer_recall": r(allm.get("identity_recall_mean")), "time_to_confirm_s": r(allm.get("time_to_confirm_median_s"), 1),
+        "alert_buzz_hits": sum(i["phone_alerts"] for i in items),
+        "label_leaks": sum(i["label_leak_lines"] for i in items),
+        "short_turn_line_pct": r(100.0 * sum(i["fragment_lines"] for i in items) / srv, 1) if srv else None,
+        "after_laugh_lines": allm.get("fires_near_laughter"),
+        "latency_p50_s": r((allm.get("latency_p50_ms") or 0) / 1000.0, 2) if allm.get("latency_p50_ms") else None,
+        "vad_coverage": r(allm.get("vad_coverage")),
+        "merged_turn_pct": r(100.0 * allm["merged_turns"] / allm["phone_turns"], 1) if allm.get("phone_turns") else None,
+        "moments": allm.get("moments_total"), "hits": allm.get("moments_hits"), "fires": allm.get("fires"),
+        "hours": r(allm.get("hours"), 3),
+    }.items() if v is not None}
+
+
+def collect(work_root: Path, inbox: Path, names: list[str] | None = None, *, rescore_runs: bool = False,
+            window_s: float | None = None, pre_s: float = score_mod.MOMENT_PRE_S,
+            anchor: str = score_mod.MOMENT_ANCHOR) -> list[dict]:
+    if rescore_runs:
+        return [item_metrics(rescore(b, window_s=window_s, pre_s=pre_s, anchor=anchor), prov)
+                for b, prov in load_bundles(work_root, inbox, names)]
     items = []
     for run in sorted(Path(work_root).glob("*/run.json")):
         name = run.parent.name
@@ -526,8 +616,8 @@ def collect(work_root: Path, inbox: Path, names: list[str] | None = None) -> lis
     return items
 
 
-def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = None) -> Path:
-    items = collect(work_root, inbox)
+def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = None, rescore_runs: bool = True) -> Path:
+    items = collect(work_root, inbox, rescore_runs=rescore_runs)
     done = {i["name"] for i in items}
     missing = sorted(p.parent.name for p in Path(inbox).glob("*/*.corpus.json") if p.parent.name not in done)
     notes = list(notes or [])
@@ -538,6 +628,10 @@ def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = 
         notes.append("CONFER is Greek: Deepgram ran with language=el and the coach read Greek text. Its numbers test "
                      "conflict detection and pacing, not English coaching; it has no speaker truth, so no voice-ID numbers.")
     agg = aggregate(items)
+    no_turns = sorted(i["name"] for i in items if not i.get("phone_turns"))
+    if no_turns:
+        notes.append("Left out of every per-hour rate (the phone produced no turns, so nothing could fire): "
+                     + ", ".join(esc(n) for n in no_turns))
     defs = defects(items)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -545,3 +639,32 @@ def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = 
     out.with_suffix(".json").write_text(json.dumps(
         {"items": items, "aggregate": {f"{g}|{c}": v for (g, c), v in agg.items()}, "defects": defs}, indent=1, default=float))
     return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m recreplay.corpus_summary --split dev|held_out|all [--anchor turn_end|turn_start] [--json]
+    -> prints landscape metrics for the re-scored runs (no files written)."""
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--split", default="all")
+    ap.add_argument("--anchor", default=score_mod.MOMENT_ANCHOR, choices=["turn_end", "turn_start"])
+    ap.add_argument("--window", type=float, default=None)
+    ap.add_argument("--pre", type=float, default=score_mod.MOMENT_PRE_S)
+    ap.add_argument("--work", type=Path, default=SPLITS.parents[1] / "work")
+    ap.add_argument("--inbox", type=Path, default=SPLITS.parents[1] / "inbox")
+    ap.add_argument("--items", action="store_true", help="also print one line per item")
+    a = ap.parse_args(argv)
+    items = collect(a.work, a.inbox, split_names(a.split), rescore_runs=True, window_s=a.window, pre_s=a.pre, anchor=a.anchor)
+    if a.items:
+        for i in items:
+            print(f"{i['name']:26} {i['group']:6} moments {i['moments_hits']}/{i['moments_total']} chance "
+                  f"{_pct(i['chance_hit_rate'])} fires {i['fires']} ({_num(i['fires_per_h'], '{:.0f}')}/h) turns {i['phone_turns']} "
+                  f"vad {_pct(i['vad_coverage'])}")
+    m = landscape_metrics(items)
+    m["no_phone_turns"] = _agg(items)["no_phone_turns"]
+    print(json.dumps(m))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
