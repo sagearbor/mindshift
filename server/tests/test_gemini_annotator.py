@@ -123,6 +123,15 @@ def test_offset_shifts_all_times():
     assert o["coach_moments"][0]["t"] == 12 and o["summary"]["peak_heat_t"] == 13
 
 
+def test_runaway_reply_is_detected():
+    from annotator.gemini import degenerate
+    assert degenerate('{"speakers": [{"voice_description": "' + "she is very loud. " * 120)
+    assert degenerate('{"segments": [' + '{"start": 1.0, "text": "yes"}, ' * 200)
+    ok = json.dumps({"segments": [{"start": i, "end": i + 1, "speaker": "S1", "text": f"words number {i} here"}
+                                  for i in range(200)]})
+    assert not degenerate(ok)
+
+
 # ---------------------------------------------------------------------------
 # Sanitise + validate
 # ---------------------------------------------------------------------------
