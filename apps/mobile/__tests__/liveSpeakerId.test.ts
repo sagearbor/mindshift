@@ -326,6 +326,26 @@ describe("SpeakerLabeler", () => {
   it("StaticVoiceprintStore lists what it was given", async () => {
     expect(await new StaticVoiceprintStore([you]).list()).toEqual([you]);
   });
+
+  it("takes tuning as an options object; {} is the shipped labeler and positional args still work", () => {
+    const v = vectorAtCosine(D, 0.57, 0, 1);
+    expect(new SpeakerLabeler([you], {}).label(v, 2.0)).toMatchObject({ isSelf: false, basis: null });
+    expect(new SpeakerLabeler([you], { matchThreshold: 0.55 }).label(v, 2.0)).toMatchObject({ isSelf: true, basis: "absolute" });
+    expect(new SpeakerLabeler([you], 0.55).label(v, 2.0)).toMatchObject({ isSelf: true, basis: "absolute" });
+  });
+
+  it("raisedMatchThreshold reaches the cluster identification", () => {
+    const raised = unitVector(D, 3);
+    const shouter = { ...you, raisedEmbedding: raised };
+    const shout = vectorAtCosine(D, 0.7, 3, 4);
+    // 0.70 against the raised print: under the shipped 0.74 bar, over a 0.68 one.
+    const shipped = new SpeakerLabeler([shouter]);
+    shipped.label(shout, 2.0);
+    expect(shipped.clusterAssignments().size).toBe(0);
+    const looser = new SpeakerLabeler([shouter], { raisedMatchThreshold: 0.68 });
+    looser.label(shout, 2.0);
+    expect(looser.clusterAssignments().get("Speaker A")).toMatchObject({ personId: "p-you", basis: "raised" });
+  });
 });
 
 describe("EcapaEmbedder", () => {

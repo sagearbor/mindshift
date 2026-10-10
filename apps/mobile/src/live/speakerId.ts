@@ -410,6 +410,18 @@ export function unknownLabel(index: number): string {
   return `Speaker ${String.fromCharCode(65 + (index % 26))}`;
 }
 
+/**
+ * Tuning knobs for [SpeakerLabeler]. Every field defaults to the shipped
+ * behaviour, so `{}` is exactly the labeler as it was. JSON-safe on purpose:
+ * the replay harness passes it through `recordingReplay.ts --speaker-opts`.
+ */
+export interface SpeakerLabelerOptions {
+  matchThreshold?: number;
+  clusterThreshold?: number;
+  minClusterSeconds?: number;
+  raisedMatchThreshold?: number;
+}
+
 export class SpeakerLabeler {
   private readonly people: { person: EnrolledPerson; vec: Float32Array }[];
   private hasSelf: boolean;
@@ -419,13 +431,25 @@ export class SpeakerLabeler {
   private identities: Map<number, ClusterIdentity> = new Map();
   /** Bumps whenever `identities` changes — a cheap "did anything move" check. */
   private revision = 0;
+  private readonly matchThreshold: number;
+  private readonly clusterThreshold: number;
+  private readonly minClusterSeconds: number;
+  private readonly raisedMatchThreshold: number;
 
+  /** `opts` is either the tuning object or, for older callers, the match
+   *  threshold followed by the cluster threshold and the minimum seconds. */
   constructor(
     people: EnrolledPerson[],
-    private readonly matchThreshold = MATCH_THRESHOLD,
-    private readonly clusterThreshold = CLUSTER_THRESHOLD,
-    private readonly minClusterSeconds = MIN_CLUSTER_SECONDS,
+    opts: SpeakerLabelerOptions | number = {},
+    clusterThreshold?: number,
+    minClusterSeconds?: number,
   ) {
+    const o: SpeakerLabelerOptions =
+      typeof opts === "number" ? { matchThreshold: opts, clusterThreshold, minClusterSeconds } : opts;
+    this.matchThreshold = o.matchThreshold ?? MATCH_THRESHOLD;
+    this.clusterThreshold = o.clusterThreshold ?? CLUSTER_THRESHOLD;
+    this.minClusterSeconds = o.minClusterSeconds ?? MIN_CLUSTER_SECONDS;
+    this.raisedMatchThreshold = o.raisedMatchThreshold ?? RAISED_MATCH_THRESHOLD;
     this.people = people.map((person) => ({
       person,
       vec: l2Normalize(person.embedding),
@@ -480,6 +504,7 @@ export class SpeakerLabeler {
     const next = new Map<number, ClusterIdentity>();
     for (const [key, id] of identifyClusters(clusters, this.people.map((p) => p.person), {
       matchThreshold: this.matchThreshold,
+      raisedMatchThreshold: this.raisedMatchThreshold,
     })) {
       next.set(Number(key), id);
     }
