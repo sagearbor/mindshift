@@ -331,6 +331,8 @@ class TestDinnerReplay:
         assert systems[3] == self_feedback_prompt(50)
         # The history now names the confirmed wearer "You" — and only them.
         last_user = llm.complete.call_args_list[3].kwargs["user"]
-        assert '- You: "Oh yeah? How did it go?"' in last_user
-        assert '- Speaker A: "We had a quiz in math today."' in last_user
+        assert '] You: "Oh yeah? How did it go?"' in last_user
+        # Raw diarizer labels never reach the LLM: the son is "Other".
+        assert '] Other: "We had a quiz in math today."' in last_user
+        assert "Speaker A" not in last_user
 
