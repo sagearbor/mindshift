@@ -27,6 +27,7 @@ import html
 import json
 import re
 import subprocess
+import time
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -320,7 +321,88 @@ def cmd_score(_args) -> int:
         }
     out.write_text(json.dumps({"rows": rows, "summary": summary}, indent=1))
     print(json.dumps(summary, indent=1))
+    notes_p = TMP / "annotator-validation/findings.json"
+    findings = json.loads(notes_p.read_text()) if notes_p.exists() else {}
+    write_html(summary, rows, findings)
+    print(f"report: {REPORT}")
     return 0
+
+
+def _f(v, pct=False, nd=2):
+    if v is None:
+        return "—"
+    return f"{100 * v:.0f}%" if pct else f"{v:.{nd}f}"
+
+
+def write_html(summary: dict, rows: list[dict], findings: dict) -> None:
+    models = sorted(summary, key=lambda m: (summary[m]["der_shift"] is None, summary[m]["der_shift"] or 9))
+    head = ("<tr><th>model</th><th>clips</th><th>DER</th><th>DER after best shift</th><th>turn change: median miss</th>"
+            "<th>changes within 1 s</th><th>speaker-count error</th><th>WER (AMI)</th><th>WER (all)</th>"
+            "<th>heat vs conflict, across clips (ρ)</th><th>overall_heat vs conflict (ρ)</th>"
+            "<th>heat vs conflict, per second (ρ)</th><th>est. $ / audio min</th></tr>")
+    body = []
+    for m in models:
+        s = summary[m]
+        per_min = s["usd"] / (s["audio_s"] / 60) if s["audio_s"] else None
+        body.append(f"<tr><td><b>{html.escape(m)}</b></td><td>{s['n']}</td><td>{_f(s['der'], True)}</td>"
+                    f"<td>{_f(s['der_shift'], True)}</td><td>{_f(s['boundary_med'], nd=1)} s</td>"
+                    f"<td>{_f(s['boundary_1s'], True)}</td><td>{_f(s['spk_count_err'], nd=1)}</td>"
+                    f"<td>{_f(s['wer_ami'], True)}</td><td>{_f(s['wer'], True)}</td>"
+                    f"<td>{_f(s['heat_rho_clips'])}</td><td>{_f(s['overall_rho_clips'])}</td>"
+                    f"<td>{_f(s['heat_r_within'])}</td><td>{_f(per_min, nd=3)}</td></tr>")
+    clip_rows = []
+    for r in sorted(rows, key=lambda r: (r["id"], r["model"])):
+        clip_rows.append(
+            f"<tr><td>{html.escape(r['id'])}</td><td>{html.escape(r['model'])}</td><td>{r['segments']}</td>"
+            f"<td>{r.get('speakers_hyp')}/{r.get('speakers_true', '—')}</td><td>{_f(r.get('der'), True)}</td>"
+            f"<td>{_f(r.get('der_shift'), True)} ({_f(r.get('shift'), nd=2)} s)</td>"
+            f"<td>{_f(r.get('miss'), True)} / {_f(r.get('fa'), True)} / {_f(r.get('conf'), True)}</td>"
+            f"<td>{_f(r.get('boundary_med'), nd=1)}</td><td>{_f(r.get('wer'), True)}</td>"
+            f"<td>{r.get('overall_heat', '—')}</td><td>{_f(r.get('heat_mean'))}</td>"
+            f"<td>{_f(r.get('conflict_mean'), nd=0)}</td><td>{_f(r.get('heat_r_within'))}</td></tr>")
+    verdict = "".join(f"<li>{v}</li>" for v in findings.get("verdict", []))
+    caveats = "".join(f"<li>{v}</li>" for v in findings.get("caveats", []))
+    failures = "".join(f"<li>{v}</li>" for v in findings.get("failures", []))
+    doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Annotator Validation</title>
+<style>
+:root{{--bg:#fbfaf7;--fg:#1d1d1b;--mut:#6b6a66;--line:#e2e0da;--card:#fff;--acc:#2f5d8a}}
+@media (prefers-color-scheme:dark){{:root:not([data-theme=light]){{--bg:#161615;--fg:#ecebe6;--mut:#a3a29c;--line:#34332f;--card:#1f1f1d;--acc:#8db7e0}}}}
+:root[data-theme=dark]{{--bg:#161615;--fg:#ecebe6;--mut:#a3a29c;--line:#34332f;--card:#1f1f1d;--acc:#8db7e0}}
+body{{background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:16px}}
+main{{max-width:1100px;margin:auto}} h1{{font-size:1.5em;margin:.2em 0}} h2{{font-size:1.15em;margin-top:1.6em}}
+.mut{{color:var(--mut)}} .card{{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px}}
+.tw{{overflow-x:auto}} table{{border-collapse:collapse;font-size:13px;width:100%}}
+th,td{{border-bottom:1px solid var(--line);padding:5px 7px;text-align:right;white-space:nowrap}}
+th:first-child,td:first-child,td:nth-child(2){{text-align:left}} th{{font-weight:600;color:var(--mut);white-space:normal}}
+li{{margin:.3em 0}}
+</style></head><body><main>
+<h1>Gemini annotator validation</h1>
+<p class="mut">Gemini's annotations scored against human ground truth on {len({r['id'] for r in rows})} corpus clips.
+Generated {time.strftime('%Y-%m-%d %H:%M')} by scripts/annotator_validate.py. Lower is better for DER, WER and turn-change error;
+higher is better for ρ.</p>
+<div class="card"><b>Verdict</b><ul>{verdict}</ul></div>
+<h2>Per model</h2><div class="tw"><table>{head}{''.join(body)}</table></div>
+<h2>What the ground truth is</h2><ul>
+<li><b>AMI</b> (3 meetings, 5 min each): who-spoke-when from the manual transcripts' word timings (words merged into turns
+across gaps under 0.3 s); WER against the same manual words. The cleanest speaker-timing truth we hold.</li>
+<li><b>CHiME-6</b> S02 dinner party (5 min): human utterance segmentation (utterance boundaries are generous, so silence inside
+an utterance counts as speech) and the official transcript.</li>
+<li><b>SBCSAE</b> SBC013 (5 min, 5 speakers): human CHAT transcript; CHAT markup is stripped, but its conventions (fragments,
+laughter notation) still add some WER that is not Gemini's fault.</li>
+<li><b>CONFER</b> (8 Greek TV-debate clips, 37-114 s): ten raters' continuous conflict intensity. Annotated heat per second =
+max vocal intensity of segments covering it, +1 for angry/frustrated/sarcastic.</li>
+<li>DER: 10 ms frames, optimal one-to-one speaker mapping, no collar, overlap counted per speaker. "After best shift" removes one
+constant offset (±5 s) before scoring. A missing annotation for a clip (failed call) is left out of that model's averages.</li>
+</ul>
+<h2>Failures and fixes seen while running</h2><ul>{failures}</ul>
+<h2>Caveats</h2><ul>{caveats}</ul>
+<h2>Per clip</h2><div class="tw"><table><tr><th>clip</th><th>model</th><th>segments</th><th>speakers hyp/true</th>
+<th>DER</th><th>DER shifted (shift)</th><th>miss / FA / confusion</th><th>turn-change miss (s)</th><th>WER</th>
+<th>overall_heat</th><th>mean heat</th><th>conflict mean</th><th>per-second ρ</th></tr>{''.join(clip_rows)}</table></div>
+</main></body></html>"""
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    REPORT.write_text(doc)
 
 
 def main(argv=None) -> int:

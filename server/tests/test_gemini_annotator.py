@@ -63,6 +63,18 @@ def test_ledger_hard_stops_at_cap(tmp_path):
         led2.check(0.0)
 
 
+def test_ledger_is_shared_by_concurrent_runs(tmp_path):
+    # two runs open the ledger at the same time; neither may drop the other's calls
+    a = core.Ledger(tmp_path / "spend.json", cap_usd=10.0)
+    b = core.Ledger(tmp_path / "spend.json", cap_usd=10.0)
+    a.record("m", "x", 1.0, {})
+    b.record("m", "y", 2.0, {})
+    a.record("m", "z", 3.0, {})
+    assert a.total == pytest.approx(6.0)
+    assert b.total == pytest.approx(6.0)
+    assert len(core.Ledger(tmp_path / "spend.json").calls) == 3
+
+
 # ---------------------------------------------------------------------------
 # Windows + stitching
 # ---------------------------------------------------------------------------
@@ -113,6 +125,15 @@ def test_stitch_maps_speakers_by_overlap_region_and_cuts_at_midpoint():
     assert out["coach_moments"][0]["for_speaker"] == "S3"
     assert out["coach_moments"][0]["t"] == pytest.approx(125.0)
     assert len(out["events"]) == 1 and out["events"][0]["speakers"] == ["S2"]
+
+
+def test_timestamps_covering_a_sliver_of_the_audio_are_flagged():
+    obj = {"speakers": [{"id": "S1"}],
+           "segments": [{"start": i / 100, "end": i / 100 + 0.01, "speaker": "S1", "text": "w"} for i in range(50)]}
+    fixes: list[str] = []
+    out = core.sanitize(obj, model="m", duration_s=300.0, fixes=fixes)
+    assert any("TIMING UNTRUSTWORTHY" in f for f in fixes)
+    assert "TIMING UNTRUSTWORTHY" in (out["annotator"]["notes"] or "")
 
 
 def test_clock_style_timestamps_are_repaired():

@@ -13,6 +13,7 @@ import copy
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -191,35 +192,53 @@ class BudgetExceeded(RuntimeError):
 
 class Ledger:
     """Spend across the WHOLE effort, persisted to JSON so separate runs share
-    one cap. :meth:`check` raises before a call that could cross the cap."""
+    one cap. :meth:`check` raises before a call that could cross the cap.
+
+    Several runs may use the ledger at once: every read goes to the file and
+    every write is a locked read-append-write, so no run drops another's
+    calls. (Two runs can each pass :meth:`check` at the same moment, so the
+    cap can be overshot by at most one in-flight call per concurrent run.)"""
 
     def __init__(self, path: Path, cap_usd: float = 25.0):
         self.path = Path(path)
         self.cap = float(cap_usd)
-        self.calls: list[dict] = []
-        if self.path.exists():
-            try:
-                self.calls = json.loads(self.path.read_text()).get("calls", [])
-            except (OSError, json.JSONDecodeError):
-                raise RuntimeError(f"spend ledger {self.path} is unreadable; refusing to run without it")
+        self.calls  # fail fast if unreadable
+
+    def _read(self) -> list[dict]:
+        if not self.path.exists():
+            return []
+        try:
+            return json.loads(self.path.read_text()).get("calls", [])
+        except (OSError, json.JSONDecodeError):
+            raise RuntimeError(f"spend ledger {self.path} is unreadable; refusing to run without it")
+
+    @property
+    def calls(self) -> list[dict]:
+        return self._read()
 
     @property
     def total(self) -> float:
-        return float(sum(c.get("usd", 0.0) for c in self.calls))
+        return float(sum(c.get("usd", 0.0) for c in self._read()))
 
     def check(self, projected_usd: float) -> None:
-        if self.total >= self.cap or self.total + projected_usd > self.cap:
-            raise BudgetExceeded(f"spend cap ${self.cap:.2f}: spent ${self.total:.4f}, "
+        total = self.total
+        if total >= self.cap or total + projected_usd > self.cap:
+            raise BudgetExceeded(f"spend cap ${self.cap:.2f}: spent ${total:.4f}, "
                                  f"next call could cost up to ${projected_usd:.4f}")
 
     def record(self, model: str, item: str, usd: float, usage: dict) -> None:
-        self.calls.append({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": model, "item": item,
-                           "usd": round(float(usd), 6), "usage": usage})
+        import fcntl
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"cap_usd": self.cap, "total_usd": round(self.total, 6),
-                                   "calls": self.calls}, indent=1))
-        tmp.replace(self.path)
+        with open(self.path.with_suffix(".lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            calls = self._read()
+            calls.append({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": model, "item": item,
+                          "usd": round(float(usd), 6), "usage": usage})
+            tmp = self.path.with_suffix(f".{uuid.uuid4().hex[:8]}.tmp")
+            tmp.write_text(json.dumps({"cap_usd": self.cap,
+                                       "total_usd": round(sum(c.get("usd", 0.0) for c in calls), 6),
+                                       "calls": calls}, indent=1))
+            tmp.replace(self.path)
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +537,15 @@ def sanitize(obj: dict, *, model: str, duration_s: float | None, fixes: list[str
                         "priority": _int_clamp(c.get("priority"), 1, None, f"coach_moments[{i}].priority", fixes)})
     summ = o.get("summary") if isinstance(o.get("summary"), dict) else {}
     audio = o.get("audio") if isinstance(o.get("audio"), dict) else {}
-    ann = o.get("annotator") if isinstance(o.get("annotator"), dict) else {}
+    ann = dict(o.get("annotator")) if isinstance(o.get("annotator"), dict) else {}
+    # gemini-2.5-flash once wrote a 300 s clip's times on a 0..0.5 scale
+    if duration_s and duration_s > 60 and segs:
+        span = max(s["end"] for s in segs)
+        if span < 0.5 * duration_s:
+            msg = (f"TIMING UNTRUSTWORTHY: segment times end at {span:.1f}s of {duration_s:.1f}s of audio "
+                   f"(the model used a wrong time scale or stopped early)")
+            fixes.append(msg)
+            ann["notes"] = ((ann.get("notes") or "") + " [" + msg + "]").strip()
     return {
         "format": "mindshift-annotation/v1",
         "annotator": {"model": model, "notes": str(ann["notes"]) if ann.get("notes") is not None else None},
