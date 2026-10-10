@@ -68,6 +68,7 @@ export const HEAT_WINDOW_SECONDS = 2;
 export const HEAT_TICK_SECONDS = 1;
 import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
+import { splitSpanBySpeaker, TURN_SPLIT_DEFAULTS, TURN_SPLIT_ENABLED, type TurnSplitConfig } from "./turnSplit";
 
 export type SuggestionKind = "response" | "nudge";
 
@@ -184,6 +185,10 @@ export interface LocalTurn {
 export interface FastLoopDeps {
   vad: FrameVad;
   segmenter?: SegmenterConfig;
+  /** Speaker-change split inside a VAD span (turnSplit.ts): true = the
+   *  defaults, a config = those settings, false = off. Absent =
+   *  TURN_SPLIT_ENABLED. Needs the embedder; without one spans stay whole. */
+  turnSplit?: boolean | TurnSplitConfig;
   /** Null => speaker-ID disabled (no ECAPA model): every turn is "Unknown". */
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
@@ -975,9 +980,24 @@ export class FastLoop {
 
   private enqueueTurn(span: Span) {
     const segmentEndMs = this.now() - this.startWallMs;
+    const split = this.turnSplitConfig();
     this.turnQueue = this.turnQueue
-      .then(() => this.finalizeTurn(span, segmentEndMs))
+      .then(async () => {
+        const embedder = this.deps.embedder;
+        const pieces = split && embedder ? await splitSpanBySpeaker(this.sliceHistory(span), span, embedder, split) : [span];
+        if (pieces.length > 1) this.spansSplit += 1;
+        for (const piece of pieces) await this.finalizeTurn(piece, segmentEndMs);
+      })
       .catch(() => {});
+  }
+
+  /** Spans the speaker-change pass cut into two or more turns. */
+  spansSplit = 0;
+
+  private turnSplitConfig(): TurnSplitConfig | null {
+    const t = this.deps.turnSplit ?? TURN_SPLIT_ENABLED;
+    if (t === false) return null;
+    return t === true ? TURN_SPLIT_DEFAULTS : t;
   }
 
   /** Deliver policy nudges: screen always; haptic on ESCALATION only
@@ -1176,7 +1196,20 @@ export class FastLoop {
           const embedPcm =
             pcm.length > this.maxEmbedSamples ? pcm.subarray(pcm.length - this.maxEmbedSamples) : pcm;
           const emb = await this.deps.embedder.embed(embedPcm, SILERO_SAMPLE_RATE);
-          verdict = this.deps.labeler.label(emb, duration);
+          // Sub-turn windows (SpeakerLabelerOptions.windowVote; off = none):
+          // non-overlapping, newest audio first-cut, at most maxWindows.
+          let windows: Float32Array[] | undefined;
+          const winS = this.deps.labeler.identityWindowSeconds;
+          if (winS > 0 && embedPcm.length >= 2 * winS * SILERO_SAMPLE_RATE) {
+            const n = Math.round(winS * SILERO_SAMPLE_RATE);
+            const count = Math.min(Math.floor(embedPcm.length / n), this.deps.labeler.identityMaxWindows);
+            windows = [];
+            for (let k = 1; k <= count; k++) {
+              const end = embedPcm.length - (k - 1) * n;
+              windows.push(await this.deps.embedder.embed(embedPcm.subarray(end - n, end), SILERO_SAMPLE_RATE));
+            }
+          }
+          verdict = this.deps.labeler.label(emb, duration, windows);
         } catch {
           // Unembeddable segment: no identity, never a guess.
         }
@@ -1414,8 +1447,9 @@ export class FastLoop {
         speaker_person_id: verdict.personId,
         speaker_match_score: verdict.score,
         // "solo" is journal-only and never reaches turn_local (the wire
-        // Literal is absolute|contrast); narrow defensively.
-        speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
+        // Literal is absolute|raised|contrast); "session" (in-session
+        // adaptation) is phone-only too. Narrow both to null.
+        speaker_match_basis: verdict.basis === "solo" || verdict.basis === "session" ? null : verdict.basis,
         is_self: verdict.isSelf,
         text: aligned.text,
         start_time: span.start,

@@ -30,6 +30,13 @@ describe("recording replay: arguments + owner profile", () => {
     expect(() => parseRecordingArgs(["--wav", "a.wav", "--meta", "m", "--out", "o", "--enroll", "profile"])).toThrow(/--profile/);
   });
 
+  it("--speaker-opts passes labeler tuning through as JSON (identity sweeps)", () => {
+    const a = parseRecordingArgs(["--wav", "a.wav", "--meta", "m.json", "--out", "o.json", "--speaker-opts", '{"matchThreshold":0.55}']);
+    expect(a.speakerOptions).toEqual({ matchThreshold: 0.55 });
+    expect(parseRecordingArgs(["--wav", "a.wav", "--meta", "m.json", "--out", "o.json"]).speakerOptions).toBeNull();
+    expect(() => parseRecordingArgs(["--wav", "a", "--meta", "m", "--out", "o", "--speaker-opts", "[1]"])).toThrow(/speaker-opts/);
+  });
+
   it("turns a server voiceprint document into the owner's enrollment record", () => {
     const emb = Array.from({ length: 192 }, (_, i) => Math.sin(i));
     const rec = profileEnrollment(

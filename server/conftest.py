@@ -208,3 +208,16 @@ def _natural_turns_off_by_default(monkeypatch):
     under server/tests/.
     """
     monkeypatch.setenv("MINDSHIFT_NATURAL_TURNS", "0")
+
+
+@pytest.fixture(autouse=True)
+def _coach_gates_off_by_default(monkeypatch):
+    """The coach turn-skip and speak gate (server/coach_gate.py, default ON
+    in production) skip 1-2 word turns and voice only important, spaced
+    lines. The pipeline suites drive the coach with one-word turns ("One.")
+    and assert speak against the interject slider alone, so both are OFF
+    for the suite; server/tests/test_coach_gate.py and
+    test_coach_gate_pipeline.py turn them back on for themselves. The label
+    scrub stays ON everywhere."""
+    monkeypatch.setenv("MINDSHIFT_TURN_SKIP", "0")
+    monkeypatch.setenv("MINDSHIFT_SPEAK_GATE", "0")

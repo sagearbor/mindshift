@@ -16,8 +16,18 @@ import { runRecordingReplay, type RecordingEnroll, type RecordingReplayOutput } 
 import { findEcapaModel, REPO_ROOT } from "../src/live/replay/sceneReplay";
 
 const FIXTURES = path.join(process.env.MINDSHIFT_RECORDINGS_DIR ?? path.join(REPO_ROOT, "tmp/recordings"), "fixtures");
+// Corpus fixtures (scripts/corpus_to_inbox.py: public research corpora, ~30
+// of them) run only with MINDSHIFT_CORPUS_FIXTURES_FULL=1; the owner's own
+// recordings always run.
+const isCorpus = (n: string) => {
+  const notes = path.join(FIXTURES, n, "notes.txt");
+  return fs.existsSync(notes) && fs.readFileSync(notes, "utf8").includes("source: corpus ground truth");
+};
 const names = fs.existsSync(FIXTURES)
-  ? fs.readdirSync(FIXTURES).filter((n) => ["audio.wav", "phone_meta.json", "phone.json", "baseline.json"].every((f) => fs.existsSync(path.join(FIXTURES, n, f))))
+  ? fs
+      .readdirSync(FIXTURES)
+      .filter((n) => ["audio.wav", "phone_meta.json", "phone.json", "baseline.json"].every((f) => fs.existsSync(path.join(FIXTURES, n, f))))
+      .filter((n) => process.env.MINDSHIFT_CORPUS_FIXTURES_FULL || !isCorpus(n))
   : [];
 const ecapa = findEcapaModel();
 const maybe = names.length && ecapa ? describe : describe.skip;
