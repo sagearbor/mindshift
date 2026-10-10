@@ -177,7 +177,10 @@ class LocalServer:
             if not self.cfg.offline:
                 from llm_client import LLMClient
                 real = LLMClient(model=model)
-            cache_dir = self.cfg.llm_cache_dir or Path(tempfile.mkdtemp(prefix="recreplay-llm-"))
+            # MINDSHIFT_REPLAY_LLM_CACHE: one cache dir shared by parallel tuning runs (a prompt
+            # any run already paid for is a hit everywhere); else the item's own work/<name>/llm_cache
+            cache_dir = (os.getenv("MINDSHIFT_REPLAY_LLM_CACHE") or "").strip() or self.cfg.llm_cache_dir \
+                or Path(tempfile.mkdtemp(prefix="recreplay-llm-"))
             llm = LLMResponseCache(real, cache_dir=Path(cache_dir), model=model,
                                    replay_latency=self.cfg.replay_latency)
             self.notes.append(
