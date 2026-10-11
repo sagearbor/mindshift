@@ -747,6 +747,49 @@ describe("Experimental voice engine switch", () => {
   });
 });
 
+describe("Speed test switch (send turn to cloud immediately)", () => {
+  const SecureStore = require("expo-secure-store") as { getItemAsync: jest.Mock; setItemAsync: jest.Mock };
+  const { useSpeedTestStore } = require("../src/live/speedTestPrefs");
+
+  beforeEach(() => {
+    useSpeedTestStore.setState({ earlyTurnLocal: true, hydrated: false });
+  });
+  afterEach(() => {
+    SecureStore.getItemAsync.mockReset().mockResolvedValue(null);
+    SecureStore.setItemAsync.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("is ON by default and saves the per-device choice when flipped off", async () => {
+    const comp = await render();
+    await act(async () => {});
+    const sw = queryId(comp, "speed-test-early-turn-switch");
+    expect(sw).not.toBeNull();
+    expect(sw!.props.value).toBe(true);
+    expect(textOf(queryId(comp, "speed-test-early-turn-row")!)).toContain("Send turn to cloud immediately (speed test)");
+    await act(async () => {
+      sw!.props.onValueChange(false);
+    });
+    expect(queryId(comp, "speed-test-early-turn-switch")!.props.value).toBe(false);
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith("mindshift.earlyTurnLocal.device.v1", "off");
+    expect(useSpeedTestStore.getState().earlyTurnLocal).toBe(false);
+  });
+
+  it("reflects a remembered OFF choice", async () => {
+    SecureStore.getItemAsync.mockImplementation((key: string) =>
+      Promise.resolve(key === "mindshift.earlyTurnLocal.device.v1" ? "off" : null),
+    );
+    const comp = await render();
+    await act(async () => {});
+    expect(queryId(comp, "speed-test-early-turn-switch")!.props.value).toBe(false);
+  });
+
+  it("is a developer-mode row", async () => {
+    useDevModeStore.setState({ devMode: false });
+    const comp = await render();
+    expect(queryId(comp, "speed-test-early-turn-switch")).toBeNull();
+  });
+});
+
 describe("Feel the patterns (the nudge haptic vocabulary)", () => {
   const RN = require("react-native") as { Vibration: { vibrate: jest.Mock }; Platform: { OS: string } };
 

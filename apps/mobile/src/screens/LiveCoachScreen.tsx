@@ -33,6 +33,7 @@ import { useMoodStore } from "../store/moodStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
+import { useSpeedTestStore } from "../live/speedTestPrefs";
 import type { LiveMode } from "../live/localLlm";
 import { codeForVectors, vocabularyForCode } from "../live/nudgeVocabulary";
 import type { CallRole } from "../live/call/types";
@@ -134,6 +135,14 @@ export default function LiveCoachScreen({
       cancelled = true;
     };
   }, [keepAudioUserId]);
+  // Speed test (live/speedTestPrefs, per device, default ON in this build):
+  // send each turn to the cloud before the on-device LLM answers. The switch
+  // is Settings → Advanced → Experimental (Developer mode).
+  const earlyTurnLocal = useSpeedTestStore((s) => s.earlyTurnLocal);
+  const hydrateSpeedTest = useSpeedTestStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateSpeedTest();
+  }, [hydrateSpeedTest]);
   const handleKeepAudioToggle = useCallback(
     (on: boolean) => {
       setKeepAudio(on);
@@ -201,7 +210,7 @@ export default function LiveCoachScreen({
     declineTherapist,
     callRoute,
     setCallRoute,
-  } = useAudioStream({ keepAudio });
+  } = useAudioStream({ keepAudio, earlyTurnLocal });
   const callView = call ?? IDLE_CALL_VIEW;
 
   // The user's own words about this conversation: remembered on this device

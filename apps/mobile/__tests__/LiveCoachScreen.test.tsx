@@ -4,7 +4,7 @@ import renderer, { act } from "react-test-renderer";
 const mockUseAudioStream = jest.fn();
 
 jest.mock("../src/hooks/useAudioStream", () => ({
-  useAudioStream: () => mockUseAudioStream(),
+  useAudioStream: (...args: unknown[]) => mockUseAudioStream(...args),
 }));
 
 // The screen's mount-time reads: enrolled people ("who's here"), the
@@ -152,6 +152,29 @@ describe("LiveCoachScreen — developer mode off (clean tester surface)", () => 
     expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
     expect(root!.root.findAllByProps({ testID: "live-status" })).toHaveLength(0);
     expect(root!.root.findByProps({ testID: "preflight-plain" })).toBeTruthy();
+  });
+});
+
+describe("LiveCoachScreen — speed test switch wiring", () => {
+  const { useSpeedTestStore } = require("../src/live/speedTestPrefs");
+  afterEach(() => useSpeedTestStore.setState({ earlyTurnLocal: true, hydrated: false }));
+
+  it("passes earlyTurnLocal ON to the hook by default", async () => {
+    useSpeedTestStore.setState({ earlyTurnLocal: true, hydrated: true });
+    act(() => {
+      track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    expect(mockUseAudioStream).toHaveBeenLastCalledWith(expect.objectContaining({ earlyTurnLocal: true }));
+  });
+
+  it("passes earlyTurnLocal OFF when the switch is off", async () => {
+    useSpeedTestStore.setState({ earlyTurnLocal: false, hydrated: true });
+    act(() => {
+      track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    expect(mockUseAudioStream).toHaveBeenLastCalledWith(expect.objectContaining({ earlyTurnLocal: false }));
   });
 });
 

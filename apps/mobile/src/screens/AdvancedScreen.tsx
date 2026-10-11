@@ -34,6 +34,7 @@ import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
 import { useDevModeStore } from "../store/devModeStore";
+import { useSpeedTestStore } from "../live/speedTestPrefs";
 import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
 import { expoHaptics } from "../live/defaultDeps";
 
@@ -260,6 +261,13 @@ export default function AdvancedScreen({
     (on: boolean) => setDevMode(experimentalUid, on),
     [setDevMode, experimentalUid],
   );
+  // Speed test (live/speedTestPrefs): per device, default ON in this build.
+  const earlyTurnLocal = useSpeedTestStore((s) => s.earlyTurnLocal);
+  const setEarlyTurnLocal = useSpeedTestStore((s) => s.setEarlyTurnLocal);
+  const hydrateSpeedTest = useSpeedTestStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateSpeedTest();
+  }, [hydrateSpeedTest]);
   const [experimentalVoiceEngine, setExperimentalVoiceEngine] = useState(DEFAULT_EXPERIMENTAL_VOICE_ENGINE);
   useEffect(() => {
     let cancelled = false;
@@ -816,6 +824,23 @@ export default function AdvancedScreen({
             testID="experimental-voice-engine-switch"
             value={experimentalVoiceEngine}
             onValueChange={handleExperimentalVoiceEngine}
+          />
+        </View>
+      </View>
+      <View style={styles.row} testID="speed-test-early-turn-row">
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.rowTitle}>Send turn to cloud immediately (speed test)</Text>
+            <Text style={styles.rowSub}>
+              {earlyTurnLocal
+                ? "On — each turn goes to the cloud coach as soon as you stop talking, before the on-phone model answers. Applies from the next session; every session’s timing is sent as diagnostics."
+                : "Off — each turn goes to the cloud after the on-phone model answers (the old order). Applies from the next session."}
+            </Text>
+          </View>
+          <Switch
+            testID="speed-test-early-turn-switch"
+            value={earlyTurnLocal}
+            onValueChange={setEarlyTurnLocal}
           />
         </View>
       </View>

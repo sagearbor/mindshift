@@ -102,6 +102,60 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
 }
 
 /**
+ * Speed test (2026-10-11): per-turn timing of the cloud path, so sessions
+ * with "Send turn to cloud immediately" ON and OFF can be compared from the
+ * uploaded records (scripts/diagnostics_tail.py). All ms are measured on the
+ * phone's own session clock from the turn's speech end (segment end):
+ *   endToSent        speech end -> turn_local sent
+ *   sentToCloudFirst turn_local sent -> first cloud suggestion event
+ *   endToCloudFirst  speech end -> first cloud suggestion event (streamed)
+ *   endToCloudFinal  speech end -> final cloud suggestion
+ */
+export interface SpeedTestTurn {
+  turn: number;
+  early: boolean;
+  endToSentMs: number | null;
+  sentToCloudFirstMs: number | null;
+  endToCloudFirstMs: number | null;
+  endToCloudFinalMs: number | null;
+}
+
+export interface SpeedTestSummary {
+  /** The switch's state for this session. */
+  earlyTurnLocal: boolean;
+  medianEndToSentMs: number | null;
+  medianEndToCloudFirstMs: number | null;
+  medianEndToCloudFinalMs: number | null;
+  /** Capped at the newest 300 turns. */
+  turns: SpeedTestTurn[];
+}
+
+export function summarizeSpeedTest(log: readonly TurnLatency[], earlyTurnLocal: boolean): SpeedTestSummary {
+  const d = (a: number | undefined, b: number | undefined) =>
+    a === undefined || b === undefined ? null : Math.round(a - b);
+  const turns: SpeedTestTurn[] = log.slice(-300).map((l) => ({
+    turn: l.turn,
+    early: l.earlySent === true,
+    endToSentMs: d(l.sentAtMs, l.segmentEndMs),
+    sentToCloudFirstMs: d(l.cloudFirstAtMs, l.sentAtMs),
+    endToCloudFirstMs: d(l.cloudFirstAtMs, l.segmentEndMs),
+    endToCloudFinalMs: d(l.cloudFinalAtMs, l.segmentEndMs),
+  }));
+  const med = (k: keyof SpeedTestTurn) =>
+    percentile(
+      turns.map((t) => t[k]).filter((v): v is number => typeof v === "number").sort((a, b) => a - b),
+      0.5,
+    );
+  return {
+    earlyTurnLocal,
+    medianEndToSentMs: med("endToSentMs"),
+    medianEndToCloudFirstMs: med("endToCloudFirstMs"),
+    medianEndToCloudFinalMs: med("endToCloudFinalMs"),
+    turns,
+  };
+}
+
+/**
  * Who the loop thought was talking, and WHY — the session-level view of the
  * per-turn `speaker_match_basis` the phone sends on every turn_local.
  * Answers the diagnostics question "was the owner ever called self, and was
@@ -156,6 +210,9 @@ export interface SessionDiagnostics {
   endedAt: string;
   turns: number;
   latency: LatencySummary;
+  /** Speed test: per-turn cloud-path timing + the switch state; absent on
+   *  the legacy (no on-device loop) path and in older records. */
+  speedTest?: SpeedTestSummary | null;
   /** Speaker-ID outcome of the loop's turns; absent on the legacy (no
    *  on-device loop) path and in records written before it existed. */
   speakerId?: SpeakerIdSummary | null;

@@ -106,6 +106,15 @@ export interface TurnLatency {
   held: boolean;
   /** turn_local went out BEFORE the local LLM ran (FastLoopDeps.earlyTurnLocal). */
   earlySent?: boolean;
+  /** Speed test (2026-10-11): session ms at which this turn's turn_local was
+   *  sent (segment end -> sent = sentAtMs - segmentEndMs). Absent when no
+   *  turn_local went out (STT dead, no words). */
+  sentAtMs?: number;
+  /** Session ms at which the FIRST cloud suggestion event (streamed partial
+   *  or final) for this turn's words arrived (FastLoop.noteCloudSuggestion). */
+  cloudFirstAtMs?: number;
+  /** Session ms at which the FINAL cloud suggestion for this turn arrived. */
+  cloudFinalAtMs?: number;
   /** Per-provider outcome for THIS turn's suggestion attempt (os/bundled/cloud
    *  × ok/refused/timeout/unavailable/error/cloud), with the error/refusal
    *  detail so diagnostics can show WHY a local provider didn't answer — e.g.
@@ -438,7 +447,15 @@ export class FastLoop {
   private readonly earlyTurnLocal: boolean;
   /** The turn whose turn_local went out early and whose local LLM is still
    *  running (at most one: turns finalize serially). */
-  private openTurn: { index: number; text: string; cloudAnswered: boolean } | null = null;
+  private openTurn: {
+    index: number;
+    text: string;
+    cloudAnswered: boolean;
+    /** Speed-test timing marks that landed before the turn record existed. */
+    sentAtMs?: number;
+    cloudFirstAtMs?: number;
+    cloudFinalAtMs?: number;
+  } | null = null;
   private readonly historySamples: number;
   private readonly maxEmbedSamples: number;
   private readonly maxPitchSeconds: number;
@@ -930,6 +947,33 @@ export class FastLoop {
     return utteranceText != null && this.openTurn !== null && this.openTurn.text === utteranceText;
   }
 
+  /**
+   * Speed test (2026-10-11): a cloud suggestion event arrived for
+   * `utteranceText` (the server echoes the phone's turn text). Stamps the
+   * matching turn's timing — the open (early-sent) turn, or the newest
+   * finished turn with those words — once for the first event and once for
+   * the final one. Diagnostics only: changes nothing about what is voiced.
+   */
+  noteCloudSuggestion(utteranceText: string | null, final: boolean): void {
+    if (utteranceText == null || !this.session) return;
+    const at = this.now() - this.startWallMs;
+    const stamp = (m: { cloudFirstAtMs?: number; cloudFinalAtMs?: number }) => {
+      if (m.cloudFirstAtMs === undefined) m.cloudFirstAtMs = at;
+      if (final && m.cloudFinalAtMs === undefined) m.cloudFinalAtMs = at;
+    };
+    if (this.openTurn && this.openTurn.text === utteranceText) {
+      stamp(this.openTurn);
+      return;
+    }
+    for (let i = this.turns.length - 1; i >= Math.max(0, this.turns.length - 8); i--) {
+      const t = this.turns[i];
+      if (t.text === utteranceText && t.latency) {
+        stamp(t.latency);
+        return;
+      }
+    }
+  }
+
   /** Flush the open turn, wait for every queued stage, stop STT. */
   async stop(): Promise<FastLoopSummary> {
     this.running = false;
@@ -1330,6 +1374,7 @@ export class FastLoop {
     if (earlySent) {
       this.openTurn = { index, text: aligned.text, cloudAnswered: false };
       this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, null, null);
+      this.openTurn.sentAtMs = this.now() - this.startWallMs;
     }
     if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
@@ -1373,6 +1418,7 @@ export class FastLoop {
     // earlyTurnLocal: did a cloud line for this turn get voiced while the
     // local LLM was running? Then the local line is recorded, not spoken.
     const cloudTookIt = this.openTurn?.index === index && this.openTurn.cloudAnswered;
+    const openMarks = this.openTurn?.index === index ? this.openTurn : null;
     if (this.openTurn?.index === index) this.openTurn = null;
 
     const latency: TurnLatency = {
@@ -1386,6 +1432,9 @@ export class FastLoop {
       provider,
       held: false,
       ...(earlySent ? { earlySent: true } : {}),
+      ...(openMarks?.sentAtMs !== undefined ? { sentAtMs: openMarks.sentAtMs } : {}),
+      ...(openMarks?.cloudFirstAtMs !== undefined ? { cloudFirstAtMs: openMarks.cloudFirstAtMs } : {}),
+      ...(openMarks?.cloudFinalAtMs !== undefined ? { cloudFinalAtMs: openMarks.cloudFinalAtMs } : {}),
       attempts,
     };
     const turn: LocalTurn = {
@@ -1454,6 +1503,7 @@ export class FastLoop {
     // (earlyTurnLocal already sent this turn's frame above: never twice.)
     if (sttOwned && !earlySent) {
       this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion);
+      latency.sentAtMs = this.now() - this.startWallMs;
     }
     this.deps.onTurn(turn);
   }

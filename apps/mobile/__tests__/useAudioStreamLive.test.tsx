@@ -316,6 +316,75 @@ describe("useAudioStream live mode", () => {
     expect(ws.sentJson().some((m) => m.type === "stop")).toBe(true);
   });
 
+  it("speed test: earlyTurnLocal reaches the loop; cloud timing + the flag land in the session diagnostics, which are auto-sent", async () => {
+    const { useDiagnosticsStore } = require("../src/diagnostics/diagnostics");
+    const send = jest.fn(async () => ({ ok: true, id: "dx-TEST-TEST" }));
+    const realSend = useDiagnosticsStore.getState().send;
+    useDiagnosticsStore.setState({ send, lastSession: null });
+    try {
+      for (const flag of [true, false]) {
+        send.mockClear();
+        const fake = makeFakeFastLoop();
+        const seen: FastLoopHandlers[] = [];
+        const make = async (handlers: FastLoopHandlers) => {
+          seen.push(handlers);
+          return fake.make(handlers);
+        };
+        const hook = await renderHook(() =>
+          useAudioStream({
+            capability: { capable: true, reason: "ok" },
+            makeFastLoop: make,
+            earlyTurnLocal: flag,
+            postSession: async () => ({ status: "unsupported" as const }),
+          }),
+        );
+        await act(async () => {
+          await hook.result.current.startSession(`live-st-${flag}`, 70);
+        });
+        const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+        await act(() => ws.emitOpen());
+        await act(async () => {
+          await flush();
+        });
+        expect(seen[0].earlyTurnLocal === true).toBe(flag);
+        await act(async () => {
+          feed(toneInt16(1.0, -20));
+          fake.rec.emit({ text: "you never call me", isFinal: true });
+          feed(silenceInt16(0.5));
+          await fake.loop!.settle();
+        });
+        await act(() => {
+          ws.emitServer({
+            type: "suggestion",
+            session_id: `live-st-${flag}`,
+            speaker: "Speaker A",
+            utterance_text: "you never call me",
+            suggestions: ["Cloud: tell her you love her."],
+            empathy_slider: 70,
+            suggestion_source: "cloud",
+          });
+        });
+        await act(async () => {
+          await hook.result.current.stopSession();
+        });
+        await act(() => ws.emitServer({ type: "session_complete" }));
+        await act(async () => {
+          await flush();
+        });
+        const rec = useDiagnosticsStore.getState().lastSession;
+        expect(rec.speedTest.earlyTurnLocal).toBe(flag);
+        expect(rec.speedTest.turns).toHaveLength(1);
+        expect(rec.speedTest.turns[0].early).toBe(flag);
+        expect(typeof rec.speedTest.turns[0].endToSentMs).toBe("number");
+        expect(typeof rec.speedTest.turns[0].endToCloudFinalMs).toBe("number");
+        expect(send).toHaveBeenCalledWith("auto", expect.anything());
+        await act(async () => hook.unmount?.());
+      }
+    } finally {
+      useDiagnosticsStore.setState({ send: realSend });
+    }
+  });
+
   it("carries the outcome-engine BEFORE mood check onto the stop POST when one was answered", async () => {
     const fake = makeFakeFastLoop();
     const posted: LiveSessionBody[] = [];

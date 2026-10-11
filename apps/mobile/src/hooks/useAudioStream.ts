@@ -89,11 +89,13 @@ import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } 
 import {
   summarizeLatency,
   summarizeSpeakerId,
+  summarizeSpeedTest,
   useDiagnosticsStore,
   type LoopDiagnostics,
   type SessionDiagnostics,
 } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
+import { SPEED_TEST_AUTO_SEND } from "../live/speedTestPrefs";
 import {
   KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
   POST_RETRY_DELAYS_MS,
@@ -880,6 +882,12 @@ export function useAudioStream(
   // --- Kept session audio (live/liveAudioKeeper.ts) ------------------------
   const keepAudioRef = useRef(options.keepAudio ?? true);
   keepAudioRef.current = options.keepAudio ?? true;
+  // Speed test switch (live/speedTestPrefs): read through a ref so the value
+  // at the moment the loop is BUILT applies, not the one captured with the
+  // callback. Recorded per session (earlyTurnLocalUsedRef) for diagnostics.
+  const earlyTurnLocalRef = useRef(options.earlyTurnLocal === true);
+  earlyTurnLocalRef.current = options.earlyTurnLocal === true;
+  const earlyTurnLocalUsedRef = useRef<boolean | null>(null);
   const openKeeperRef = useRef(options.openAudioKeeper ?? openDefaultLiveAudioKeeper);
   openKeeperRef.current = options.openAudioKeeper ?? openDefaultLiveAudioKeeper;
   const postAudioRef = useRef(options.postSessionAudio ?? postLiveSessionAudio);
@@ -1508,7 +1516,7 @@ export function useAudioStream(
       let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
         ...(primedRecognizer ? { recognizer: primedRecognizer } : {}),
-        ...(options.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
+        ...(earlyTurnLocalRef.current ? { earlyTurnLocal: true } : {}),
         // Build progress (the web build's one-time voice-model download).
         onStatus: (line) => {
           if (sessionActiveRef.current && !drainingRef.current) setLiveStatus(line);
@@ -1707,6 +1715,7 @@ export function useAudioStream(
         lastLoopRef.current = null;
         liveActiveRef.current = true;
         loopUpAtRef.current = new Date().toISOString();
+        earlyTurnLocalUsedRef.current = handlers.earlyTurnLocal === true;
         loopStartupMsRef.current = startWallMsRef.current ? Date.now() - startWallMsRef.current : null;
         setLiveStatus(
           sttFailure
@@ -1952,6 +1961,10 @@ export function useAudioStream(
       endedAt: new Date().toISOString(),
       turns: transcriptRef.current.length,
       latency: summarizeLatency(latencyLogRef.current),
+      speedTest:
+        earlyTurnLocalUsedRef.current === null
+          ? null
+          : summarizeSpeedTest(latencyLogRef.current, earlyTurnLocalUsedRef.current),
       // stopFastLoop parks the loop in lastLoopRef before this runs; its
       // turns carry any identity revision the contrast rule made.
       speakerId: (() => {
@@ -1983,7 +1996,10 @@ export function useAudioStream(
     store.recordSession(record);
     // A backgrounded session may be about to be swiped away (the dinner
     // session left no record at all): its snapshot always goes out.
-    if (errors.length > 0 || snapshot) {
+    // Speed test build: every loop session's timing goes up, so ON/OFF
+    // sessions can be compared from files (live/speedTestPrefs).
+    const speedTestSend = SPEED_TEST_AUTO_SEND && !snapshot && (record.speedTest?.turns.length ?? 0) > 0;
+    if (errors.length > 0 || snapshot || speedTestSend) {
       const user = useAuthStore.getState().user;
       void store.send(snapshot ?? "auto", { uid: user?.uid ?? null, email: user?.email ?? null });
     }
@@ -2513,6 +2529,14 @@ export function useAudioStream(
               // dead the server's transcript is the only one, so its
               // suggestions are voiced exactly as on the legacy path.
               const loop = fastLoopRef.current;
+              // Speed test: stamp when the cloud's answer for this turn's
+              // words arrived (first streamed event and final). Timing only.
+              if (source === "cloud" && loop && liveActiveRef.current) {
+                loop.noteCloudSuggestion(
+                  typeof data.utterance_text === "string" ? data.utterance_text : null,
+                  !partial,
+                );
+              }
               const voiceIt =
                 !muted &&
                 !forName &&
@@ -3046,6 +3070,7 @@ export function useAudioStream(
       startWallMsRef.current = Date.now();
       sessionStartedAtRef.current = new Date(startWallMsRef.current).toISOString();
       loopUpAtRef.current = null;
+      earlyTurnLocalUsedRef.current = null;
       loopStartupMsRef.current = null;
       loopHealthRef.current = null;
       loopStepsRef.current = { buildMs: null, startMs: null, buildTimings: null };

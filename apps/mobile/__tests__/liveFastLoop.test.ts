@@ -1082,6 +1082,44 @@ describe("FastLoop earlyTurnLocal", () => {
     await h.loop.stop();
   });
 
+  it("speed-test marks (ON): sent before the LLM, cloud first/final stamped on the open turn", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider, earlyTurnLocal: true });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    h.loop.noteCloudSuggestion("you never call", false);
+    h.loop.noteCloudSuggestion("you never call", true);
+    h.loop.noteCloudSuggestion("you never call", true); // a second final does not move the mark
+    h.loop.noteCloudSuggestion("other words", true); // no match: ignored
+    g.release();
+    await h.loop.settle();
+    const l = h.loop.latencyLog[0];
+    expect(l.earlySent).toBe(true);
+    expect(typeof l.sentAtMs).toBe("number");
+    expect(l.sentAtMs!).toBeGreaterThanOrEqual(l.segmentEndMs);
+    expect(l.cloudFirstAtMs!).toBeGreaterThanOrEqual(l.sentAtMs!);
+    expect(l.cloudFinalAtMs!).toBeGreaterThanOrEqual(l.cloudFirstAtMs!);
+    await h.loop.stop();
+  });
+
+  it("speed-test marks (OFF): sent after the LLM, a later cloud line is stamped on the finished turn", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    await sleep(20);
+    g.release();
+    await h.loop.settle();
+    const l = h.loop.latencyLog[0];
+    expect(l.earlySent).toBeUndefined();
+    expect(l.sentAtMs!).toBeGreaterThanOrEqual(l.segmentEndMs + l.llmMs);
+    expect(l.cloudFirstAtMs).toBeUndefined();
+    h.loop.noteCloudSuggestion("you never call", true);
+    expect(l.cloudFirstAtMs!).toBeGreaterThanOrEqual(l.sentAtMs!);
+    expect(l.cloudFinalAtMs).toBe(l.cloudFirstAtMs);
+    await h.loop.stop();
+  });
+
   it("ON: a cloud line for the open turn is voiced at once and the slower local line stays silent", async () => {
     const g = gatedProvider();
     const h = harness({ provider: g.provider, earlyTurnLocal: true });

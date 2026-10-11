@@ -11,6 +11,7 @@ import {
   sendDiagnostics,
   summarizeLatency,
   summarizeSpeakerId,
+  summarizeSpeedTest,
   telemetryBody,
   useDiagnosticsStore,
   type SessionDiagnostics,
@@ -101,6 +102,27 @@ describe("diagnostics", () => {
       held: 1,
     });
     expect(summarizeLatency([])).toMatchObject({ turns: 0, spoken: 0, medianToSpeakMs: null, byProvider: {} });
+  });
+
+  it("speed test: per-turn speech end -> sent -> cloud (first/final) and medians, with the flag state", () => {
+    const log: TurnLatency[] = [
+      { ...lat(1, null, "cloud"), earlySent: true, sentAtMs: 1050, cloudFirstAtMs: 1800, cloudFinalAtMs: 2100 },
+      { ...lat(2, null, "os"), earlySent: true, sentAtMs: 2070, cloudFirstAtMs: 2900 }, // no final yet
+      { ...lat(3, 900, "os"), sentAtMs: 3500 }, // no cloud line at all
+      { ...lat(4, null, "none") }, // never sent (STT dead)
+    ];
+    const s = summarizeSpeedTest(log, true);
+    expect(s.earlyTurnLocal).toBe(true);
+    expect(s.turns).toEqual([
+      { turn: 1, early: true, endToSentMs: 50, sentToCloudFirstMs: 750, endToCloudFirstMs: 800, endToCloudFinalMs: 1100 },
+      { turn: 2, early: true, endToSentMs: 70, sentToCloudFirstMs: 830, endToCloudFirstMs: 900, endToCloudFinalMs: null },
+      { turn: 3, early: false, endToSentMs: 500, sentToCloudFirstMs: null, endToCloudFirstMs: null, endToCloudFinalMs: null },
+      { turn: 4, early: false, endToSentMs: null, sentToCloudFirstMs: null, endToCloudFirstMs: null, endToCloudFinalMs: null },
+    ]);
+    expect(s.medianEndToSentMs).toBe(70);
+    expect(s.medianEndToCloudFirstMs).toBe(800);
+    expect(s.medianEndToCloudFinalMs).toBe(1100);
+    expect(summarizeSpeedTest([], false)).toMatchObject({ earlyTurnLocal: false, turns: [], medianEndToSentMs: null });
   });
 
   it("aggregates per-provider attempt outcomes (why a local rung didn't answer)", () => {
