@@ -28,11 +28,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from sklearn.metrics import roc_auc_score
 
-import feature_bank as fbank
-import fit_stacked_heat as fh
-import tone_id
+# Research-only dependency; CI installs requirements.txt without it.
+pytest.importorskip("sklearn")
+
+import feature_bank as fbank  # noqa: E402
+import fit_stacked_heat as fh  # noqa: E402
+import tone_id  # noqa: E402
+from sklearn.metrics import roc_auc_score  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "stacked_heat_fixture.json"
 
