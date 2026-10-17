@@ -99,6 +99,7 @@ SITE_RESPOND = "respond"                   # /respond
 SITE_SCORE = "score"                       # /score
 SITE_EXPORT = "export"                     # /session/{id}/export insights
 SITE_WATCH_SUMMARY = "watch_summary"       # watch post-session summary
+SITE_ROOM_ANSWER = "room_answer"           # room mode: a question addressed to MindShift
 SITE_UNKNOWN = "unattributed"
 
 # Non-LLM units.

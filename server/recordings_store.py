@@ -1741,7 +1741,6 @@ class RecordingsStore:
             # staying with the same idiom keeps this testable against the same
             # fake bucket as the rest of the deletion suite.
             removed = 0
-            marker = f"/{uid}/"
             for blob in list(self._bucket.list_blobs(prefix="usage/")):
                 rest = blob.name[len("usage/"):]
                 day, _, tail = rest.partition("/")

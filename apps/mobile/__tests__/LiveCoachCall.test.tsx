@@ -146,13 +146,14 @@ beforeEach(() => {
 });
 
 describe("Live Coach — Call mode", () => {
-  it("offers five modes: the old speaker-phone is now 'In person', plus 'Call' and 'Journal'", () => {
+  it("offers six modes: the old speaker-phone is now 'In person', plus 'Call', 'Journal' and 'Room'", () => {
     expect(LIVE_MODE_OPTIONS.map((o) => [o.mode, o.label])).toEqual([
       ["earpiece", "Earpiece"],
       ["speaker", "In person"],
       ["therapist", "Therapist"],
       ["call", "Call"],
       ["journal", "Journal"],
+      ["room", "Room"],
     ]);
   });
 

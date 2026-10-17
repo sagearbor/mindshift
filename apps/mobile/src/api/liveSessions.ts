@@ -38,8 +38,9 @@ export async function authHeaders(json = true): Promise<Record<string, string>> 
 }
 
 /** Wire value of the session mode (`speaker` = the "In person" mode; `call`
- *  = an in-app call — server/routers/sessions.py LiveMode). */
-export type LiveSessionMode = "earpiece" | "speaker" | "therapist" | "call";
+ *  = an in-app call; `room` = the meeting-room assistant —
+ *  server/routers/sessions.py LiveMode). */
+export type LiveSessionMode = "earpiece" | "speaker" | "therapist" | "call" | "room";
 
 /** A speaker the user NAMED during (or right after) the session — stored
  *  server-side as the human-assertion rung (manual / manual-person), the
@@ -56,6 +57,16 @@ export interface LiveSessionBody {
   started_at: string;
   ended_at: string;
   mode: LiveSessionMode;
+  /** When the on-device loop actually came up (ISO). `started_at` is the
+   *  user's Start; the gap is the loop's cold start. Absent when no loop
+   *  ran. Older servers ignore the key. */
+  loop_up_at?: string;
+  /** Who the user said they were talking with (child, partner, parent,
+   *  coworker, friend, other). Omitted when unset — generic. */
+  relationship?: string;
+  /** The user's own description of the conversation (≤ 4000 chars).
+   *  Omitted when empty. */
+  session_context?: string;
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];

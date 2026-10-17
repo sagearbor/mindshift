@@ -33,13 +33,13 @@ afterEach(async () => {
 
 
 describe("LiveModePicker", () => {
-  it("offers the five modes with a one-line hint for the selected one", () => {
+  it("offers the six modes with a one-line hint for the selected one", () => {
     const onChange = jest.fn();
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = track(renderer.create(<LiveModePicker value="speaker" onChange={onChange} />));
     });
-    expect(LIVE_MODE_OPTIONS.map((o) => o.mode)).toEqual(["earpiece", "speaker", "therapist", "call", "journal"]);
+    expect(LIVE_MODE_OPTIONS.map((o) => o.mode)).toEqual(["earpiece", "speaker", "therapist", "call", "journal", "room"]);
     // "speaker" is shown as "In person" (the wire value is unchanged).
     expect(LIVE_MODE_OPTIONS.find((o) => o.mode === "speaker")?.label).toBe("In person");
     expect(JSON.stringify(root!.toJSON())).not.toContain("Speaker-phone");

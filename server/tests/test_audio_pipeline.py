@@ -1283,7 +1283,10 @@ class TestInputValidation:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert "Husband" in system  # default role survived the bad config
+        # No role default any more (2026-10-07): the bad value is ignored and
+        # the prompt stays generic — no relationship is assumed.
+        assert "Husband" not in system
+        assert "Context the wearer selected" not in system
 
 
 # ---------------------------------------------------------------------------
@@ -1294,6 +1297,12 @@ def _ensure_schema() -> None:
     """Create the DB schema in the shared temp DB (order-independent)."""
     from main import init_db
     asyncio.run(init_db())
+
+
+# Config that confirms the wearer is a label the fake transcribers never
+# emit, so every turn they produce is a KNOWN OTHER turn (2026-10-07: with
+# no confirmed wearer a turn is coached speaker-neutrally instead).
+KNOWN_WEARER_ELSEWHERE = {"self_speaker": "Speaker Z", "wearer_known": True}
 
 
 class TestVoiceProfileWS:
@@ -1337,6 +1346,7 @@ class TestVoiceProfileWS:
                 "type": "config",
                 "relationship_id": rel_id,
                 "from_participant_id": "alex",
+                **KNOWN_WEARER_ELSEWHERE,
             }))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
@@ -1347,18 +1357,34 @@ class TestVoiceProfileWS:
         assert "Style notes: short, dry" in system
 
     def test_ws_without_profile_prompt_unchanged(self, fake_ws):
-        """No relationship/participant in config → today's exact prompt."""
+        """No relationship/participant in config → the plain live prompt."""
         from main import empathy_system_prompt
 
         app.state.llm_client.complete.reset_mock()
         with open_ws(
             fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000002"
         ) as ws:
+            ws.send_text(json.dumps({"type": "config", **KNOWN_WEARER_ELSEWHERE}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband", live=True)
+        assert system == empathy_system_prompt(50, live=True)
+
+    def test_ws_with_no_known_wearer_uses_the_neutral_prompt(self, fake_ws):
+        """No identity at all (legacy client) → speaker-neutral cues."""
+        from main import unknown_wearer_prompt
+
+        app.state.llm_client.complete.reset_mock()
+        with open_ws(
+            fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000004"
+        ) as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert system == unknown_wearer_prompt(50)
 
     def test_ws_unknown_profile_falls_back_cleanly(self, fake_ws):
         """A relationship/participant with no stored profile → no block, no error."""
@@ -1382,13 +1408,14 @@ class TestVoiceProfileWS:
                 "type": "config",
                 "relationship_id": rel_id,
                 "from_participant_id": "alex",
+                **KNOWN_WEARER_ELSEWHERE,
             }))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband", live=True)
+        assert system == empathy_system_prompt(50, live=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1730,7 +1757,7 @@ class TestSideAwareCoaching:
             with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000102") as ws:
                 ws.send_text(json.dumps({
                     "type": "config", "self_speaker": "Speaker A",
-                    "interject_level": 50,
+                    "wearer_known": True, "interject_level": 50,
                 }))
                 assert json.loads(ws.receive_text())["type"] == "config_ack"
                 ws.send_bytes(b"\x00" * 50)
@@ -1757,7 +1784,7 @@ class TestSideAwareCoaching:
             with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000103") as ws:
                 ws.send_text(json.dumps({
                     "type": "config", "self_speaker": "Speaker A",
-                    "interject_level": 90,
+                    "wearer_known": True, "interject_level": 90,
                 }))
                 assert json.loads(ws.receive_text())["type"] == "config_ack"
                 ws.send_bytes(b"\x00" * 50)
@@ -1781,7 +1808,7 @@ class TestSideAwareCoaching:
         app.state.llm_client.complete.return_value = EMPTY_NUDGE_LLM_JSON
         try:
             with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000104") as ws:
-                ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
+                ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A", "wearer_known": True}))
                 assert json.loads(ws.receive_text())["type"] == "config_ack"
                 ws.send_bytes(b"\x00" * 50)
                 transcript = json.loads(ws.receive_text())
@@ -2264,22 +2291,39 @@ class TestTurnLocal:
         label matches self_speaker, but is_self=false → OTHER → response."""
         client = _inject(StoppableTranscriber())
         with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
-            ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
+            ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A", "wearer_known": True}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_text(json.dumps(_turn_local(speaker="Speaker A", is_self=False)))
             resp = json.loads(ws.receive_text())
         assert resp["kind"] == "response"
         assert len(resp["suggestions"]) == 3
 
-    def test_is_self_null_falls_back_to_label_compare(self, local_first_env):
+    def test_is_self_null_falls_back_to_confirmed_label_compare(self, local_first_env):
         client = _inject(StoppableTranscriber())
         app.state.llm_client.complete.return_value = NUDGE_LLM_JSON
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps({
+                "type": "config", "self_speaker": "Speaker A", "wearer_known": True,
+            }))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_text(json.dumps(_turn_local(speaker="Speaker A")))  # is_self absent
+            resp = json.loads(ws.receive_text())
+        assert resp["kind"] == "nudge"
+
+    def test_is_self_null_with_unconfirmed_label_is_coached_neutrally(self, local_first_env):
+        """The 'Speaker A = self' shortcut is gone: the phone's default
+        self_speaker with no voiceprint verdict is an UNKNOWN wearer."""
+        from main import unknown_wearer_prompt
+
+        client = _inject(StoppableTranscriber())
         with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
             ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_text(json.dumps(_turn_local(speaker="Speaker A")))  # is_self absent
             resp = json.loads(ws.receive_text())
-        assert resp["kind"] == "nudge"
+        assert resp["kind"] == "response"
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert system == unknown_wearer_prompt(50)
 
     def test_invalid_turn_local_is_rejected_without_leaking_values(self, local_first_env):
         client = _inject(StoppableTranscriber())

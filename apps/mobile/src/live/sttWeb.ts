@@ -132,6 +132,8 @@ export class WebSpeechRecognizer implements SpeechRecognizer {
   private readonly setTimeoutImpl: (fn: () => void, ms: number) => unknown;
   /** Restarts performed so far (diagnostics / tests). */
   restarts = 0;
+  /** Diagnostics: the non-fatal error codes that preceded restarts. */
+  restartErrorCodes: Record<string, number> = {};
 
   constructor(options: WebSttOptions = {}) {
     this.lang = options.lang ?? "en-US";
@@ -262,6 +264,7 @@ export class WebSpeechRecognizer implements SpeechRecognizer {
       return;
     }
     // no-speech / aborted / a transient blip: `end` follows and restarts.
+    this.restartErrorCodes[code] = (this.restartErrorCodes[code] ?? 0) + 1;
   }
 
   private handleEnd(rec: SpeechRecognitionLike) {

@@ -45,6 +45,8 @@ describe("ExpoSpeechRecognizer restart-on-end", () => {
     expect(mock.start).toHaveBeenCalledTimes(2);
     expect(restarts).toBe(1);
     expect(rec.restarts).toBe(1);
+    // Diagnostics: the code behind the restart is counted.
+    expect(rec.restartErrorCodes).toEqual({ "no-speech": 1 });
     expect(errors).toEqual([]);
 
     // Results after the restart still reach the loop (listeners persist).

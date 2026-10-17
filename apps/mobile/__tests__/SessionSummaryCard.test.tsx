@@ -167,6 +167,16 @@ describe("SessionSummaryCard", () => {
       );
     });
     expect(root!.root.findByProps({ testID: "summary-post-failed" })).toBeTruthy();
+    act(() => {
+      root!.update(
+        <SessionSummaryCard
+          summary={summary}
+          episode={{ episodeId: null, postStatus: "skipped", sharedWith: [] }}
+          therapist={linked}
+        />,
+      );
+    });
+    expect(root!.root.findByProps({ testID: "summary-post-skipped" })).toBeTruthy();
     expect(root!.root.findAllByProps({ testID: "summary-share-therapist" })).toHaveLength(0);
   });
 

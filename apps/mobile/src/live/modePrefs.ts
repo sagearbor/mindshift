@@ -17,7 +17,7 @@ import type { LiveMode } from "./localLlm";
 export const MODE_KEY_PREFIX = "mindshift.liveMode.v1";
 export const DEFAULT_LIVE_MODE: LiveMode = "earpiece";
 
-const MODES: readonly LiveMode[] = ["earpiece", "speaker", "therapist", "call", "journal"];
+const MODES: readonly LiveMode[] = ["earpiece", "speaker", "therapist", "call", "journal", "room"];
 
 export function isLiveMode(value: unknown): value is LiveMode {
   return typeof value === "string" && (MODES as readonly string[]).includes(value);

@@ -39,9 +39,12 @@ export interface TextTone {
  * all-day "listen for my voice" mode (src/live/journalRecorder.ts): mic
  * open, no STT / coaching / cloud while listening — only the owner's own
  * stretches are kept and uploaded later as a stored recording. It never
- * reaches the LLM or the server's live-session ingest.
+ * reaches the LLM or the server's live-session ingest. `room` is the
+ * meeting-room assistant (src/live/roomMode.ts): answers aloud only when
+ * addressed ("MindShift, …"), library cards on screen, no personal coaching —
+ * the on-device loop never runs in it, so it never reaches suggest().
  */
-export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal";
+export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal" | "room";
 
 export interface SuggestInput {
   text: string;
@@ -55,6 +58,12 @@ export interface SuggestInput {
   /** One-line delivery cue from prosody, e.g. "loud, fast". Optional. */
   prosodyHint?: string;
   mode: LiveMode;
+  /** Who the coached person is talking with, when they said so. Unset =
+   *  generic (nothing about the relationship goes in the prompt). */
+  relationship?: string | null;
+  /** The user's own words about this conversation, already trimmed to the
+   *  on-device budget (sessionContext.ts ON_DEVICE_CONTEXT_MAX_CHARS). */
+  sessionContext?: string | null;
 }
 
 export interface SuggestOutput {
@@ -125,7 +134,17 @@ export function buildPrompt(input: SuggestInput): { system: string; user: string
       `${input.speaker}, verbatim, first person, 10 words or fewer, in a ` +
       `${stance(input.empathy)} stance.`;
   const cue = input.prosodyHint ? `\nDelivery cue: ${input.prosodyHint}.` : "";
+  // Only what the user told us; nothing is assumed when unset.
+  const rel =
+    input.relationship && input.relationship !== "other"
+      ? `The coached person is talking with their ${input.relationship}.\n\n`
+      : "";
+  const background = input.sessionContext
+    ? `Background from the coached person: "${input.sessionContext}"\n\n`
+    : "";
   const user =
+    background +
+    rel +
     (history ? `Earlier:\n${history}\n\n` : "") +
     `Latest turn from ${who}: "${input.text}"${cue}\n\n${task}`;
   return { system: SUGGESTION_SYSTEM_PROMPT, user };

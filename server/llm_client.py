@@ -332,10 +332,52 @@ _ANTHROPIC_NO_SAMPLING_RE = re.compile(
 )
 
 
+# A cache-marked PREFIX (the coach library's full-mode block) is sent as its
+# own block only when it is big enough to be worth caching. Models have a
+# minimum cacheable length (Haiku 4.5: 4096 tokens; Sonnet 5: 1024; Opus 5:
+# 512) and a marker below it never produces a cache read; see the TTFT note
+# above. ~4 chars per token.
+PREFIX_CACHE_MIN_CHARS = 4 * int(os.getenv("MINDSHIFT_PREFIX_CACHE_MIN_TOKENS", "1024"))
+
+
+class CachedPrefixPrompt(str):
+    """A system prompt whose leading ``cache_prefix`` is stable across calls
+    (e.g. the wearer's library block, identical for every turn of a session).
+
+    It IS a ``str`` (prefix + body), so every provider, test double and
+    logger sees an ordinary string. Only :func:`anthropic_system_blocks`
+    looks at ``cache_prefix``, to put the cache marker right after it."""
+
+    cache_prefix: str
+
+    def __new__(cls, prefix: str, body: str) -> "CachedPrefixPrompt":
+        obj = super().__new__(cls, prefix + body)
+        obj.cache_prefix = prefix
+        return obj
+
+
 def anthropic_system_blocks(system: str, cache: bool) -> str | list[dict]:
     """The ``system`` argument for the Anthropic SDK: a plain string when
     caching is off (byte-identical to the pre-caching request), else one text
-    block with an ephemeral ``cache_control`` marker on it."""
+    block with an ephemeral ``cache_control`` marker on it.
+
+    A :class:`CachedPrefixPrompt` with a prefix of at least
+    :data:`PREFIX_CACHE_MIN_CHARS` becomes two blocks, the prefix carrying
+    the marker whatever ``cache`` says: the prefix is the part that is the
+    same on every call, so it is cached even when the rest of the prompt
+    (wearer known or not, self or other turn) varies."""
+    prefix = getattr(system, "cache_prefix", "")
+    if prefix and len(prefix) >= PREFIX_CACHE_MIN_CHARS:
+        ephemeral = {"type": "ephemeral"}
+        blocks = [{"type": "text", "text": prefix, "cache_control": ephemeral}]
+        rest = str(system)[len(prefix):]
+        if rest:
+            block: dict = {"type": "text", "text": rest}
+            if cache:
+                block["cache_control"] = ephemeral
+            blocks.append(block)
+        return blocks
+    system = str(system)
     if not cache:
         return system
     return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]

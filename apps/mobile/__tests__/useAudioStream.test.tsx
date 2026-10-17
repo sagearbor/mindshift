@@ -437,11 +437,13 @@ describe("useAudioStream — WebSocket protocol", () => {
 });
 
 describe("useAudioStream — self-speaker identity", () => {
-  it("defaults to 'Speaker A' and puts it in the initial config frame", async () => {
+  it("assumes nobody is the wearer: self_speaker null and wearer unconfirmed in the initial config frame", async () => {
     const { hook, ws } = await startLiveSession(50);
-    expect(hook.result.current.selfSpeaker).toBe("Speaker A");
+    expect(hook.result.current.selfSpeaker).toBeNull();
     const firstConfig = ws.sentJson().find((m) => m.type === "config");
-    expect(firstConfig.self_speaker).toBe("Speaker A");
+    expect(firstConfig.self_speaker).toBeNull();
+    expect(firstConfig.wearer_voice_confirmed).toBe(false);
+    expect(firstConfig.wearer_identity).toBe("unconfirmed");
   });
 
   it("setSelfSpeaker updates state and sends a config update when live", async () => {
@@ -454,12 +456,15 @@ describe("useAudioStream — self-speaker identity", () => {
       .sentJson()
       .filter((m) => m.type === "config" && m.self_speaker === "Speaker B");
     expect(updates).toHaveLength(1);
+    // The user saying which voice is theirs is a (non-voiceprint) identity.
+    expect(
+      ws.sentJson().some((m) => m.type === "config" && m.wearer_identity === "user_label" && m.wearer_voice_confirmed === false),
+    ).toBe(true);
   });
 
-  it("resets to 'Speaker A' on every new session — a previous session's toggle must not leak", async () => {
-    // Diarization labels are per-session (whoever speaks first is "Speaker A"),
-    // so carrying "Speaker B" from session 1 into session 2's initial config
-    // would invert the coaching until the user re-toggled.
+  it("resets to nobody on every new session — a previous session's toggle must not leak", async () => {
+    // Diarization labels are per-session, so carrying "Speaker B" from
+    // session 1 into session 2's initial config would mis-coach session 2.
     const { hook, ws } = await startLiveSession(50);
 
     await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
@@ -483,9 +488,10 @@ describe("useAudioStream — self-speaker identity", () => {
     expect(ws2).not.toBe(ws);
     await act(() => ws2.emitOpen());
 
-    expect(hook.result.current.selfSpeaker).toBe("Speaker A");
+    expect(hook.result.current.selfSpeaker).toBeNull();
     const firstConfig = ws2.sentJson().find((m) => m.type === "config");
-    expect(firstConfig.self_speaker).toBe("Speaker A");
+    expect(firstConfig.self_speaker).toBeNull();
+    expect(firstConfig.wearer_identity).toBe("unconfirmed");
   });
 });
 

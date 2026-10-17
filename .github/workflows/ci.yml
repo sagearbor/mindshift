@@ -27,7 +27,8 @@ jobs:
       - name: Install backend dependencies
         # Intentionally NOT installing requirements-whisper.txt — faster-whisper
         # is optional/heavy and the suite is fully keyless without it.
-        run: pip install -r requirements.txt
+        # PyYAML is test-only (docs/play answer-pack checks).
+        run: pip install -r requirements.txt pyyaml
 
       - name: Run pytest
         run: python3 -m pytest -q

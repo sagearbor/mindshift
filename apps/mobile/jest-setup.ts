@@ -640,3 +640,19 @@ jest.mock("react-native/Libraries/Components/ScrollView/ScrollView", () => {
   }
   return { __esModule: true, default: ScrollViewMock };
 });
+
+// Earpiece mode speaks ONLY over a private audio route (src/live/audioRoute.ts).
+// Hook/screen tests run as if a headset is connected (the pre-2026-10-07
+// assumption) unless a test injects its own `makeAudioRouteProbe`. The
+// module's pure helpers stay real, and a probe built with an explicit lister
+// or native-module loader (the module's own unit tests) runs the real code.
+jest.mock("./src/live/audioRoute", () => {
+  const actual = jest.requireActual("./src/live/audioRoute");
+  return {
+    ...actual,
+    createDefaultAudioRouteProbe: (makeLister?: unknown, loadNative?: unknown) =>
+      makeLister || loadNative
+        ? actual.createDefaultAudioRouteProbe(makeLister, loadNative)
+        : { check: () => "private", subscribe: () => () => {}, dispose: () => {} },
+  };
+});

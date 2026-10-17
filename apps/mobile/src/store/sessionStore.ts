@@ -61,7 +61,9 @@ interface SessionState {
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
-  role: "Husband / Wife",
+  // No relationship is assumed (it used to default to "Husband / Wife"): the
+  // user picks one, or the coach stays generic.
+  role: "",
   empathyLevel: 50,
   turns: [],
   suggestions: [],
@@ -102,7 +104,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       const { suggestions } = await postRespond({
         transcript_turn: latest.text,
-        role,
+        // The server requires a role string; unpicked = generic.
+        role: role.trim() || "general conversation",
         empathy_slider: Math.round(empathyLevel),
         context,
       });

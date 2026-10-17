@@ -157,6 +157,9 @@ export interface LocalTurn {
   transcriptFinal: boolean;
   startTime: number;
   endTime: number;
+  /** True when the span lies wholly in the cold-start pre-roll (captured
+   *  before the loop came up): no on-device words, not sent as turn_local. */
+  beforeLoopUp?: boolean;
   isSelf: boolean | null;
   personId: string | null;
   /** The person's name when identified (a voiceprint match or a mid-call
@@ -316,6 +319,25 @@ export interface FastLoopSession {
   sessionId: string;
   mode: LiveMode;
   empathy: number;
+  /** Cold-start pre-roll: the 16 kHz int16 the phone captured from Start
+   *  until this loop came up (≈8.5 s on the Pixel 10, 2026-10-07 — the
+   *  models load while the mic already streams). Pushed through the VAD /
+   *  segmenter / speaker-ID before the recognizer starts, so the loop's
+   *  clock is the capture clock and the opening seconds of a heated
+   *  exchange still become turns. The OS recognizer never heard this audio:
+   *  turns wholly inside it carry no words (`beforeLoopUp`), are not sent as
+   *  turn_local (the server's transcript owns those words) and are not
+   *  coached by the local LLM. */
+  preroll?: Int16Array;
+  /** Who the user said they are talking with (null/absent = generic). */
+  relationship?: string | null;
+  /** The user's context for this conversation, trimmed for the on-device
+   *  prompt (null/absent = none). */
+  sessionContext?: string | null;
+  /** Samples captured before `preroll` that the phone's bounded pre-roll
+   *  buffer had to drop — the loop clock starts here so times still line
+   *  up with the capture clock. */
+  prerollOffsetSamples?: number;
 }
 
 export interface FastLoopSummary {
@@ -325,6 +347,34 @@ export interface FastLoopSummary {
   /** How often the recognizer had to be restarted this session (both
    *  recognizers count their own restarts); 0 when there was none. */
   sttRestarts: number;
+  /** The recognizer's non-fatal error codes behind those restarts
+   *  ({"no-speech": 4, "network": 1}); {} when it does not report them. */
+  sttRestartCodes: Record<string, number>;
+  /** Loop health (2026-10-07: a whole dinner finalized ZERO turns and
+   *  nothing said why). */
+  health: FastLoopHealth;
+}
+
+/** What the loop's front end actually saw — enough to tell "no audio",
+ *  "audio but the VAD never fired" and "speech but every span too short". */
+export interface FastLoopHealth {
+  /** Audio seconds of cold-start pre-roll replayed at start (0 = none). */
+  prerollSeconds: number;
+  /** Wall seconds the loop ran (start → stop). */
+  liveSeconds: number;
+  /** VAD frames evaluated / of them speech. */
+  vadFrames: number;
+  vadSpeechFrames: number;
+  /** Highest raw speech probability seen (Silero); null for the energy VAD. */
+  vadMaxProb: number | null;
+  /** Spans the segmenter closed as turns / dropped as too short. */
+  spansClosed: number;
+  spansDroppedShort: number;
+  /** Mean level of every sample the loop was fed, dBFS (null = no audio). */
+  inputDbfs: number | null;
+  /** Turns finalized (incl. pre-roll) / turn_local events sent. */
+  turns: number;
+  localTurns: number;
 }
 
 const defaultNow = () =>
@@ -419,6 +469,15 @@ export class FastLoop {
   readonly heatLog: HeatWindow[] = [];
   private sttAvailable = false;
   private sttStartSeconds = 0;
+  /** Audio-clock end of the cold-start pre-roll (0 = none). */
+  private prerollEndSeconds = 0;
+  // Health counters (see FastLoopHealth).
+  private vadFrames = 0;
+  private vadSpeechFrames = 0;
+  private vadMaxProb: number | null = null;
+  private sumSquares = 0;
+  private sumSamples = 0;
+  private sentTurns = 0;
   private unsubscribe: (() => void)[] = [];
   /** Session resume (server/session_resume.py): a per-session prefix plus a
    *  counter make every turn_local's `turn_uid`. The server ignores an id it
@@ -638,6 +697,23 @@ export class FastLoop {
     return this.turns;
   }
 
+  /** Front-end health so far (also returned by stop()). */
+  health(): FastLoopHealth {
+    const meanSq = this.sumSamples > 0 ? this.sumSquares / this.sumSamples : 0;
+    return {
+      prerollSeconds: Math.round(this.prerollEndSeconds * 100) / 100,
+      liveSeconds: this.session ? Math.round((this.now() - this.startWallMs) / 100) / 10 : 0,
+      vadFrames: this.vadFrames,
+      vadSpeechFrames: this.vadSpeechFrames,
+      vadMaxProb: this.vadMaxProb === null ? null : Math.round(this.vadMaxProb * 1000) / 1000,
+      spansClosed: this.segmenter.closed,
+      spansDroppedShort: this.segmenter.droppedShort,
+      inputDbfs: this.sumSamples > 0 && meanSq > 0 ? Math.round(10 * Math.log10(meanSq) * 10) / 10 : null,
+      turns: this.turns.length,
+      localTurns: this.sentTurns,
+    };
+  }
+
   /** Session seconds by the audio clock (samples pushed so far). */
   get audioClock(): number {
     return this.samplesSeen / SILERO_SAMPLE_RATE;
@@ -684,6 +760,27 @@ export class FastLoop {
     for (const u of this.unsubscribe) u();
     this.unsubscribe = [];
 
+    this.vadFrames = 0;
+    this.vadSpeechFrames = 0;
+    this.vadMaxProb = null;
+    this.sumSquares = 0;
+    this.sumSamples = 0;
+    this.sentTurns = 0;
+    // Cold-start pre-roll: replay what the mic captured before the loop was
+    // up, in expo-audio-sized buffers, BEFORE the recognizer starts — so the
+    // recognizer's start lands at the right place on the audio clock.
+    this.samplesSeen = Math.max(0, Math.round(session.prerollOffsetSamples ?? 0));
+    this.prerollEndSeconds = 0;
+    const preroll = session.preroll;
+    if (preroll && preroll.length > 0) {
+      const chunk = Math.round(SILERO_SAMPLE_RATE / 10);
+      for (let off = 0; off < preroll.length; off += chunk) {
+        this.pushSamples(preroll.subarray(off, Math.min(off + chunk, preroll.length)));
+      }
+      this.prerollEndSeconds = this.audioClock;
+    }
+    this.sttStartSeconds = this.audioClock;
+
     const rec = this.deps.recognizer;
     if (rec) {
       this.unsubscribe.push(
@@ -720,6 +817,16 @@ export class FastLoop {
     if (this.session) this.session.empathy = level;
   }
 
+  /** Mid-session edit of the user's context (already trimmed). */
+  setSessionContext(sessionContext: string | null) {
+    if (this.session) this.session.sessionContext = sessionContext;
+  }
+
+  /** Mid-session edit of who the user is talking with. */
+  setRelationship(relationship: string | null) {
+    if (this.session) this.session.relationship = relationship;
+  }
+
   /** Which unknown-cluster label counts as the coached user when there is
    *  no voiceprint verdict (null = no convention). Takes effect from the
    *  next finalized turn. */
@@ -732,7 +839,14 @@ export class FastLoop {
   pushSamples(samples: Int16Array): void {
     if (!this.running || samples.length === 0) return;
     const f32 = new Float32Array(samples.length);
-    for (let i = 0; i < samples.length; i++) f32[i] = samples[i] / 32768;
+    let sq = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const v = samples[i] / 32768;
+      f32[i] = v;
+      sq += v * v;
+    }
+    this.sumSquares += sq;
+    this.sumSamples += samples.length;
     this.history.push({ startSample: this.samplesSeen, data: f32 });
     this.samplesSeen += samples.length;
     this.trimHistory();
@@ -796,12 +910,16 @@ export class FastLoop {
     } catch {
       // Recognizer teardown must never fail the session.
     }
-    const restarts = (this.deps.recognizer as { restarts?: unknown } | null)?.restarts;
+    const rec = this.deps.recognizer as { restarts?: unknown; restartErrorCodes?: unknown } | null;
+    const restarts = rec?.restarts;
+    const codes = rec?.restartErrorCodes;
     return {
       turns: [...this.turns],
       latencyLog: [...this.latencyLog],
       sttAvailable: this.sttAvailable,
       sttRestarts: typeof restarts === "number" ? restarts : 0,
+      sttRestartCodes: codes && typeof codes === "object" ? { ...(codes as Record<string, number>) } : {},
+      health: this.health(),
     };
   }
 
@@ -834,6 +952,12 @@ export class FastLoop {
     }
     const tStart = startSample / SILERO_SAMPLE_RATE;
     const tEnd = (startSample + frame.length) / SILERO_SAMPLE_RATE;
+    this.vadFrames += 1;
+    if (isSpeech) this.vadSpeechFrames += 1;
+    const prob = (this.vad as { lastProbability?: unknown }).lastProbability;
+    if (typeof prob === "number" && Number.isFinite(prob)) {
+      this.vadMaxProb = this.vadMaxProb === null ? prob : Math.max(this.vadMaxProb, prob);
+    }
     if (isSpeech) this.lastSpeechEnd = tEnd;
     this.lastFrameEnd = tEnd;
     const span = this.segmenter.push(isSpeech, tStart, tEnd);
@@ -1001,11 +1125,18 @@ export class FastLoop {
     return out;
   }
 
+  /** True for a span that ended inside the cold-start pre-roll. */
+  private isBeforeLoopUp(span: Span): boolean {
+    return this.prerollEndSeconds > 0 && span.end <= this.prerollEndSeconds;
+  }
+
   private async waitForText(span: Span): Promise<{ text: string; final: boolean; waitedMs: number }> {
     const t0 = this.now();
     if (!this.deps.recognizer || !this.sttAvailable) {
       return { text: "", final: true, waitedMs: 0 };
     }
+    // Pre-roll: the recognizer was not running yet — no words can come.
+    if (this.isBeforeLoopUp(span)) return { text: "", final: true, waitedMs: 0 };
     // Poll until final words cover the span or the grace window closes;
     // interim text is accepted at the deadline rather than nothing.
     for (;;) {
@@ -1031,7 +1162,10 @@ export class FastLoop {
     // production capability gate never starts the loop without STT) still
     // reports its turns — there are no words to claim, and identity,
     // prosody and the turn ranges are the point of the record.
-    const sttOwned = this.deps.recognizer === null || this.sttAvailable;
+    // A span wholly inside the cold-start pre-roll was never heard by the
+    // recognizer: its words (if any) are the server's, never claimed here.
+    const beforeLoopUp = this.isBeforeLoopUp(span);
+    const sttOwned = (this.deps.recognizer === null || this.sttAvailable) && !beforeLoopUp;
 
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {
@@ -1169,6 +1303,8 @@ export class FastLoop {
         context,
         prosodyHint: prosodyHint(prosody),
         mode: session.mode,
+        ...(session.relationship ? { relationship: session.relationship } : {}),
+        ...(session.sessionContext ? { sessionContext: session.sessionContext } : {}),
       });
       llmMs = this.now() - tl0;
       provider = result.provider;
@@ -1213,6 +1349,7 @@ export class FastLoop {
       transcriptFinal: aligned.final,
       startTime: span.start,
       endTime: span.end,
+      ...(beforeLoopUp ? { beforeLoopUp: true } : {}),
       isSelf: verdict.isSelf,
       personId: verdict.personId,
       displayName: verdict.displayName,
@@ -1264,6 +1401,7 @@ export class FastLoop {
     // claim that when on-device STT actually heard the span — with STT
     // dead (or absent) the server's transcript is the only one there is.
     if (sttOwned) {
+      this.sentTurns += 1;
       this.deps.send({
         type: "turn_local",
         session_id: session.sessionId,

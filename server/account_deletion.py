@@ -46,6 +46,13 @@ Watch/Firestore tier (``watch.store`` / ``watch.pairing_store`` /
   counter
 * diagnostics ("Send diagnostics") reports whose payload names this uid
 
+Coach knowledge library (``server/library/``):
+
+* ``library_items/{id}``       every saved note / uploaded document's metadata
+* ``library/{uid}/…``          the original uploaded files and their
+                              extracted text (recordings bucket)
+* ``library_chunks/…``         every text chunk and its embedding vector
+
 Relational tier (SQLite, ``main.DB_PATH``):
 
 * ``sessions`` rows owned by the uid (the text-tool transcripts)
@@ -122,6 +129,9 @@ COUNT_KEYS: tuple[str, ...] = (
     # The cost-guardrails ledger (usage/{day}/{uid}/). Added 2026-09-23 —
     # usage_meter started writing it the day it merged and no tier reached it.
     "usage_shards",
+    # Coach knowledge library (server/library/): notes + uploaded documents,
+    # with their stored files, extracted text and every chunk/vector.
+    "library_items",
     "text_sessions",
     "relationships",
 )
@@ -378,6 +388,15 @@ async def delete_diagnostics_tier(
     )
 
 
+async def delete_library_tier(library, uid: str, summary: DeletionSummary) -> None:
+    """Delete the uid's coach knowledge library: every item's Firestore doc,
+    its original file + extracted text in GCS, and every chunk/vector.
+    BLOCKING — this is content the user wrote or uploaded."""
+    if library is None:
+        return
+    summary.add("library_items", await library.delete_all_for_user(uid))
+
+
 # ---------------------------------------------------------------------------
 # Tier 3 — the relational (SQLite) rows
 # ---------------------------------------------------------------------------
@@ -434,6 +453,7 @@ async def delete_account_data(
     telemetry_store=None,
     blobs=None,
     db=None,
+    library=None,
 ) -> DeletionSummary:
     """Erase every tier for ``uid`` and return what was removed.
 
@@ -470,6 +490,8 @@ async def delete_account_data(
     await _run_tier(
         summary, "usage", delete_usage_tier(recordings_store, uid, summary),
     )
+
+    await _run_tier(summary, "library", delete_library_tier(library, uid, summary))
 
     if db is not None:
         await _run_tier(summary, "sessions_db", delete_sqlite_tier(db, uid, summary))

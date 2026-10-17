@@ -27,6 +27,18 @@ jest.mock("../src/live/modePrefs", () => ({
 jest.mock("../src/api/client", () => ({
   postShare: jest.fn(),
 }));
+// Coach library: the remembered selection and the list the picker shows.
+let mockLibrarySaved: string[] = [];
+const mockLibrarySave = jest.fn();
+jest.mock("../src/live/librarySelection", () => ({
+  ...jest.requireActual("../src/live/librarySelection"),
+  defaultLibrarySelectionStore: () => ({ load: () => mockLibrarySaved, save: mockLibrarySave }),
+}));
+const mockListLibrary = jest.fn();
+jest.mock("../src/api/library", () => ({
+  ...jest.requireActual("../src/api/library"),
+  listLibrary: () => mockListLibrary(),
+}));
 
 import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 
@@ -307,6 +319,74 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
   });
 
+  it("earpiece mode with no headset says the coach is silent (never the phone speaker)", async () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "public",
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const note = root!.root.findByProps({ testID: "earpiece-route-lost-note" });
+    expect(JSON.stringify(note.props.children)).toMatch(/No headset connected/);
+
+    // Headset back: the note goes away.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "private",
+    });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "earpiece-route-lost-note" })).toHaveLength(0);
+  });
+
+  it("relationship chips: nothing preselected; a tap sets it, a second tap clears it", async () => {
+    const setRelationship = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: null, setRelationship });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "relationship-parent" });
+    expect(chip.props.accessibilityState).toEqual({ selected: false });
+    act(() => chip.props.onPress());
+    expect(setRelationship).toHaveBeenCalledWith("parent");
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: "parent", setRelationship });
+    act(() => root!.update(<LiveCoachScreen />));
+    act(() => root!.root.findByProps({ testID: "relationship-parent" }).props.onPress());
+    expect(setRelationship).toHaveBeenLastCalledWith(null);
+  });
+
+  it("session context: the remembered text is loaded, handed to the hook, saved on edit and cleared in one tap", async () => {
+    const ctxModule = require("../src/live/sessionContext");
+    const store = { load: jest.fn(() => "Raise talk"), save: jest.fn(), clear: jest.fn() };
+    const spy = jest.spyOn(ctxModule, "defaultSessionContextStore").mockReturnValue(store);
+    const setSessionContext = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionContext, setRelationship: jest.fn(), relationship: null });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const input = root!.root.findByProps({ testID: "session-context-input" });
+    expect(input.props.value).toBe("Raise talk");
+    expect(setSessionContext).toHaveBeenCalledWith("Raise talk");
+    act(() => input.props.onChangeText("Raise talk with Dana"));
+    expect(setSessionContext).toHaveBeenLastCalledWith("Raise talk with Dana");
+    expect(store.save).toHaveBeenLastCalledWith("Raise talk with Dana");
+    act(() => root!.root.findByProps({ testID: "session-context-clear" }).props.onPress());
+    expect(setSessionContext).toHaveBeenLastCalledWith("");
+    expect(store.clear).toHaveBeenCalled();
+    expect(root!.root.findByProps({ testID: "session-context-input" }).props.value).toBe("");
+    spy.mockRestore();
+  });
+
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
@@ -416,6 +496,26 @@ describe("LiveCoachScreen", () => {
       root!.root.findByProps({ testID: "self-speaker-chip" }).props.onPress();
     });
     expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
+  });
+
+  it("identity chip assumes nobody: 'not set' until the user picks, first tap picks Speaker A", async () => {
+    const setSelfSpeaker = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      selfSpeaker: null,
+      wearerVoiceConfirmed: false,
+      setSelfSpeaker,
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "self-speaker-chip" });
+    expect(JSON.stringify(chip.findByType(require("react-native").Text).props.children)).toContain("not set");
+    act(() => chip.props.onPress());
+    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker A");
   });
 
   it("hides the identity chip before any session — and always in therapist mode", async () => {
@@ -723,5 +823,49 @@ describe("LiveCoachScreen — coaching options are collapsed until asked for", (
     expect(body().props.style).toBeUndefined();
     expect(sliders().props.style).toBeUndefined();
     act(() => component.unmount());
+  });
+});
+
+describe("LiveCoachScreen — Use from library", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+  const item = (id: string, title: string) => ({
+    id, title, kind: "note", chars: 10, status: "ready", error: null,
+    created_at: "2026-10-07T00:00:00Z", updated_at: "2026-10-07T00:00:00Z", indexed: false,
+  });
+
+  afterEach(() => {
+    mockLibrarySaved = [];
+  });
+
+  it("hands the remembered selection to the hook on mount; a pick is sent and remembered; Manage opens the library", async () => {
+    mockLibrarySaved = [A];
+    mockListLibrary.mockResolvedValue({
+      items: [item(A, "Pricing"), item(B, "Objections")],
+      retrieval_available: true,
+      limits: { max_file_bytes: 1, max_text_chars: 1, max_items: 50 },
+    });
+    const setLibraryItemIds = jest.fn();
+    const onOpenLibrary = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setLibraryItemIds, libraryAck: null });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen onOpenLibrary={onOpenLibrary} />));
+    });
+    await flush();
+    expect(setLibraryItemIds).toHaveBeenCalledWith([A]);
+
+    await act(async () => {
+      root!.root.findByProps({ testID: "library-picker-toggle" }).props.onPress();
+    });
+    await flush();
+    await act(async () => {
+      root!.root.findByProps({ testID: `library-pick-${B}` }).props.onPress();
+    });
+    expect(setLibraryItemIds).toHaveBeenLastCalledWith([A, B]);
+    expect(mockLibrarySave).toHaveBeenLastCalledWith([A, B]);
+
+    act(() => root!.root.findByProps({ testID: "library-picker-manage" }).props.onPress());
+    expect(onOpenLibrary).toHaveBeenCalled();
   });
 });

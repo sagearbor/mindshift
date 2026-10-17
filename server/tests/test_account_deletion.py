@@ -837,3 +837,61 @@ async def test_usage_counters_are_deleted_and_other_accounts_keep_theirs(
         "other account's shard may be touched"
     )
     assert resp.json()["counts"]["usage_shards"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Coach knowledge library (server/library/) — items, blobs and vectors
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def library_svc():
+    import library
+    from library.blobs import MemoryLibraryBlobs
+    from library.service import LibraryService
+    from library.store import MemoryLibraryStore
+    from library_fakes import FakeEmbedder
+
+    svc = LibraryService(MemoryLibraryStore(), MemoryLibraryBlobs(), FakeEmbedder())
+    library.set_service(svc)
+    yield svc
+    library.set_service(None)
+
+
+async def test_library_items_blobs_and_vectors_go_with_the_account(
+    client, library_svc, deleted_users,
+):
+    svc = library_svc
+    await svc.create_note(ME, "Raise pitch", "I shipped the migration early.")
+    await svc.create_document(ME, "deck.txt", "text/plain", b"Pricing: 49 a seat.")
+    await svc.create_document(ME, "prices.csv", "text/csv", b"Plan,Price\nGrowth,199\n")
+    kept = await svc.create_note(BYSTANDER, "Theirs", "untouched")
+    await svc.drain()
+    assert any(c.uid == ME for c in svc.store._chunks.values())
+
+    r = await client.request("DELETE", "/me", headers=_h(ME), json=CONFIRM)
+    assert r.status_code == 200, r.text
+    assert r.json()["counts"]["library_items"] == 3
+    assert deleted_users == [ME]
+
+    assert await svc.list_items(ME) == []
+    assert not any(c.uid == ME for c in svc.store._chunks.values())
+    assert not any(k.startswith(f"library/{ME}/") for k in svc.blobs._data)
+    # The bystander's library is untouched.
+    assert [i.id for i in await svc.list_items(BYSTANDER)] == [kept.id]
+    assert any(c.uid == BYSTANDER for c in svc.store._chunks.values())
+    assert any(k.startswith(f"library/{BYSTANDER}/") for k in svc.blobs._data)
+
+
+async def test_a_failing_library_delete_blocks_the_firebase_delete(
+    client, library_svc, deleted_users, monkeypatch,
+):
+    await library_svc.create_note(ME, "n", "text")
+
+    async def _boom(uid):
+        raise RuntimeError("simulated Firestore outage")
+
+    monkeypatch.setattr(library_svc, "delete_all_for_user", _boom)
+    r = await client.request("DELETE", "/me", headers=_h(ME), json=CONFIRM)
+    assert r.status_code == 500
+    assert "library: RuntimeError" in r.json()["detail"]["failed"]
+    assert deleted_users == []

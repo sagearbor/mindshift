@@ -364,7 +364,7 @@ class RoutingLLM:
 
     def complete(self, system: str, user: str, **_) -> str:
         self.prompts.append(user)
-        if "real-time delivery coach" in system:
+        if "Produce ONE nudge" in system:
             nudge = self.NUDGES[self._nudges % len(self.NUDGES)]
             self._nudges += 1
             return json.dumps({**json.loads(NUDGE_LLM_JSON), "nudge": nudge})

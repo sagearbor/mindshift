@@ -55,8 +55,9 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   production --non-interactive` (AAB, `autoIncrement` bumps
   `android.versionCode` in app.json — COMMIT that bump or the next build
   reuses the number and Play rejects it), then `eas submit -p android
-  --profile production --non-interactive` (internal-testing track; promote
-  to production only in the Play Console, owner-only). Submit needs a
+  --profile internal --non-interactive --latest` (internal-testing track;
+  the `production` submit profile targets a production DRAFT — promote to
+  production only in the Play Console, owner-only). Submit needs a
   Google Play service-account key stored on EAS (`eas credentials -p
   android` → "Google Service Account Key for Play Store Submissions") or a
   gitignored `apps/mobile/play-service-account.json` passed with `--key`.

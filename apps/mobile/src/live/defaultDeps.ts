@@ -61,7 +61,59 @@ export interface DefaultFastLoopOptions {
   /** Skip the ECAPA download / voiceprint fetch (e.g. no network). */
   speakerId?: boolean;
   lang?: string;
+  /** Seams (tests): the rung builders and the pre-flight's warm cache. */
+  builders?: { buildVad: typeof buildVad; buildSpeakerId: typeof buildSpeakerId };
+  warm?: WarmBuildCache;
+  now?: () => number;
 }
+
+/** How long each start step took (ms), and whether the pre-flight's
+ *  already-built VAD / speaker-ID were reused instead of rebuilt. */
+export interface FastLoopBuildTimings {
+  reusedWarm: boolean;
+  vadMs: number;
+  speakerIdMs: number;
+  llmMs: number;
+  totalMs: number;
+}
+
+interface WarmBuild {
+  vad: { vad: FrameVad; name: string };
+  speaker: SpeakerIdBuild;
+  builtAt: number;
+}
+
+/**
+ * The pre-flight probe builds exactly what a session start builds (Silero,
+ * ECAPA, the voiceprints) — on the Pixel 10 the start then rebuilt it all
+ * again, part of an ≈8.5 s cold start (2026-10-07). The probe now parks its
+ * build here and the next start TAKES it (single use: a VAD / labeler is
+ * never shared by two loops; the loop resets both at start). A parked build
+ * older than WARM_MAX_AGE_MS (voiceprints may have changed) or whose
+ * speaker-ID came up inactive (e.g. a network blip) is not reused.
+ */
+export const WARM_MAX_AGE_MS = 10 * 60 * 1000;
+
+export class WarmBuildCache {
+  private parked: WarmBuild | null = null;
+  put(build: WarmBuild) {
+    this.parked = build;
+  }
+  take(now: number): WarmBuild | null {
+    const b = this.parked;
+    this.parked = null;
+    if (!b) return null;
+    if (now - b.builtAt > WARM_MAX_AGE_MS) return null;
+    if (!b.speaker.capability.active) return null;
+    return b;
+  }
+  clear() {
+    this.parked = null;
+  }
+}
+
+/** The app-wide cache the default probe fills and the default start drains. */
+export const defaultWarmBuilds = new WarmBuildCache();
 
 export interface FastLoopCapabilities {
   vad: "silero" | "energy";
@@ -76,6 +128,8 @@ export interface FastLoopBuild {
   status: string;
   /** The same, structured — which loop stages are actually active. */
   capabilities: FastLoopCapabilities;
+  /** Per-step start timing (native default build; absent elsewhere). */
+  timings?: FastLoopBuildTimings;
 }
 
 // Native packages are resolved lazily inside the builders: expo-ai-kit (and
@@ -240,17 +294,46 @@ export async function createDefaultFastLoop(
   options: DefaultFastLoopOptions = {},
 ): Promise<FastLoopBuild> {
   void ensureOfflineModel(options.lang);
-  const [{ vad, name: vadName }, speaker] = await Promise.all([
-    buildVad(),
-    options.speakerId === false
-      ? Promise.resolve<SpeakerIdBuild>({
-          embedder: null,
-          labeler: null,
-          capability: inactiveCapability("disabled for this session"),
-        })
-      : buildSpeakerId(),
-  ]);
+  const now = options.now ?? Date.now;
+  const builders = options.builders ?? { buildVad, buildSpeakerId };
+  const t0 = now();
+  // Reuse what the pre-flight already built (single use), else build now.
+  const warm = options.speakerId === false ? null : (options.warm ?? defaultWarmBuilds).take(t0);
+  let vadMs = 0;
+  let speakerIdMs = 0;
+  const timed = async <T,>(work: () => Promise<T>, done: (ms: number) => void): Promise<T> => {
+    const s = now();
+    try {
+      return await work();
+    } finally {
+      done(now() - s);
+    }
+  };
+  const [{ vad, name: vadName }, speaker] = warm
+    ? [warm.vad, warm.speaker]
+    : await Promise.all([
+        timed(() => builders.buildVad(), (ms) => (vadMs = ms)),
+        options.speakerId === false
+          ? Promise.resolve<SpeakerIdBuild>({
+              embedder: null,
+              labeler: null,
+              capability: inactiveCapability("disabled for this session"),
+            })
+          : timed(() => builders.buildSpeakerId(), (ms) => (speakerIdMs = ms)),
+      ]);
+  const tl = now();
   const llm = buildLlm(options.providerOrder);
+  const llmMs = now() - tl;
+  const timings: FastLoopBuildTimings = {
+    reusedWarm: warm !== null,
+    vadMs,
+    speakerIdMs,
+    llmMs,
+    totalMs: now() - t0,
+  };
+  console.log(
+    `[live] loop build ${timings.totalMs} ms (${warm ? "reused pre-flight build" : `vad ${vadMs} ms, speaker-ID ${speakerIdMs} ms`}, llm ${llmMs} ms)`,
+  );
   // The web-only extras never reach the loop's deps.
   const { recognizer: _primed, onStatus: _status, ...loopHandlers } = handlers;
   void _primed;
@@ -273,6 +356,7 @@ export async function createDefaultFastLoop(
     loop,
     status: `${vadName} · ${describeSpeakerId(speaker.capability)} · LLM ${llm.providerNames.join(" → ")}`,
     capabilities,
+    timings,
   };
 }
 
@@ -287,18 +371,24 @@ export async function createDefaultFastLoop(
 export async function probeFastLoopCapabilities(
   options: DefaultFastLoopOptions = {},
 ): Promise<FastLoopCapabilities> {
-  const [{ vad }, speaker] = await Promise.all([
-    buildVad().catch(() => ({ vad: new EnergyVad(), name: "energy VAD" })),
+  const builders = options.builders ?? { buildVad, buildSpeakerId };
+  const [vadBuild, speaker] = await Promise.all([
+    builders.buildVad().catch(() => ({ vad: new EnergyVad() as FrameVad, name: "energy VAD" })),
     options.speakerId === false
       ? Promise.resolve<SpeakerIdBuild>({
           embedder: null,
           labeler: null,
           capability: inactiveCapability("disabled for this session"),
         })
-      : buildSpeakerId().catch((err: unknown) =>
+      : builders.buildSpeakerId().catch((err: unknown) =>
           speakerIdOff(err instanceof Error ? err.message : String(err)),
         ),
   ]);
+  const { vad } = vadBuild;
+  // Park the build for the next session start (see WarmBuildCache).
+  if (options.speakerId !== false) {
+    (options.warm ?? defaultWarmBuilds).put({ vad: vadBuild, speaker, builtAt: (options.now ?? Date.now)() });
+  }
   const llm = buildLlm(options.providerOrder);
   // Start the on-device model (Gemini Nano's AICore download) NOW, while the
   // user is still on the pre-flight — not on the first suggestion mid-session.

@@ -32,6 +32,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def bench():
+    pytest.importorskip("pandas")
     import feature_bench as fb
     df, groups = fb.load()
     df = df.dropna(subset=groups["tone"])          # apples-to-apples on the WavLM subset
