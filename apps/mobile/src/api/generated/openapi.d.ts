@@ -773,6 +773,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-uid usage rollups since a UTC date (owner allowlist only) */
+        get: operations["get_usage_admin_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -1276,6 +1293,43 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/library/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Items */
+        get: operations["list_items_library_items_get"];
+        put?: never;
+        /** Create Item */
+        post: operations["create_item_library_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Item */
+        get: operations["get_item_library_items__item_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Item */
+        delete: operations["delete_item_library_items__item_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch Item */
+        patch: operations["patch_item_library_items__item_id__patch"];
         trace?: never;
     };
     "/": {
@@ -2817,6 +2871,13 @@ export interface components {
             /** Enroll Count */
             enroll_count: number;
         };
+        /** Deleted */
+        Deleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Id */
+            id: string;
+        };
         /** DirectEnrollResponse */
         DirectEnrollResponse: {
             /** Enrolled */
@@ -3186,6 +3247,13 @@ export interface components {
             /** Email */
             email?: string | null;
         };
+        /** ItemPatch */
+        ItemPatch: {
+            /** Title */
+            title?: string | null;
+            /** Text */
+            text?: string | null;
+        };
         /** JobCreatedResponse */
         JobCreatedResponse: {
             /** Job Id */
@@ -3230,6 +3298,101 @@ export interface components {
             display_name: string;
             /** Attested */
             attested: boolean;
+        };
+        /** LibraryItem */
+        LibraryItem: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "note" | "document" | "table";
+            /** Chars */
+            chars: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "processing" | "ready" | "failed";
+            /** Error */
+            error?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /**
+             * Indexed
+             * @description Chunks + vectors exist (retrieval can use this item).
+             */
+            indexed: boolean;
+        };
+        /** LibraryItemDetail */
+        LibraryItemDetail: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "note" | "document" | "table";
+            /** Chars */
+            chars: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "processing" | "ready" | "failed";
+            /** Error */
+            error?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /**
+             * Indexed
+             * @description Chunks + vectors exist (retrieval can use this item).
+             */
+            indexed: boolean;
+            /** Filename */
+            filename?: string | null;
+            /** Content Type */
+            content_type?: string | null;
+            /**
+             * Chunk Count
+             * @default 0
+             */
+            chunk_count: number;
+            /** Preview */
+            preview: string;
+            /** Preview Truncated */
+            preview_truncated: boolean;
+            /**
+             * Text
+             * @description The whole text (only with ?full=1; capped at max_text_chars).
+             */
+            text?: string | null;
+        };
+        /** LibraryLimits */
+        LibraryLimits: {
+            /** Max File Bytes */
+            max_file_bytes: number;
+            /** Max Text Chars */
+            max_text_chars: number;
+            /** Max Items */
+            max_items: number;
+        };
+        /** LibraryList */
+        LibraryList: {
+            /** Items */
+            items: components["schemas"]["LibraryItem"][];
+            /** Retrieval Available */
+            retrieval_available: boolean;
+            limits: components["schemas"]["LibraryLimits"];
         };
         /** LinkPatch */
         LinkPatch: {
@@ -3300,6 +3463,11 @@ export interface components {
             mode: "earpiece" | "speaker" | "therapist" | "call" | "room";
             /** Turns */
             turns: components["schemas"]["TurnLocalEvent"][];
+            /**
+             * Debug Capture
+             * @default false
+             */
+            debug_capture: boolean;
             /** Tone Flags */
             tone_flags?: components["schemas"]["ToneFlagEvent"][];
             /** Speaker Identities */
@@ -3327,6 +3495,8 @@ export interface components {
             reflect: boolean;
             /** Mood Before */
             mood_before?: number | null;
+            /** Session Context */
+            session_context?: string | null;
         };
         /** LiveSessionOut */
         LiveSessionOut: {
@@ -3739,7 +3909,9 @@ export interface components {
             /** Transcript Turn */
             transcript_turn: string;
             /** Role */
-            role: string;
+            role?: string | null;
+            /** Relationship */
+            relationship?: string | null;
             /** Empathy Slider */
             empathy_slider: number;
             /**
@@ -3753,6 +3925,8 @@ export interface components {
             from_participant_id?: string | null;
             /** To Participant Id */
             to_participant_id?: string | null;
+            /** Library Item Ids */
+            library_item_ids?: string[] | null;
         };
         /** RespondResponse */
         RespondResponse: {
@@ -5782,6 +5956,42 @@ export interface operations {
             };
         };
     };
+    get_usage_admin_usage_get: {
+        parameters: {
+            query?: {
+                /** @description First UTC day to include, YYYY-MM-DD. Defaults to today. */
+                since?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_me_get: {
         parameters: {
             query?: {
@@ -6883,6 +7093,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_items_library_items_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_item_library_items_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_library_items__item_id__get: {
+        parameters: {
+            query?: {
+                full?: boolean;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_item_library_items__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_item_library_items__item_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItem"];
                 };
             };
             /** @description Validation Error */
