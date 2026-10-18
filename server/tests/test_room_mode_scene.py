@@ -339,7 +339,14 @@ class TestSessionRecord:
 
         body = {
             "session_id": SID, "started_at": "2026-10-07T10:00:00Z",
-            "ended_at": "2026-10-07T10:30:00Z", "turns": [],
+            "ended_at": "2026-10-07T10:30:00Z",
+            # One turn: since 2026-10-18 zero turns is a 422 unless the body
+            # opts in with debug_capture (test_sessions_live_debug_save.py).
+            "turns": [{
+                "type": "turn_local", "session_id": SID, "speaker": "Speaker A",
+                "text": "Let's start the meeting.", "start_time": 0.0, "end_time": 2.0,
+                "transcript_source": "on-device",
+            }],
         }
         assert LiveSessionIn(**body, mode="room").mode == "room"
         with pytest.raises(ValidationError):

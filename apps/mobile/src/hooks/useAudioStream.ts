@@ -94,8 +94,8 @@ import {
   type SessionDiagnostics,
 } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
+import { isDebugCaptureActive } from "../store/devModeStore";
 import {
-  KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
   POST_RETRY_DELAYS_MS,
   isRetryablePostFailure,
   openDefaultSessionPayloadKeeper,
@@ -217,8 +217,11 @@ export interface UseAudioStreamOptions {
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
-  /** KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG override: keep a local copy of the
-   *  session payload and retry a transiently failed POST. */
+  /** Override of the "Debug session capture" switch (default: the switch,
+   *  store/devModeStore.ts isDebugCaptureActive — OFF unless the owner
+   *  turned it on): keep a local copy of the session payload, POST a
+   *  zero-turn session anyway, and send `debug_capture: true` on the config
+   *  frame and the POST. Transient POST failures are retried either way. */
   keepSessionPayload?: boolean;
   /** Where that copy goes (default: the app's document dir; null = nowhere). */
   makePayloadKeeper?: () => SessionPayloadKeeper | null;
@@ -863,8 +866,13 @@ export function useAudioStream(
   makeFastLoopRef.current = options.makeFastLoop ?? defaultMakeFastLoop;
   const postSessionRef = useRef(options.postSession ?? postLiveSession);
   postSessionRef.current = options.postSession ?? postLiveSession;
-  const keepPayloadRef = useRef(options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG);
-  keepPayloadRef.current = options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG;
+  /** Test override of the "Debug session capture" switch (undefined = the
+   *  switch, store/devModeStore.ts isDebugCaptureActive). */
+  const keepPayloadOverrideRef = useRef(options.keepSessionPayload);
+  keepPayloadOverrideRef.current = options.keepSessionPayload;
+  /** Debug session capture for THIS session, latched at startSession so the
+   *  config frame, the local copy and the POST all agree. */
+  const keepPayloadRef = useRef(false);
   const payloadKeeperRef = useRef(options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper);
   payloadKeeperRef.current = options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper;
   const retryDelaysRef = useRef(options.postRetryDelaysMs ?? POST_RETRY_DELAYS_MS);
@@ -1392,6 +1400,9 @@ export function useAudioStream(
       ...(useMoodStore.getState().before !== null
         ? { mood_before: useMoodStore.getState().before! }
         : {}),
+      // Owner-only "Debug session capture": lets the server store a
+      // zero-turn session (with its own transcript). Never sent otherwise.
+      ...(keepPayloadRef.current ? { debug_capture: true } : {}),
     };
     localTurnsRef.current = [];
     toneFlagsRef.current = [];
@@ -1410,9 +1421,9 @@ export function useAudioStream(
     const keepCopy = () => {
       if (payloadKeeper) payloadKeeper.save(kept);
     };
-    // Zero on-device turns: with the debug flag on, POST anyway so the
-    // server keeps its own transcript (server flag
-    // LIVE_DEBUG_SAVE_EMPTY_SESSIONS); with it off, skip as before.
+    // Zero on-device turns: with debug capture on, POST anyway (body
+    // `debug_capture: true`) so the server keeps its own transcript (server
+    // kill switch LIVE_DEBUG_SAVE_EMPTY_SESSIONS); with it off, skip.
     if (emptyReason !== null) postSkipReasonRef.current = emptyReason;
     if (emptyReason !== null && !keepPayloadRef.current) {
       console.warn(`[useAudioStream] POST /sessions/live skipped: ${emptyReason}`);
@@ -1470,7 +1481,9 @@ export function useAudioStream(
       r.status === "created" && r.episodeId ? r.episodeId : null;
     const result = await attemptPost();
     applyResult(result);
-    if (result.status === "failed" && keepPayloadRef.current && isRetryablePostFailure(result.error)) {
+    // Retries are NOT tied to debug capture: a network blip must not lose
+    // anyone's session (the keeper is simply null when capture is off).
+    if (result.status === "failed" && isRetryablePostFailure(result.error)) {
       // Transient failure: retry in the background (Stop must not wait on
       // it); the kept audio waits for the outcome.
       const delays = retryDelaysRef.current;
@@ -2230,6 +2243,10 @@ export function useAudioStream(
             // of the coach (server/room_mode.py). Other modes send no `mode`
             // (their wire is unchanged).
             ...(sessionModeRef.current === "room" ? { mode: "room" } : {}),
+            // Owner-only "Debug session capture" (Settings → Diagnostics):
+            // the server keeps this session's transcript in memory for a
+            // zero-turn POST. Absent for everyone else.
+            ...(keepPayloadRef.current ? { debug_capture: true } : {}),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -2996,6 +3013,7 @@ export function useAudioStream(
       stopRequestedRef.current = false;
 
       sessionIdRef.current = sessionId;
+      keepPayloadRef.current = keepPayloadOverrideRef.current ?? isDebugCaptureActive();
       empathyRef.current = empathyLevel;
       interjectRef.current = interjectLevel;
       reconnectAttempts.current = 0;

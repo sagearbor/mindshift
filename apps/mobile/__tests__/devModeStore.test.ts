@@ -5,9 +5,14 @@
  */
 import * as SecureStore from "expo-secure-store";
 import {
+  DEFAULT_DEBUG_CAPTURE,
   DEFAULT_DEV_MODE,
+  debugCaptureKey,
   devModeKey,
+  isDebugCaptureActive,
+  loadDebugCapture,
   loadDevMode,
+  saveDebugCapture,
   saveDevMode,
   useDevModeStore,
 } from "../src/store/devModeStore";
@@ -57,5 +62,52 @@ describe("useDevModeStore", () => {
     useDevModeStore.getState().setDevMode("u1", false);
     expect(useDevModeStore.getState().devMode).toBe(false);
     expect(setItem).toHaveBeenCalledWith(devModeKey("u1"), "off");
+  });
+});
+
+// "Debug session capture" (2026-10-18): the owner-only switch under
+// Developer mode that keeps local session payload copies and asks the server
+// to keep its transcript. OFF by default; only ACTIVE while Developer mode
+// is on too (turning Developer mode off can't leave a hidden capture on).
+describe("debug session capture", () => {
+  beforeEach(() => {
+    useDevModeStore.setState({ devMode: false, debugCapture: DEFAULT_DEBUG_CAPTURE });
+  });
+
+  it("is OFF by default, per account, and fails open to OFF", async () => {
+    expect(DEFAULT_DEBUG_CAPTURE).toBe(false);
+    expect(useDevModeStore.getState().debugCapture).toBe(false);
+    expect(debugCaptureKey("u1")).toBe("mindshift.debugSessionCapture.v1.u1");
+    expect(debugCaptureKey(null)).toBe("mindshift.debugSessionCapture.v1.anon");
+    expect(await loadDebugCapture("u1")).toBe(false);
+    getItem.mockRejectedValue(new Error("keystore locked"));
+    expect(await loadDebugCapture("u1")).toBe(false);
+    expect(isDebugCaptureActive()).toBe(false);
+  });
+
+  it("round-trips and persists under its own key", async () => {
+    await saveDebugCapture("u1", true);
+    expect(setItem).toHaveBeenCalledWith(debugCaptureKey("u1"), "on");
+    getItem.mockResolvedValue("on");
+    expect(await loadDebugCapture("u1")).toBe(true);
+  });
+
+  it("hydrate loads both flags; setDebugCapture flips now and persists", async () => {
+    getItem.mockImplementation(async (key: string) => (key === debugCaptureKey("u1") ? "on" : "off"));
+    await useDevModeStore.getState().hydrate("u1");
+    expect(useDevModeStore.getState()).toMatchObject({ devMode: false, debugCapture: true });
+
+    useDevModeStore.getState().setDebugCapture("u1", false);
+    expect(useDevModeStore.getState().debugCapture).toBe(false);
+    expect(setItem).toHaveBeenCalledWith(debugCaptureKey("u1"), "off");
+  });
+
+  it("is active only while Developer mode is on as well", () => {
+    useDevModeStore.setState({ devMode: false, debugCapture: true });
+    expect(isDebugCaptureActive()).toBe(false);
+    useDevModeStore.setState({ devMode: true, debugCapture: false });
+    expect(isDebugCaptureActive()).toBe(false);
+    useDevModeStore.setState({ devMode: true, debugCapture: true });
+    expect(isDebugCaptureActive()).toBe(true);
   });
 });

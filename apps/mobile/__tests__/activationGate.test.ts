@@ -193,7 +193,9 @@ describe("⚡ activation is LIVE — and these are the conditions it must keep m
     ]);
   });
 
-  it("is immune to recording gain — the property that makes it safe out of corpus", () => {
+  // Reads a RAVDESS clip: skipped (like the gate above) where the corpus
+  // isn't downloaded (CI, a fresh worktree).
+  (haveCorpus ? it : it.skip)("is immune to recording gain — the property that makes it safe out of corpus", () => {
     // v1's single biggest input was ABSOLUTE energy, so the same voice through
     // a hotter microphone looked like a person shouting: 48 dB of gain moved
     // its logit by +3.96, which is how the owner's calm narration reached
