@@ -73,6 +73,31 @@ def test_privacy_policy_mentions_deepgram() -> None:
     )
 
 
+def test_privacy_policy_mentions_library_and_vertex() -> None:
+    body = _text(PRIVACY_HTML)
+    assert "Vertex AI" in body, (
+        "Google Vertex AI embeds coach-library text and, for retrieval, recent "
+        "conversation turns (server/library/embeddings.py); the policy must "
+        "keep naming it."
+    )
+    assert "coach library" in body.lower(), (
+        "The coach knowledge library (server/library/, declared as Files and "
+        "docs in the Play pack) must stay described in the policy."
+    )
+
+
+def test_privacy_policy_mentions_session_note_and_room_mode() -> None:
+    body = _text(PRIVACY_HTML).lower()
+    assert "session note" in body, (
+        "The Live Coach session note (session_context) goes to Anthropic every "
+        "turn; the policy must keep describing it."
+    )
+    assert "room mode" in body, (
+        "Room mode (server/room_mode.py) transcribes everyone in the room; the "
+        "policy must keep describing it."
+    )
+
+
 def test_privacy_policy_last_updated_line_present() -> None:
     body = _text(PRIVACY_HTML)
     assert re.search(r"Last updated:\s*\d", body), (

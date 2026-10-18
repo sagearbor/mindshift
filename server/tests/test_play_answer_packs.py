@@ -145,6 +145,10 @@ def test_every_proof_path_exists(name):
     for where, raw in _iter_proof_strings(data):
         for path in _candidate_paths(raw):
             checked += 1
+            # Installed dependencies are not repo files; CI's backend job has
+            # no node_modules, so only check them where they exist.
+            if path.startswith("node_modules/") and not (REPO_ROOT / "node_modules").exists():
+                continue
             if not (REPO_ROOT / path).exists():
                 broken.append(f"{where}: {path}")
     assert checked > 50, f"{PACKS[name].name}: only {checked} proof paths found — the walker is broken"

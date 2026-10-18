@@ -21,7 +21,19 @@ _schema:
   verified_against_commit: d364c11  # ship/heat-judge-20260920 merged, 2026-09-20
   # ...plus the guest-mode change of the same day (app_access, account_creation_methods,
   # the Email-address data type, _provenance): docs/decisions/2026-09-20-guest-mode.md
-  last_updated: 2026-09-20
+  last_updated: 2026-10-18
+  library_room_verified_against: 2e3e433  # origin/main with PR #193 (library + Room mode) and #200
+  changed_2026_10_18:
+    what_this_marker_means: >
+      Same convention as changed_2026_09_20: every leaf this refresh changed
+      carries a sibling `changed_2026_10_18` note. Grep for it and re-enter
+      only those fields.
+    summary_of_what_moved:
+      - "Data safety: NEW TICK — Files and docs → Files and docs (the coach library accepts uploaded PDF/.docx/.txt/.md/.csv/.xlsx documents and stores the original bytes)."
+      - "Data safety: App activity → Other user-generated content now also covers library notes and the Live Coach session note. Its four answers are UNCHANGED."
+      - "Data safety: Messages → Other in-app messages gains a recipient (Google Vertex AI embeds the last turns for library retrieval) and Room mode (transcribes everyone in the room). Its four answers are UNCHANGED."
+      - "Data safety: Audio files → Voice or sound recordings: Room mode streams the whole room's speech. Its four answers are UNCHANGED."
+      - "Debug save is now OPT-IN (Settings → Diagnostics → Developer mode → Debug session capture), not on by default. Depends on the feat/debug-capture-toggle PR being merged and deployed — until it is, the server-side save is still on by default (MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS default 1) and the phone keeps payload copies (KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG = true)."
   previously_verified_against: "f04a5c1 (origin/main, 2026-08-25) — the first derivation"
   authored_by: Claude (agent), from a full read of server/ and apps/mobile/
   changed_2026_09_20:
@@ -469,7 +481,10 @@ data_safety:
         then doc) / groups membership / device_tokens / pairings /
         failed_claim_attempts / diagnostics telemetry docs keyed to the uid;
         the SQLite sessions + relationships (+ participants, voice_profiles)
-        rows; and last of all the Firebase Auth user.
+        rows; the coach library — library_items/{id}, library/{uid}/ in the
+        recordings bucket (original uploads, extracted text, table.json) and
+        every library_chunks doc for the uid (delete_library_tier, BLOCKING);
+        and last of all the Firebase Auth user.
         ONE PRECISION, so this answer is exactly true of the code: every tier
         holding the user's own content is BLOCKING — if it fails, the account
         is NOT deleted, the endpoint returns 500 naming the failed tier, and
@@ -793,16 +808,36 @@ data_safety:
         plus a DOWNLOAD of it: GET /therapist/export/{episode_id} serves the
         session as a text or PDF document (transcript, tone, escalations,
         coaching, the consent record, their own notes) for a patient file.
+        Since 2026-10-18 (1.19.0): when a library selection is too large to
+        send whole, the last 6 turns (tail 4,000 chars) are embedded by Google
+        Vertex AI as the retrieval query; the vector is used once, not stored.
+        In ROOM mode (Live Coach → Room) the transcript is of EVERYONE in the
+        room; there is no coaching prompt — Anthropic receives only a question
+        addressed with the wake phrase ("MindShift, …"), the last 12
+        conversation lines and the selected library text, and writes a 1-2
+        sentence answer the phone speaks with on-device TTS (expo-speech).
+      changed_2026_10_18: >
+        why_shared names Vertex AI and Room mode; retention_truth now describes
+        the opt-in Debug session capture. Collected/Shared/Ephemeral/Required
+        and purposes are UNCHANGED — nothing to re-enter.
       changed_2026_09_23: >
         why_shared and retention_truth now name the therapist export. The data
         type, its Collected/Shared/Ephemeral/Required values and its purposes
         are UNCHANGED — this was already "shared: true" — so nothing in the
         Data safety form needs re-entering unless the console shows the prose.
       retention_truth: >
-        Live sessions keep NOTHING server-side while they run (a bounded
-        in-memory list, explicitly not persisted). A transcript becomes stored
-        only when the phone POSTs the finished session, or when an upload is
-        made with consent. Once stored there is no TTL — it lives until deleted.
+        Live sessions persist nothing while they run (a bounded in-memory
+        list). A transcript becomes stored only when the phone POSTs the
+        finished session, or when an upload is made with consent. The one
+        exception is OPT-IN: with Settings → Diagnostics → Developer mode →
+        "Debug session capture" turned on (off by default, per user), the
+        server also holds that session's transcript and session note in a
+        process-local registry (TTL 6 h, enforced lazily) and persists them
+        if the phone POSTs the session with zero turns, and the phone keeps a
+        local copy of each finished session payload. A Room-mode session is
+        stored like any live session (all speakers' turns; audio unless Keep
+        audio is off) and is auto-shared like any other; only the post-session
+        "could have said" pass is skipped (server/routers/sessions.py). Once stored there is no TTL — it lives until deleted.
         One thing deletion cannot reach: a document a share recipient already
         downloaded through /therapist/export is a file on their own machine.
         Revoking the grant blocks the NEXT export (find_share is re-read per
@@ -817,6 +852,11 @@ data_safety:
         - server/recordings_store.py:1184-1190             # therapist_notes/{uid}/{episode_id}.json
         - server/routers/therapist.py:383-441              # GET /therapist/export/{id} — text/PDF download of the session
         - server/therapist_export.py:206-214               # the document's sections, in order
+        - server/library/live.py                           # RECENT_TURNS 6 — retrieval query
+        - server/library/service.py                        # QUERY_TAIL_CHARS 4000; embed(..., task="query")
+        - server/room_mode.py                              # wake phrase; ANSWER_HISTORY_TURNS 12; cards need no LLM
+        - server/audio_pipeline.py                         # process_room_segment; LIVE_DEBUG_SAVE_EMPTY_SESSIONS / _DEBUG_TRANSCRIPTS
+        - apps/mobile/src/components/RoomPanel.tsx         # consent banner + "tell the room" note
 
     - play_path: "Audio files → Voice or sound recordings"
       collected: true
@@ -836,6 +876,12 @@ data_safety:
         Deepgram's prerecorded endpoint. Coaching text (not user audio) is also
         POSTed to Deepgram Aura for text-to-speech. A therapist granted an episode
         can PLAY BACK its stored audio, not just read it.
+      changed_2026_10_18: >
+        Room mode (1.19.0) streams and, with Keep audio on (default), keeps the
+        speech of everyone in the room, not just the wearer and one partner.
+        Same pipeline, same recipient (Deepgram). Room answers are spoken by
+        the phone's own TTS (expo-speech), not Deepgram Aura. The four wizard
+        answers are UNCHANGED.
       what_is_actually_kept: >
         A live coaching session's audio is KEPT BY DEFAULT (owner decision,
         2026-08-29): the phone writes the session's 16 kHz mono microphone audio
@@ -913,6 +959,48 @@ data_safety:
         - server/recordings_store.py:241-244                          # video_360p.mp4 derivative only
         - apps/mobile/src/live/call/callSession.ts:22-25              # calls are audio-only
 
+    - play_path: "Files and docs → Files and docs"
+      changed_2026_10_18: "NEW TYPE — tick it. The coach knowledge library (1.19.0) accepts uploaded documents."
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        Documents a user uploads to their coach library (Settings → Coach
+        library): PDF, .docx, .txt/.md, .csv, .xlsx (legacy .doc/.xls are
+        refused), up to 10 MB each and 50 items per account. The ORIGINAL bytes
+        and the extracted text are stored in the recordings bucket under
+        library/{uid}/{item_id}/ (plus table.json, a typed copy of a
+        spreadsheet's rows, for exact lookups); title, file name, size and
+        status in Firestore library_items/{id}; ~800-token overlapping chunks
+        with their 768-d embeddings in library_chunks/.
+      why_shared: >
+        Chunk text is sent to Google Vertex AI (text-embedding-005,
+        us-central1) to build the search index. When the user selects items
+        for a session (Live Coach → Use from library) the text goes to
+        Anthropic in the coach prompt: the WHOLE text of every selected item
+        when the selection fits 6,000 estimated tokens, otherwise the nearest
+        excerpts within 1,500; exact spreadsheet facts computed on our server
+        go in the same prompt. In Room mode the same library text goes to
+        Anthropic only for an addressed question. Never served to another user.
+      user_can_delete: >
+        Yes. Settings → Coach library → Delete (DELETE /library/items/{id})
+        removes the GCS prefix, the chunks and the item doc; DELETE /me runs
+        delete_library_tier (BLOCKING).
+      proof:
+        - server/library/models.py              # limits
+        - server/library/extract.py             # formats; .csv/.xlsx are kind "table"
+        - server/library/blobs.py               # library/{uid}/{item_id}/original{.ext} + text.txt
+        - server/library/service.py             # _save_table (table.json); build_context full vs retrieved; delete_item
+        - server/library/tables.py              # deterministic exact facts
+        - server/library/store.py               # library_items / library_chunks
+        - server/library/embeddings.py          # Vertex predict over https
+        - server/library/live.py                # FULL 6000 / RETRIEVED 1500 / RECENT_TURNS 6
+        - server/account_deletion.py            # delete_library_tier
+        - server/routers/library.py             # /library/items
+        - apps/mobile/src/screens/LibraryScreen.tsx
+
     - play_path: "App activity → Other user-generated content"
       collected: true
       shared: true
@@ -924,12 +1012,32 @@ data_safety:
         the names attached to voices, the relationship/role configuration, the
         empathy-slider setting, and a therapist's private free-text notes on an
         episode (capped at 5000 chars).
-      why_shared: "Speaker labels and titles travel with an episode a therapist is granted."
+        Since 2026-10-18 (1.19.0) also: typed NOTES in the coach library
+        (stored like documents, indexed by Vertex, sent to Anthropic when
+        selected), and the free-text SESSION NOTE (session_context, <= 4,000
+        chars) typed on Live Coach. The session note is remembered on the
+        device (live-session-context.txt / localStorage; not cleared by
+        sign-out), sent to the server and to Anthropic in the coach prompt
+        every turn, and NOT stored server-side — EXCEPT when the user has
+        turned on Debug session capture (Developer mode, off by default): a
+        live session POSTed with zero phone turns is then stored with
+        meta.debug_session_context. Hence processed_ephemerally stays false.
+      changed_2026_10_18: >
+        what_it_actually_is / why_shared now cover library notes and the
+        session note. Collected/Shared/Ephemeral/Required and purposes are
+        UNCHANGED — nothing to re-enter.
+      why_shared: >
+        Speaker labels and titles travel with an episode a therapist is
+        granted. Library notes go to Google Vertex AI (embeddings) and to
+        Anthropic when selected for a session; the session note goes to
+        Anthropic every turn of the session it was written for.
       proof:
         - server/recordings_store.py:202-227                # meta.json: title, manual_speaker_labels, source
         - server/main.py:836-848                            # voice_profiles (suggestion/rephrase pairs, style_notes)
         - server/therapist_links.py:44                      # note cap 5000 chars
         - server/recordings_store.py:1258-1263              # therapist_notes write
+        - server/routers/sessions.py                        # LiveSessionIn.session_context; debug_meta in the zero-turn branch
+        - apps/mobile/src/live/sessionContext.ts            # device store; ON_DEVICE_CONTEXT_MAX_CHARS 600
 
     - play_path: "App activity → App interactions"
       collected: true
@@ -995,16 +1103,17 @@ data_safety:
       proof: [server/audio_pipeline.py:106, server/audio_ingest.py:48, server/audio_pipeline.py:125-126]
     - name: "Anthropic (Claude)"
       role: "Generates the coaching suggestions and the tone/analysis output."
-      receives: "Conversation transcript text, unredacted, plus the tone numbers the phone measured."
+      receives: "Conversation transcript text, unredacted, plus the tone numbers the phone measured, the session note, selected library text, and in Room mode the addressed questions."
       model: "claude-3-haiku-20240307 (default, MINDSHIFT_MODEL)"
       proof: [server/llm_client.py:347,474-479,638-650, server/audio_pipeline.py:1139-1195]
     - name: "Google (Firebase Authentication)"
       role: "Sign-in and identity. Project arborfam-hub."
       receives: "Email, password/Google credential, display name."
       proof: [apps/mobile/src/auth/firebaseConfig.ts:14-30, server/auth.py:32,69-80]
-    - name: "Google Cloud (Cloud Run, Cloud Storage, Firestore)"
-      role: "Runs the MindShift backend and stores everything the user chose to keep."
-      receives: "Everything stored — audio derivatives, video derivatives, transcripts, analysis, voiceprints, links, notes."
+    - name: "Google Cloud (Cloud Run, Cloud Storage, Firestore, Vertex AI)"
+      changed_2026_10_18: "Vertex AI added (named inside the Google Cloud bullet of the policy)."
+      role: "Runs the MindShift backend, stores everything the user chose to keep, and embeds library text for retrieval."
+      receives: "Everything stored — audio derivatives, video derivatives, transcripts, analysis, voiceprints, links, notes, library files — plus library text and (for retrieval) the last few conversation turns sent to Vertex AI text-embedding-005 in us-central1."
       proof: [scripts/deploy_cloudrun.sh:108-109,126-129,210-221, server/recordings_store.py:53-73]
     - name: "Google / Apple platform speech services"
       role: "On-device transcription on the phone."
@@ -1572,6 +1681,9 @@ catch_all:
         - "App activity → Other user-generated content"
         - "App info and performance → Crash logs"
         - "App info and performance → Diagnostics"
+        - "Files and docs → Files and docs"     # changed_2026_10_18: NEW — tick this (coach library uploads)
+      changed_2026_10_18:
+        the_only_new_tick: "Files and docs → Files and docs. Every other tick is unchanged."
       changed_2026_09_20:
         the_only_new_tick: "Health and fitness → Health info. Everything else on this list was already ticked in the 2026-08-26 pass."
         do_not_tick: "Health and fitness → Fitness info — there are no steps, workouts or calories anywhere in either app."
