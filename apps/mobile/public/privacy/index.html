@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Privacy Policy — MindShift</title>
-<meta name="description" content="Exactly what MindShift does with your microphone audio, transcripts, voiceprint, Wear OS heart rate and tone score: what is stored, who it is sent to (Deepgram, Anthropic, Google, Cloudflare, Expo), how long it is kept, and how to delete it." />
+<meta name="description" content="Exactly what MindShift does with your microphone audio, transcripts, voiceprint, Wear OS heart rate, tone score, and the notes and documents you give the coach: what is stored, who it is sent to (Deepgram, Anthropic, Google, Cloudflare, Expo), how long it is kept, and how to delete it." />
 <meta name="robots" content="index,follow" />
 <meta name="theme-color" content="#312E81" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23312E81'/%3E%3Cpath d='M9 12a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z' fill='%23A5B4FC'/%3E%3C/svg%3E" />
@@ -104,7 +104,7 @@
 <header class="top">
   <p class="eyebrow">MindShift</p>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 23 September 2026</p>
+  <p class="updated">Last updated: 18 October 2026</p>
 </header>
 
 <div class="lede">
@@ -117,7 +117,13 @@
   it is transcribed as it streams and thrown away instead. If you pair a
   <strong>Wear OS watch</strong>, MindShift also reads your <strong>heart
   rate</strong> and scores the sound of your voice for <strong>tone</strong> —
-  both stay on our own server and are never sent to anyone else. Recordings you
+  both stay on our own server and are never sent to anyone else. If you give
+  the coach background — a <strong>session note</strong>, or notes and
+  documents saved to your <strong>coach library</strong> — that text goes to
+  Anthropic with the conversation, and a library is indexed with
+  <strong>Google Vertex AI</strong> so the coach can find the relevant part. The
+  optional <strong>Room mode</strong> listens to <em>everyone</em> in the room,
+  so tell them before you turn it on. Recordings you
   make outside a live session are saved only when you tick the consent box, and
   only you can see any of it until you deliberately share a session with a
   therapist you name by email. There are <strong>no ads</strong>, no
@@ -194,7 +200,7 @@ any other (see <a href="#delete">Deleting your data</a>).</p>
     <tr>
       <td>Transcripts &amp; coaching suggestions</td>
       <td>The working material of the coach, and the session you look back at</td>
-      <td>Sent to Anthropic (Claude) to generate suggestions; stored on our server when you save a session</td>
+      <td>Sent to Anthropic (Claude) to generate suggestions; when a long library is selected, the last few turns also go to Google Vertex AI to find the relevant passages; stored on our server when you save a session</td>
       <td>Yes, when saved — until you delete it</td>
     </tr>
     <tr>
@@ -208,6 +214,18 @@ any other (see <a href="#delete">Deleting your data</a>).</p>
       <td>Only if you choose to record or upload a video to analyse</td>
       <td>Our server; the audio inside it goes to Deepgram for transcription</td>
       <td>Only if you tick consent — and then only a small 360p copy</td>
+    </tr>
+    <tr>
+      <td>Coach library notes &amp; documents</td>
+      <td>Background you choose to give the coach — a brief, your notes, a price sheet</td>
+      <td>Our server (Google Cloud Storage and Firestore); the text is indexed by Google Vertex AI; the parts selected for a session are sent to Anthropic (Claude)</td>
+      <td>Yes — the original file, its text and its search index, until you delete the item or your account</td>
+    </tr>
+    <tr>
+      <td>Session note</td>
+      <td>What you tell the coach about the conversation ahead</td>
+      <td>Remembered on your device; sent to our server and on to Anthropic (Claude) for that session</td>
+      <td>On your device until you clear it. Not on our server, unless you turn on <em>Debug session capture</em> (see <a href="#session-note">Session note</a>)</td>
     </tr>
     <tr>
       <td>Email &amp; display name</td>
@@ -307,10 +325,16 @@ stops being kept while the watch keeps nudging.</p>
 generates the suggestions, the tone read and the after-the-fact analysis. We
 send the transcript text as spoken — we do not strip out names, places or
 anything else, because removing them would break the coaching. Assume that
-whatever is said out loud in a session reaches Anthropic as text.</p>
+whatever is said out loud in a session reaches Anthropic as text. If you
+selected library material for the session that is too long to send whole, the
+last few turns of the conversation (up to about 4,000 characters) are also sent
+to <strong>Google Vertex AI</strong>, which turns them into a search key for
+finding the relevant passages. That key is used once and not stored.</p>
 <p>A live session's transcript is held in memory only. It becomes stored data
 when the session finishes and your phone saves it, or when you upload a
-recording with the consent box ticked.</p>
+recording with the consent box ticked. (The one exception is the opt-in
+<em>Debug session capture</em> described under
+<a href="#session-note">Session note</a>.)</p>
 
 <h3>Your voiceprint</h3>
 <p>If you enrol a voice — yours, or someone you tag as "Mom" — MindShift turns a
@@ -331,6 +355,87 @@ small 360p video if there was video — never the original file. Videos you reco
 in the app are also saved to your own camera roll on your phone; that copy is
 yours and we never touch it.</p>
 
+<h3 id="library">Your coach library</h3>
+<p>You can give the coach background to draw on in <em>Settings → Coach
+library</em>: type a <strong>note</strong>, or upload a
+<strong>document</strong> — a PDF, a Word document (.docx), a plain-text or
+Markdown file, a CSV file or an Excel workbook (.xlsx). You can keep up to 50
+items, and each file can be up to 10 MB.</p>
+<p>When you upload a file we keep <strong>the original file exactly as you
+uploaded it</strong>, plus the plain text we read out of it, in Google Cloud
+Storage under your account ID. A note is kept the same way, as text. For a
+spreadsheet we also keep a structured copy of its rows and columns, so that when
+a number in it comes up in conversation our server can look the figure up
+exactly instead of letting the AI guess. Each item's title, file name, size and
+status are kept in Firestore.</p>
+<p>So the coach can find the right part of a long document, we split its text
+into overlapping passages and send them to <strong>Google Vertex AI</strong>, a
+Google Cloud service that turns each passage into a list of numbers describing
+what it is about (an "embedding"). The passages and their embeddings are stored
+in Firestore under your account ID. Vertex AI runs in the United States.</p>
+<p><strong>Nothing in your library reaches the coach unless you select it for a
+session</strong> — on Live Coach, under <em>Use from library</em>. When you do,
+it goes to <strong>Anthropic (Claude)</strong> as part of the coach's prompt. If
+everything you selected is short — roughly 4,500 words in total — the
+<strong>whole text</strong> is sent with every turn. If it is longer, only the
+passages that best match what is being said are sent; to pick them, the last few
+turns of the conversation also go to Google Vertex AI, as described under
+<em>Transcripts</em> above. An exact figure looked up in a spreadsheet goes to
+Anthropic the same way, with the row it came from.</p>
+<p>Your library is never shown to another person — not a therapist you link, not
+anyone on a call. One thing to know: if the coach uses a fact from your library
+in a suggestion, that suggestion is part of the session like any other, so
+anyone you share the session with sees it. We do not use your library to train
+any model, and Anthropic's and Google Cloud's terms for these services do not
+let them train on it.</p>
+<p>Deleting an item removes the original file, its text, its passages and their
+embeddings from our storage. Deleting your account removes all of them.</p>
+
+<h3 id="session-note">Session note</h3>
+<p>On the Live Coach screen you can type a note about the conversation ahead —
+"asking my manager for a raise; this year I shipped…" — up to 4,000 characters.
+It is <strong>remembered on your device</strong> (in your browser, on the web
+version) so you can reuse it, until you tap <strong>Clear</strong>. Signing out
+does not clear it, so clear it yourself on a shared device.</p>
+<p>For each live session where you have written one, the note is sent to our
+server and on to <strong>Anthropic (Claude)</strong> as background for the
+coach, with every turn. When the coaching runs on your phone, a shortened
+version (about the first 600 characters) also goes into your phone's own
+on-device model. It is never included in a diagnostic report.</p>
+<p><strong>Our server does not save your session note.</strong> The one
+exception is a switch that is off unless you turn it on: if you turn on
+<em>Debug session capture</em> in <em>Settings → Diagnostics → Developer
+mode</em>, a session your phone has no transcript for is saved with our
+server's transcript of it and your note, and a copy of each finished session is
+kept on your phone.</p>
+
+<h3 id="room">Room mode</h3>
+<p>Room mode is a Live Coach mode you choose yourself (<em>Live Coach →
+Room</em>). It turns the phone into an assistant for a whole meeting, and so,
+unlike the other modes, it <strong>listens to and transcribes everyone in the
+room</strong>, not just you and the person you are talking with. Tell the people
+present before you start. While it is on, the screen shows a banner saying
+"MindShift is listening to this room", and the phone says so out loud once when
+the session starts.</p>
+<p>Everyone's speech is streamed to our server and on to
+<strong>Deepgram</strong> for transcription, like any live session. There is no
+personal coaching in Room mode. It answers only when someone addresses it by
+starting a sentence with "MindShift, …": then that question, the last few lines
+of the conversation and the library material you selected are sent to
+<strong>Anthropic (Claude)</strong>, which writes a one- or two-sentence answer
+that your phone reads aloud with its own speech voice. When someone mentions
+something your selected library covers, the matching line from your library is
+shown on screen; for a long library, finding it sends the last few lines of
+conversation to Google Vertex AI, as described above.</p>
+<p>When it ends, a Room session is saved like any other live session — the
+transcript of everyone who spoke and, unless you turned <em>Keep audio</em>
+off, its audio — and it is shared with a linked therapist the same way. Its
+transcript is analysed by Anthropic like any saved session, but it never gets
+the personal "what you could have said" coaching afterwards. The spoken answers
+and on-screen cards are not saved with it. To stop listening, tap
+<strong>Stop</strong>; to delete the saved session, delete it from
+<em>Recordings</em> like any other.</p>
+
 <h3>Diagnostics</h3>
 <p>When a session ends with an error, the app automatically sends us a
 diagnostic report so we can find out why. It contains your user ID and email
@@ -344,7 +449,7 @@ reports go to our own server and nowhere else.</p>
 <h3>What we never touch</h3>
 <p>MindShift does not request or collect your location, your contacts, your
 calendar, your messages, your browsing history, your files (other than the
-audio or video you deliberately pick), or any advertising identifier. The app
+audio, video or documents you deliberately pick), or any advertising identifier. The app
 does not contain an advertising SDK, an analytics SDK or an attribution SDK of
 any kind.</p>
 
@@ -357,13 +462,18 @@ job.</p>
   when you have the spoken-coach option on (so it can read them aloud).
   <a href="https://deepgram.com/privacy" rel="noopener">Deepgram's privacy policy</a>.</li>
   <li><strong>Anthropic</strong> — the Claude model that writes the coaching.
-  Receives your conversation transcript as text.
+  Receives your conversation transcript as text, your session note, any
+  library material you selected for the session, and in Room mode the
+  questions addressed to it.
   <a href="https://www.anthropic.com/legal/privacy" rel="noopener">Anthropic's privacy policy</a>.</li>
   <li><strong>Google — Firebase Authentication</strong> — sign-in. Receives your
   email and, if you use Google or Apple sign-in, your display name.</li>
   <li><strong>Google Cloud</strong> — Cloud Run, Cloud Storage and Firestore run
-  our server and hold everything you chose to save. Data is stored in the United
-  States and is encrypted at rest by Google.</li>
+  our server and hold everything you chose to save, including your library.
+  <strong>Vertex AI</strong>, also Google Cloud, turns your library's text —
+  and, when it is searched, the last few turns of the conversation — into
+  embeddings so the coach can find the relevant passages. Data is stored in the
+  United States and is encrypted at rest by Google.</li>
   <li><strong>Cloudflare</strong> — when two phones on an in-app call cannot
   reach each other directly, Cloudflare's TURN service relays the call. It
   forwards encrypted packets it cannot read; it receives no transcripts and no
@@ -445,8 +555,8 @@ service, which cannot read it.</p>
 <h2 id="security">How it is protected</h2>
 <ul>
   <li>Everything in transit is encrypted with TLS — the app to our server
-  (HTTPS and secure WebSockets), and our server out to Deepgram, Anthropic and
-  Cloudflare.</li>
+  (HTTPS and secure WebSockets), and our server out to Deepgram, Anthropic,
+  Google Vertex AI and Cloudflare.</li>
   <li>Everything at rest is encrypted by Google Cloud with Google-managed
   AES-256 keys. We do not add a second layer of our own encryption on top of
   that, so we are not claiming end-to-end encryption for stored sessions — the
@@ -459,9 +569,12 @@ service, which cannot read it.</p>
 <h2 id="retention">How long we keep it</h2>
 <p>Live transcripts: not kept until you save the session. Live audio: kept with
 the session by default once you save it — turn off <em>Keep audio</em> and it
-is never written down at all. Everything you do save — sessions, transcripts,
-analysis, audio and video derivatives, heart-rate and tone series, voiceprints,
-therapist links and notes — is kept <strong>until you delete it</strong>. There
+is never written down at all. Session note: kept on your device until you
+clear it, and on our server only with a session saved by the opt-in
+<em>Debug session capture</em> (see <a href="#session-note">Session note</a>).
+Everything you do save — sessions, transcripts, analysis, audio and video
+derivatives, heart-rate and tone series, voiceprints, library notes and
+documents with their search index, therapist links and notes — is kept <strong>until you delete it</strong>. There
 is no automatic expiry on any of that, and we would rather say that plainly than
 invent a retention period we do not enforce.</p>
 <p>Two exceptions, both on the Wear OS watch: a live watch session keeps at most
@@ -478,6 +591,10 @@ after 48 hours regardless of when you turn the Journal toggle off.</p>
   your voice signature. You can also delete individual enrolled people and
   individual voice samples.</li>
   <li><em>Settings → People</em> → delete a person you enrolled.</li>
+  <li><em>Settings → Coach library</em> → <strong>Delete</strong> on an item.
+  Removes the file, its text and its search index.</li>
+  <li><em>Live Coach</em> → the session note → <strong>Clear</strong>. Removes
+  it from your device.</li>
   <li>A session's share list → remove a recipient. Access ends immediately.</li>
   <li>The therapist card → <strong>Unlink</strong>.</li>
 </ul>
@@ -494,7 +611,8 @@ which also covers what to do if you can no longer sign in.</p>
 <p>Deleting your account erases: every stored recording and session (audio,
 video, transcripts, analysis, titles, speaker labels, and any heart-rate or
 tone series recorded with it); your voiceprint and every person you enrolled;
-every share you granted and every session shared with you; your therapist link
+your whole coach library — every note and uploaded document, its extracted text
+and its search index; every share you granted and every session shared with you; your therapist link
 in both directions and your private notes; your unfinished uploads and analysis
 jobs; your watch pairing, live sessions (including their streamed audio and
 heart rate), captures — including a "Save last 2 min" or Journal capture — and
@@ -539,6 +657,18 @@ moves; the commitment is that this page keeps describing what the code actually
 does, not what would be convenient to say.</p>
 <h3>Change log</h3>
 <ul>
+  <li><strong>18 October 2026.</strong> Added the coach library: notes and
+  uploaded documents you can give the coach, what we store (the original file,
+  its text, a structured copy of a spreadsheet, and a search index), that the
+  text is indexed by Google Vertex AI and sent to Anthropic when you select it
+  for a session, and that deleting an item or your account removes it. Named
+  Vertex AI as receiving the last few turns of a conversation when a long
+  library is searched. Added the session note: remembered on your device, sent
+  to our server and Anthropic for that session, and not saved on our server.
+  Added Room mode, which listens to everyone in the room and answers only when
+  addressed. Said that the debug capture that can save a session's server
+  transcript and note, and keep a copy of each finished session on your phone,
+  is now off unless you turn it on in Developer mode.</li>
   <li><strong>23 September 2026.</strong> Said something this page had only
   hinted at: a therapist, or anyone else you grant a session to, can
   <em>download that session as a text file or PDF</em> — transcript, tone,

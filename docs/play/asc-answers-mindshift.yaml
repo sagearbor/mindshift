@@ -193,6 +193,18 @@ still_required_before_submission:
       explicitly — including an offer to add a report-and-block path if the
       reviewer wants one, which is cheaper than an appeal.
 
+app_privacy_label_changed_2026_10_18_library_room: >
+  NO DECLARED VALUE CHANGED. The coach library (uploaded PDF/.docx/.txt/.md/
+  .csv/.xlsx documents and typed notes) and the Live Coach session note are
+  user content; Apple has no Files category, so they fall under User Content
+  -> Other User Content, already declared (linked, not tracking, App
+  Functionality + Product Personalization). Room mode's audio and transcript
+  of everyone in the room are User Content -> Audio Data / Other User Content,
+  both already declared. The processors that receive them (Anthropic; Google
+  Vertex AI, part of Google Cloud; Deepgram) are named in the privacy policy.
+  Re-check if a library item ever becomes visible to another user, or if
+  library content is used for anything beyond the wearer's own coaching.
+
 gotchas_for_the_next_app:
   - "filter[identifier] on /v1/bundleIds is a PREFIX match: querying com.x.app also
      returns com.x.app.watchkitapp, watch first. Always re-filter exactly."
