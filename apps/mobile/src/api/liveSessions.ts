@@ -80,6 +80,10 @@ export interface LiveSessionBody {
    *  answer is NOT here — see `patchSessionMood` (it lands after this POST
    *  has already produced an episode). */
   mood_before?: number;
+  /** Owner-only "Debug session capture" (store/devModeStore.ts): lets the
+   *  server store a session with zero turns (with its own transcript).
+   *  Sent only as `true` while that switch is on; omitted otherwise. */
+  debug_capture?: boolean;
 }
 
 export type PostLiveSessionResult =

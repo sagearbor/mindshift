@@ -739,15 +739,15 @@ describe("D. Zero local turns while the transcript shows speech = a broken loop"
   });
 });
 
-// --- E. Session POST: never `turns: []`; local copy + retry (debug flag) ----
+// --- E. Session POST: never `turns: []`; retries; local copy (debug capture) -
 import { MemoryFs } from "../src/recorder/memoryFs";
 import {
   createSessionPayloadKeeper,
   isRetryablePostFailure,
-  KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
   MAX_KEPT_PAYLOADS,
   type KeptSessionPayload,
 } from "../src/live/sessionPayloadKeep";
+import { useDevModeStore } from "../src/store/devModeStore";
 
 const PAYLOAD_DIR = "file:///doc/live-session-payloads";
 
@@ -769,11 +769,90 @@ async function oneLocalTurn(fake: ReturnType<typeof makeFakeFastLoop>, text = "w
 }
 
 describe("E. The session POST: never turns: [], a local copy, and retries", () => {
-  it("the debug flag is one named switch, on for now", () => {
-    expect(KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG).toBe(true);
+  afterEach(() => {
+    useDevModeStore.setState({ devMode: false, debugCapture: false });
   });
 
-  it("no on-device turns, debug flag OFF: the POST is skipped (never turns: []), the reason is kept and reported", async () => {
+  it("debug capture is OFF by default: no local copy, no debug_capture on the config frame or the POST, zero turns skipped", async () => {
+    useDevModeStore.setState({ devMode: false, debugCapture: false });
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "created" as const, episodeId: "ep-d", sharedWith: [] };
+        },
+      },
+      "live-default",
+    );
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).not.toHaveProperty("debug_capture");
+    expect(ws.sentJson().filter((m) => m.type === "config" && "debug_capture" in m)).toHaveLength(0);
+    expect(mem.fs.exists(`${PAYLOAD_DIR}/live-default.json`)).toBe(false);
+  });
+
+  it("the switch stored ON but Developer mode OFF: still no capture", async () => {
+    useDevModeStore.setState({ devMode: false, debugCapture: true });
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "created" as const, episodeId: "ep-h", sharedWith: [] };
+        },
+      },
+      "live-hidden",
+    );
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted[0]).not.toHaveProperty("debug_capture");
+    expect(ws.sentJson().some((m) => m.type === "config" && "debug_capture" in m)).toBe(false);
+    expect(mem.fs.exists(`${PAYLOAD_DIR}/live-hidden.json`)).toBe(false);
+  });
+
+  it("Settings switch ON (Developer mode + Debug session capture): the opening config frame and the POST carry debug_capture: true, and a local copy is kept", async () => {
+    useDevModeStore.setState({ devMode: true, debugCapture: true });
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "created" as const, episodeId: "ep-s", sharedWith: [] };
+        },
+      },
+      "live-switch",
+    );
+    // The opening (auth) config frame — the one carrying empathy_slider.
+    const opening = ws.sentJson().find((m) => m.type === "config" && "empathy_slider" in m);
+    expect(opening).toMatchObject({ debug_capture: true });
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].debug_capture).toBe(true);
+    expect(mem.read("live-switch").attempts.map((a) => a.status)).toEqual(["created"]);
+  });
+
+  it("no on-device turns, debug capture OFF: the POST is skipped (never turns: []), the reason is kept and reported", async () => {
     const fake = makeFakeFastLoop();
     const mem = memoryKeeper();
     const posted: LiveSessionBody[] = [];
@@ -806,7 +885,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     );
   });
 
-  it("no on-device turns, debug flag ON: the session is still POSTed so the server keeps its transcript, and the reason is reported", async () => {
+  it("no on-device turns, debug capture ON: the session is still POSTed (debug_capture: true) so the server keeps its transcript, and the reason is reported", async () => {
     const fake = makeFakeFastLoop();
     const mem = memoryKeeper();
     const posted: LiveSessionBody[] = [];
@@ -814,6 +893,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
       {
         makeFastLoop: fake.make,
         makePayloadKeeper: () => mem.keeper,
+        keepSessionPayload: true,
         postSession: async (body) => {
           posted.push(body);
           return { status: "created" as const, episodeId: "ep-1", sharedWith: [] };
@@ -829,6 +909,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     });
     expect(posted).toHaveLength(1);
     expect(posted[0].turns).toEqual([]);
+    expect(posted[0].debug_capture).toBe(true);
     const kept = mem.read("live-empty-debug");
     expect(kept.empty_turns_reason).toBe("on-device loop finalized 0 turns while transcript had 1");
     await act(async () => {
@@ -853,6 +934,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
       {
         makeFastLoop: fake.make,
         makePayloadKeeper: () => mem.keeper,
+        keepSessionPayload: true,
         postRetryDelaysMs: [5, 5, 5],
         postSession: async (body) => {
           posted.push(body);
@@ -885,6 +967,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
       {
         makeFastLoop: fake.make,
         makePayloadKeeper: () => mem.keeper,
+        keepSessionPayload: true,
         postRetryDelaysMs: [5, 5],
         postSession: async (body) => {
           posted.push(body);
@@ -902,10 +985,14 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     expect(mem.read("live-422").attempts).toEqual([expect.objectContaining({ status: "failed", error: "API error: 422" })]);
   });
 
-  it("flag off: no copy, no retry", async () => {
+  it("debug capture off: no copy, but a transient failure is STILL retried (retries are not a debug aid)", async () => {
     const fake = makeFakeFastLoop();
     const mem = memoryKeeper();
     const posted: LiveSessionBody[] = [];
+    const outcomes: PostLiveSessionResult[] = [
+      { status: "failed", error: "Network request failed" },
+      { status: "created", episodeId: "ep-r", sharedWith: [] },
+    ];
     const { hook } = await startEarpieceSession(
       {
         makeFastLoop: fake.make,
@@ -914,7 +1001,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
         postRetryDelaysMs: [5],
         postSession: async (body) => {
           posted.push(body);
-          return { status: "failed" as const, error: "Network request failed" };
+          return outcomes.shift()!;
         },
       },
       "live-off",
@@ -924,7 +1011,9 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
       await hook.result.current.stopSession();
       await flush(40);
     });
-    expect(posted).toHaveLength(1);
+    expect(posted).toHaveLength(2);
+    expect(posted.every((b) => !("debug_capture" in b))).toBe(true);
+    expect(hook.result.current.lastEpisode).toMatchObject({ postStatus: "created", episodeId: "ep-r" });
     expect(mem.fs.exists(`${PAYLOAD_DIR}/live-off.json`)).toBe(false);
   });
 

@@ -78,7 +78,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Request, UploadFile
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 import audio_ingest
 import guest_quota
@@ -182,9 +182,14 @@ class LiveSessionIn(BaseModel):
     started_at: str
     ended_at: str
     mode: LiveMode
-    # Normally at least one turn. Zero is accepted ONLY while the debug save
-    # is on (audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS) -- see _consistent.
+    # Normally at least one turn. Zero is accepted ONLY when this body opts
+    # in with ``debug_capture: true`` AND the server's debug save is on
+    # (audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS) -- see _consistent.
     turns: list[TurnLocalEvent] = Field(max_length=LIVE_MAX_TURNS)
+    # The phone's owner-only "Debug session capture" switch (off by default,
+    # so normal users never send it): a zero-turn session is stored, with
+    # the server's own transcript when the WS session also opted in.
+    debug_capture: StrictBool = False
     tone_flags: list[ToneFlagEvent] = Field(default_factory=list)
     speaker_identities: list[SpeakerIdentityEvent] = Field(default_factory=list)
     # Mid-call naming: raw wire label → the name/person the user gave it.
@@ -227,7 +232,9 @@ class LiveSessionIn(BaseModel):
     def _consistent(self) -> "LiveSessionIn":
         import audio_pipeline
 
-        if not self.turns and not audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS:
+        if not self.turns and not (
+            self.debug_capture and audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS
+        ):
             raise ValueError("turns: at least one turn is required")
         # Every turn must belong to THIS session — a mixed payload is a
         # client bug we refuse at the door rather than store as one episode.
@@ -807,7 +814,8 @@ async def ingest_live_session(
     debug_meta: dict | None = None
     if not turn_events:
         # DEBUG SAVE (audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS; the
-        # model already refused zero turns with the flag off): the phone
+        # model already refused zero turns unless the flag is on AND the
+        # body opted in with debug_capture): the phone
         # produced no turns, so keep the session and, when this process has
         # it, the server's own cloud transcript of it. The wearer-typed
         # session_context is stored ONLY here -- never on a normal ingest.

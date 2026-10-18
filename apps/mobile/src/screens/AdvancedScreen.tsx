@@ -260,6 +260,14 @@ export default function AdvancedScreen({
     (on: boolean) => setDevMode(experimentalUid, on),
     [setDevMode, experimentalUid],
   );
+  // Debug session capture (same store): owner-only, shown under Developer
+  // mode and only in force while Developer mode is on. Off by default.
+  const debugCapture = useDevModeStore((s) => s.debugCapture);
+  const setDebugCapture = useDevModeStore((s) => s.setDebugCapture);
+  const handleDebugCapture = useCallback(
+    (on: boolean) => setDebugCapture(experimentalUid, on),
+    [setDebugCapture, experimentalUid],
+  );
   const [experimentalVoiceEngine, setExperimentalVoiceEngine] = useState(DEFAULT_EXPERIMENTAL_VOICE_ENGINE);
   useEffect(() => {
     let cancelled = false;
@@ -845,6 +853,25 @@ export default function AdvancedScreen({
           />
         </View>
       </View>
+      {devMode ? (
+        <View style={styles.row} testID="debug-session-capture-row">
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <Text style={styles.rowTitle}>Debug session capture</Text>
+              <Text style={styles.rowSub}>
+                {debugCapture
+                  ? "On — each live session’s transcript is saved on this phone, and the server keeps its own copy so a session with no phone turns is still stored. For debugging only."
+                  : "Off — live session transcripts are not kept on this phone for debugging."}
+              </Text>
+            </View>
+            <Switch
+              testID="debug-session-capture-switch"
+              value={debugCapture}
+              onValueChange={handleDebugCapture}
+            />
+          </View>
+        </View>
+      ) : null}
       <TouchableOpacity
         testID="advanced-send-diagnostics"
         accessibilityRole="button"

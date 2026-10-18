@@ -184,8 +184,15 @@ UTTERANCE_BUFFER_KEEP = 500
 # (422), using THIS server's own transcript of that session when it has one
 # (see _DEBUG_TRANSCRIPTS below). Born from a family-dinner session where
 # the phone produced no turns and the only record of what went wrong was
-# lost. Turn it off with MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS=0: the
-# 422 returns and no server transcript is kept in memory at all.
+# lost.
+# PER-SESSION OPT-IN since 2026-10-18 (before 1.19.0 went public): only a
+# session whose config frame carries ``debug_capture: true`` (the phone's
+# Settings -> Diagnostics -> "Debug session capture" switch, off by
+# default) has its transcript kept in memory, and only a POST body with
+# ``debug_capture: true`` may have zero turns. Everyone else gets the 422.
+# This env flag is the server-wide KILL SWITCH on top of that:
+# MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS=0 -> never, whatever the phone
+# asks (the 422 returns and no server transcript is kept at all).
 LIVE_DEBUG_SAVE_EMPTY_SESSIONS = (
     os.getenv("MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS", "1") != "0"
 )
@@ -1587,8 +1594,13 @@ class SessionContext:
     # library info cards) instead of the coach, and `room` holds its state.
     mode: str | None = None
     room: "room_mode.RoomState | None" = None
-    # The debug-save registry entry for this session (None while the flag is
-    # off) -- see _debug_register_session.
+    # Config `debug_capture` (bool, default False): the phone's owner-only
+    # "Debug session capture" switch. Only then is this session's transcript
+    # registered for the debug save (and only while the env kill switch
+    # LIVE_DEBUG_SAVE_EMPTY_SESSIONS is on).
+    debug_capture: bool = False
+    # The debug-save registry entry for this session (None unless
+    # debug_capture is on and the flag is on) -- see _debug_register_session.
     debug_transcript: "_DebugTranscript | None" = None
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
@@ -1773,8 +1785,9 @@ _DEBUG_TRANSCRIPTS: dict[tuple[str, str], _DebugTranscript] = {}
 def _debug_register_session(ctx: SessionContext) -> None:
     """Make this connection's utterance buffer readable by the debug save
     (by REFERENCE: later turns show up without further calls). No-op with
-    the flag off or before auth."""
-    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS or not ctx.uid:
+    the flag off, before auth, or unless the session opted in with config
+    ``debug_capture: true``."""
+    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS or not ctx.uid or not ctx.debug_capture:
         return
     now = time.monotonic()
     for key, entry in list(_DEBUG_TRANSCRIPTS.items()):
@@ -1827,9 +1840,10 @@ def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
     natural attachment point for a future in-session summary/context feature,
     but capped so an hour-long session cannot grow process memory without
     bound. Not persisted by this module. The one exception is the owner-
-    approved debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): when the phone
-    POSTs a session with zero turns, the ingest reads this buffer via
-    debug_server_transcript and stores it. Flag off -> never read.
+    approved debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS, per-session opt-in
+    via config ``debug_capture``): when that phone POSTs a session with zero
+    turns, the ingest reads this buffer via debug_server_transcript and
+    stores it. Not opted in, or flag off -> never read.
     """
     ctx.utterances.append(utterance)
     if len(ctx.utterances) > UTTERANCE_BUFFER_MAX:
@@ -2038,6 +2052,15 @@ async def _apply_config(
             ctx.tts_mode = None
     if "report_latency" in payload and isinstance(payload["report_latency"], bool):
         ctx.report_latency = payload["report_latency"]
+    # Owner-only debug capture (validated-or-ignored). Registered as soon as
+    # the session is authenticated and opted in (the opening frame is
+    # applied after ctx.uid is set; handle_audio_stream's own call after
+    # auth is then an idempotent no-op). Turning it off later un-registers
+    # nothing (the entry ages out by TTL).
+    if "debug_capture" in payload and isinstance(payload["debug_capture"], bool):
+        ctx.debug_capture = payload["debug_capture"]
+        if ctx.debug_capture and ctx.uid and ctx.debug_transcript is None:
+            _debug_register_session(ctx)
     # Load the profile ONCE, the first time both ids are known — not per
     # utterance. uid-scoped, so a session can never load another user's stored
     # voice. A lookup failure degrades to no profile, never breaks the session.
@@ -2301,6 +2324,10 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                  a reported turn are dropped.
         config keys ``tts`` ("server" | "on-device" | null) and
         ``report_latency`` (bool) — see ``_apply_config``.
+        ``debug_capture`` (bool, default false) — owner-only debug aid:
+        keep this session's server transcript in memory so a zero-turn
+        POST /sessions/live (body ``debug_capture: true``) can store it.
+        Ignored while MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS=0.
         Coaching config keys (all optional, accepted on every config frame):
         ``relationship`` (child|partner|parent|coworker|friend|other|null) —
         a light tone hint; ``wearer_known`` (bool) — the phone vouches that
@@ -2534,8 +2561,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # 4401; just return (no worker task has been created yet, so nothing leaks).
     if not await _authenticate(websocket, ctx, send_json):
         return
-    # Debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): expose this session's own
-    # transcript to POST /sessions/live, for a phone that produced no turns.
+    # Debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS + config debug_capture):
+    # expose this session's own transcript to POST /sessions/live, for a
+    # phone that produced no turns. No-op unless the session opted in.
     _debug_register_session(ctx)
 
     # Cost guardrails: refresh what OTHER server instances have already

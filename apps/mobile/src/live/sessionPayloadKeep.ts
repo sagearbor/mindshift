@@ -3,18 +3,23 @@
  * POST went out with `turns: []`, got a 422, and the session was simply
  * gone — no local copy, no retry).
  *
- * Behind ONE flag, KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG (owner-approved for
- * now; flip to false to turn all of it off):
+ * Behind the owner-only "Debug session capture" switch (Settings →
+ * Diagnostics, shown under Developer mode; store/devModeStore.ts
+ * isDebugCaptureActive — OFF by default since 2026-10-18, it used to be a
+ * hard-coded `true` const):
  *   - the finished session payload is written to the phone (document dir,
  *     `live-session-payloads/<session_id>.json`, newest MAX_KEPT_PAYLOADS
  *     kept) together with every POST attempt's outcome;
+ *   - a session with zero on-device turns is still POSTed (body
+ *     `debug_capture: true`) so the server can store its own transcript.
+ *
+ * Independent of the switch:
  *   - a POST that failed for a transient reason (network, 5xx, 429) is
  *     retried after POST_RETRY_DELAYS_MS; a 4xx such as 422 is not (the
- *     same body would be refused again) — it is kept for debugging instead.
- *
- * Independent of the flag, the hook never sends `turns: []`: with no
- * on-device turns the POST is skipped and the reason recorded
- * (`empty_turns_reason`).
+ *     same body would be refused again);
+ *   - the hook never sends `turns: []` for a normal user: with no on-device
+ *     turns the POST is skipped and the reason recorded
+ *     (`empty_turns_reason`).
  *
  * The file holds the transcript of a private conversation. It lives in the
  * app's own sandbox, is never uploaded by this module, and is capped.
@@ -24,10 +29,6 @@ import { Paths } from "expo-file-system";
 import type { RecorderFs } from "../recorder/types";
 import { ExpoRecorderFs } from "../recorder/expoFs";
 import type { LiveSessionBody } from "../api/liveSessions";
-
-/** THE flag: keep a local copy of each finished session payload and retry a
- *  transiently failed POST. Debug aid; on while the owner is testing. */
-export const KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG = true;
 
 export const PAYLOAD_DIR_NAME = "live-session-payloads";
 export const MAX_KEPT_PAYLOADS = 10;
@@ -93,9 +94,10 @@ export function createSessionPayloadKeeper(fs: RecorderFs, dir: string): Session
   };
 }
 
-/** The production keeper (null in the browser, or when the flag is off). */
+/** The production keeper (null in the browser). Only opened by the hook
+ *  while debug session capture is on. */
 export function openDefaultSessionPayloadKeeper(): SessionPayloadKeeper | null {
-  if (!KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG || Platform.OS === "web") return null;
+  if (Platform.OS === "web") return null;
   try {
     const base = Paths.document.uri;
     const dir = `${base.endsWith("/") ? base.slice(0, -1) : base}/${PAYLOAD_DIR_NAME}`;

@@ -714,6 +714,39 @@ describe("Developer mode switch", () => {
   });
 });
 
+describe("Debug session capture switch (Diagnostics, under Developer mode)", () => {
+  const SecureStore = require("expo-secure-store") as { getItemAsync: jest.Mock; setItemAsync: jest.Mock };
+
+  afterEach(() => {
+    useDevModeStore.setState({ debugCapture: false });
+    SecureStore.setItemAsync.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("is hidden while Developer mode is off", async () => {
+    useDevModeStore.setState({ devMode: false, debugCapture: false });
+    const comp = await render();
+    expect(queryId(comp, "debug-session-capture-switch")).toBeNull();
+  });
+
+  it("is OFF by default under Developer mode; flipping it on persists the account's choice", async () => {
+    useDevModeStore.setState({ devMode: true, debugCapture: false });
+    const comp = await render();
+    const sw = queryId(comp, "debug-session-capture-switch");
+    expect(sw).not.toBeNull();
+    expect(sw!.props.value).toBe(false);
+    expect(textOf(queryId(comp, "debug-session-capture-row")!)).toContain("Debug session capture");
+    await act(async () => {
+      sw!.props.onValueChange(true);
+    });
+    expect(useDevModeStore.getState().debugCapture).toBe(true);
+    expect(queryId(comp, "debug-session-capture-switch")!.props.value).toBe(true);
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+      expect.stringMatching(/^mindshift\.debugSessionCapture\.v1\./),
+      "on",
+    );
+  });
+});
+
 describe("Experimental voice engine switch", () => {
   const SecureStore = require("expo-secure-store") as { getItemAsync: jest.Mock; setItemAsync: jest.Mock };
 
