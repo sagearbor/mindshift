@@ -183,6 +183,10 @@ export interface ReplayOptions {
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
+  /** Pre-built voiceprints used INSTEAD of enrolling from the meta — e.g.
+   *  the owner's real enrolled print replaying one of his own recordings
+   *  (replay/recordingReplay.ts). `enroll` / `enrollFrom` are ignored. */
+  enrolled?: EnrollmentRecord[];
 }
 
 export const DEFAULT_REPLAY_OPTIONS: Omit<ReplayOptions, "mode"> = {
@@ -276,6 +280,9 @@ export interface ReplayResult {
   capability: { vad: "silero" | "energy"; speakerId: boolean; enrolled: EnrollmentRecord[] };
   turns: LocalTurn[];
   sent: TurnLocalEvent[];
+  /** Virtual ms at which each `sent[i]` left the loop (when the real phone
+   *  would have put it on the socket). */
+  sentAtMs: number[];
   spoken: SpokenLine[];
   nudges: NudgeEvent[];
   /** ALERT haptic levels, in order — the lane the scene invariants pin
@@ -321,8 +328,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const script = scene.script;
 
   // --- speaker-ID: enroll from the meta -----------------------------------
-  const enrolled: EnrollmentRecord[] = [];
-  if (models.embedder && opts.enroll !== "none") {
+  const enrolled: EnrollmentRecord[] = opts.enrolled ? [...opts.enrolled] : [];
+  if (models.embedder && opts.enroll !== "none" && !opts.enrolled) {
     const who = opts.enroll === "all" ? script.speakers : script.selfSpeaker ? [script.selfSpeaker] : [];
     const sources: EnrollmentSource[] = opts.enrollFrom.map((s) => ({ script: s.script, pcm: s.pcmF32 }));
     for (const speaker of who) {
@@ -362,6 +369,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const spokenLog = new SpokenLog(clock, () => vad.lastVerdict);
   const policy = recordingPolicy(phoneNudgePolicy(), () => clock.now());
   const sent: TurnLocalEvent[] = [];
+  const sentAtMs: number[] = [];
   const turns: LocalTurn[] = [];
   const nudges: NudgeEvent[] = [];
   const haptics: number[] = [];
@@ -378,7 +386,10 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     recognizer,
     llm,
     speak: spokenLog.speak,
-    send: (e) => sent.push(e),
+    send: (e) => {
+      sent.push(e);
+      sentAtMs.push(clock.now());
+    },
     onTurn: (t) => turns.push(t),
     onHeat: (w) => heat.push(w),
     onNudge: (n) => {
@@ -454,9 +465,10 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const nudgeScore = scoreNudges(script, summary.turns, policy.log);
   const speaking = scoreSpeaking(script, summary.turns, spokenLog.lines, vad);
   const latency = scoreLatency(script, summary.turns);
-  const { enrollFrom, ortFactory: _f, models: _m, ...rest } = opts;
+  const { enrollFrom, ortFactory: _f, models: _m, enrolled: _e, ...rest } = opts;
   void _f;
   void _m;
+  void _e;
   return {
     scene: scene.name,
     mode: opts.mode,
@@ -466,6 +478,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     capability: { vad: opts.energyVad ? "energy" : "silero", speakerId, enrolled },
     turns: summary.turns,
     sent,
+    sentAtMs,
     spoken: spokenLog.lines,
     nudges,
     haptics,

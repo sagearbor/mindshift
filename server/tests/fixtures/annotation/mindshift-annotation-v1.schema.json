@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindshift.app/schemas/mindshift-annotation-v1.schema.json",
+  "title": "mindshift-annotation/v1",
+  "description": "What an external audio LLM returns for one conversation recording (prompt: docs/recording-annotation-format.md). The recording-replay pipeline (scripts/recording_replay.py) validates LENIENTLY: every problem is reported, nothing here is required for the pipeline to run. This schema is the strict contract the prompt asks for.",
+  "type": "object",
+  "required": ["format", "speakers", "segments"],
+  "properties": {
+    "format": {"const": "mindshift-annotation/v1"},
+    "annotator": {
+      "type": ["object", "null"],
+      "properties": {
+        "model": {"type": ["string", "null"]},
+        "notes": {"type": ["string", "null"]}
+      }
+    },
+    "audio": {
+      "type": ["object", "null"],
+      "properties": {
+        "duration_s": {"type": ["number", "null"], "minimum": 0},
+        "quality": {"enum": ["clean", "ok", "noisy", "very_noisy", null]},
+        "environment": {"type": ["string", "null"]}
+      }
+    },
+    "speakers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^S[0-9]+$"},
+          "voice_description": {"type": ["string", "null"]},
+          "approx_age": {"enum": ["child", "teen", "adult", "older_adult", "null", null]},
+          "talk_share_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100}
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "speaker", "text"],
+        "properties": {
+          "start": {"type": "number", "minimum": 0},
+          "end": {"type": "number", "minimum": 0},
+          "speaker": {"type": "string"},
+          "text": {"type": "string"},
+          "is_backchannel": {"type": ["boolean", "null"]},
+          "overlaps_with": {"type": ["array", "null"], "items": {"type": "string"}},
+          "vocal": {
+            "type": ["object", "null"],
+            "properties": {
+              "emotion": {"enum": ["neutral", "calm", "happy", "excited", "amused", "frustrated", "angry", "sad", "anxious", "tired", "sarcastic", null]},
+              "intensity": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
+              "volume": {"enum": ["quiet", "normal", "raised", "shouting", null]},
+              "pace": {"enum": ["slow", "normal", "fast", null]}
+            }
+          },
+          "text_emotion": {"enum": ["neutral", "positive", "negative", "hostile", "supportive", "questioning", null]},
+          "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "events": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["t", "type"],
+        "properties": {
+          "t": {"type": "number", "minimum": 0},
+          "type": {"enum": ["interruption", "long_pause", "laughter", "escalation", "de_escalation", "repair", "apology", "question", "topic_change", "praise"]},
+          "speakers": {"type": ["array", "null"], "items": {"type": "string"}},
+          "note": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "coach_moments": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["t", "for_speaker"],
+        "properties": {
+          "t": {"type": "number", "minimum": 0},
+          "for_speaker": {"type": "string"},
+          "what_happened": {"type": ["string", "null"]},
+          "ideal_nudge": {"type": ["string", "null"]},
+          "kind": {"enum": ["warning", "encouragement", null]},
+          "priority": {"type": ["integer", "null"], "minimum": 1}
+        }
+      }
+    },
+    "summary": {
+      "type": ["object", "null"],
+      "properties": {
+        "tone_arc": {"type": ["string", "null"]},
+        "overall_heat": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
+        "peak_heat_t": {"type": ["number", "null"]}
+      }
+    }
+  }
+}

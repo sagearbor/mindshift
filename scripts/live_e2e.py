@@ -521,6 +521,10 @@ class WsRun:
     # runs on past it through the outage — the gap is exactly what
     # ``last_local_time`` closes.
     audio_at_drop: float | None = None
+    # time.monotonic() when the FIRST PCM frame went out: the session's audio
+    # clock origin, so an event's arrival can be read against the audio
+    # second it answers (scripts/recording_replay.py's real-time latency).
+    first_frame_at: float | None = None
 
     def of_type(self, kind: str) -> list[dict]:
         return [e for _, e in self.events if e.get("type") == kind]
@@ -532,6 +536,7 @@ async def stream_live_session(
     pcm: np.ndarray | None = None, turn_locals: list[dict] | None = None,
     pre_stream=None, post_stream=None, drop_after_turns: int | None = None,
     drop_seconds: float = 0.0, resend_last_turn: bool = True,
+    release_times: list[float] | None = None,
 ) -> WsRun:
     """Stream ``scene`` to the server the way the phone does; return every
     event. Never raises for a protocol-level failure — ``run.error`` says
@@ -554,7 +559,12 @@ async def stream_live_session(
     ``resend_last_turn`` the last turn of the dead socket is sent AGAIN (the
     phone cannot know it landed); the server must ignore the repeat by its
     ``turn_uid`` instead of coaching it twice. None = one socket, exactly the
-    behaviour every other caller has always had."""
+    behaviour every other caller has always had.
+
+    ``release_times`` (parallel to ``turn_locals``): the audio second at which
+    each turn_local is sent — when a REAL phone loop emitted it (its segment
+    close + on-device STT, scripts/recording_replay.py) — instead of the
+    default ``end_time + STT_LAG_S``."""
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed
 
@@ -577,7 +587,13 @@ async def stream_live_session(
     t_start = time.monotonic()
     pcm_bytes = pcm.astype("<i2").tobytes()
     n_frames = math.ceil(len(pcm_bytes) / FRAME_BYTES)
-    pending = list(turn_locals)
+    releases = (
+        list(release_times) if release_times is not None
+        else [float(ev["end_time"]) + STT_LAG_S for ev in turn_locals]
+    )
+    if len(releases) != len(turn_locals):
+        raise ValueError("release_times must be parallel to turn_locals")
+    pending = sorted(zip(releases, turn_locals), key=lambda p: p[0])
     # Session resume: how far the sender got, so the socket after a drop
     # picks up exactly there. `capture_seconds` is the phone's own clock — it
     # keeps counting through the outage, which is the whole point.
@@ -664,6 +680,8 @@ async def stream_live_session(
                     await asyncio.sleep(delay)
                 frame = pcm_bytes[i * FRAME_BYTES:(i + 1) * FRAME_BYTES]
                 await ws.send(frame)
+                if run.first_frame_at is None:
+                    run.first_frame_at = time.monotonic()
                 next_frame = i + 1
                 run.frames_sent += 1
                 # The phone's capture clock (what `last_local_time` reports)
@@ -672,8 +690,8 @@ async def stream_live_session(
                 # the re-anchor exists to close.
                 capture_seconds = next_frame * FRAME_MS / 1000.0
                 run.audio_seconds = run.frames_sent * FRAME_MS / 1000.0
-                while pending and pending[0]["end_time"] + STT_LAG_S <= capture_seconds:
-                    ev = pending.pop(0)
+                while pending and pending[0][0] <= capture_seconds:
+                    _, ev = pending.pop(0)
                     await ws.send(json.dumps(ev))
                     run.sent_turns.append((time.monotonic(), ev))
                     if (
@@ -709,9 +727,15 @@ async def stream_live_session(
                 if done.is_set():
                     break
             # Anything the tail of the audio didn't release (last turn).
-            for ev in list(pending):
+            for rel, ev in list(pending):
                 pending.pop(0)
-                await asyncio.sleep(STT_LAG_S / speed)
+                if release_times is not None:
+                    # A real loop's late emission (the phone closes the last
+                    # turn on trailing silence): keep its audio-clock time.
+                    target = t0 + (rel - frames_at_start * FRAME_MS / 1000.0) / speed
+                    await asyncio.sleep(max(0.0, target - time.monotonic()))
+                else:
+                    await asyncio.sleep(STT_LAG_S / speed)
                 await ws.send(json.dumps(ev))
                 run.sent_turns.append((time.monotonic(), ev))
             if post_stream is not None and not done.is_set():
