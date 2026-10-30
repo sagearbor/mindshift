@@ -55,7 +55,7 @@ ul.notes{padding-left:18px;font-size:13.5px}ul.notes li{margin:4px 0}
 <p class="sub">Where each job runs: watch, phone or cloud. Hover or tap any <span class="tip" tabindex="0" data-tip="Like this. Tap again elsewhere to close on a phone.">dotted word</span> for an explanation. Updated 30 Oct 2026 (main at PR #203). Edit this file: <code>docs/architecture.html</code>.</p>
 
 <h2>How the pieces talk</h2>
-<svg class="flow" viewBox="0 0 760 200" role="img" aria-label="Watch and phone each talk to the cloud server; the server sends cues back to both">
+<svg class="flow" viewBox="0 0 760 222" role="img" aria-label="Watch and phone each talk to the cloud server; the server sends cues back to both">
   <rect x="10" y="60" width="170" height="80" rx="12"/>
   <text x="95" y="92" text-anchor="middle" font-weight="600">⌚ Watch</text>
   <text x="95" y="112" text-anchor="middle" class="s">mic · heart rate · buzz</text>
@@ -73,11 +73,12 @@ ul.notes{padding-left:18px;font-size:13.5px}ul.notes li{margin:4px 0}
   <path d="M295 118 H180"/><path d="M188 113 l-8 5 8 5"/>
   <text x="237" y="136" text-anchor="middle" class="s">buzz cues</text>
   <path d="M580 85 H465"/><path d="M473 80 l-8 5 8 5"/>
-  <text x="522" y="76" text-anchor="middle" class="s">audio, words, triggers</text>
+  <text x="522" y="76" text-anchor="middle" class="s">audio, words, cues</text>
   <path d="M465 118 H580"/><path d="M572 113 l8 5 -8 5"/>
   <text x="522" y="136" text-anchor="middle" class="s">coach lines, cards</text>
   <path d="M95 140 V175 H665 V140" stroke-dasharray="4 4"/>
-  <text x="380" y="192" text-anchor="middle" class="s">Companion mode: the phone listens and the server relays its cues to the watch as buzzes (the watch talks to the server directly, never to the phone)</text>
+  <text x="380" y="196" text-anchor="middle" class="s">Companion mode: the phone listens and the server relays its cues to the watch as buzzes.</text>
+  <text x="380" y="214" text-anchor="middle" class="s">The watch always talks to the server directly, never to the phone.</text>
 </svg>
 
 <h2>Who does what</h2>
