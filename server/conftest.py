@@ -13,6 +13,14 @@ _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
+# Quiet coach (coach_trigger.py) is ON in production: an untriggered turn is
+# never sent to the coach LLM. The hundreds of pre-existing pipeline tests
+# send arbitrary turns and wait for the suggestion each one used to get, so
+# the suite runs with the gate OFF by default; the gate's own tests
+# (test_coach_trigger*.py) switch it on, or clear the variable to check the
+# production default.
+os.environ.setdefault("MINDSHIFT_TRIGGER_GATE", "0")
+
 from main import app, init_db  # noqa: E402 — must set env before import
 from auth import (  # noqa: E402
     ANONYMOUS_PROVIDER,

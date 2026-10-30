@@ -16,6 +16,9 @@ _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
+# Quiet coach gate OFF for the legacy suites (see server/conftest.py).
+os.environ.setdefault("MINDSHIFT_TRIGGER_GATE", "0")
+
 from main import app, init_db  # noqa: E402
 from auth import Identity, get_current_identity, get_current_uid  # noqa: E402
 

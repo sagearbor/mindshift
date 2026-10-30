@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import coach_gate
+import coach_trigger
 import speak_verifier
 import guest_quota
 import llm_client
@@ -1475,20 +1476,32 @@ def _history_for_prompt(
     if turn_ctx:
         out["now"] = now
         out["turn_start"] = float(utterance.start_time)
-        floor = 0.0
-        if identity == WEARER_SELF:
-            # Continuous floor: this turn plus the unbroken run of the
-            # wearer's own turns right before it.
-            floor_start = float(utterance.start_time)
-            for u in reversed([x for x in ctx.utterances if x is not utterance]):
-                if not u.text.strip():
-                    continue
-                if u.speaker not in self_labels or float(u.start_time) > now:
-                    break
-                floor_start = min(floor_start, float(u.start_time))
-            floor = max(0.0, now - floor_start)
-        out["wearer_floor_s"] = floor
+        out["wearer_floor_s"] = _wearer_floor_s(ctx, utterance, identity, self_labels)
     return out
+
+
+def _wearer_floor_s(
+    ctx: SessionContext, utterance: Utterance, identity: str, self_labels: set | None = None,
+) -> float:
+    """Continuous wearer floor at the end of ``utterance``: this turn plus the
+    unbroken run of the wearer's own turns right before it (0 unless the turn
+    is the confirmed wearer's). Feeds the prompt (turn context) and the quiet
+    coach's floor trigger (coach_trigger)."""
+    if identity != WEARER_SELF:
+        return 0.0
+    if self_labels is None:
+        self_labels = set(ctx.self_labels)
+        if ctx.wearer_known and ctx.self_speaker:
+            self_labels.add(ctx.self_speaker)
+    now = float(utterance.end_time)
+    floor_start = float(utterance.start_time)
+    for u in reversed([x for x in ctx.utterances if x is not utterance]):
+        if not u.text.strip():
+            continue
+        if u.speaker not in self_labels or float(u.start_time) > now:
+            break
+        floor_start = min(floor_start, float(u.start_time))
+    return max(0.0, now - floor_start)
 
 
 def _turn_context_on() -> bool:
@@ -3126,6 +3139,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         *,
         is_self: bool | None = None,
         tone_context: dict | None = None,
+        phone_triggers: list[str] | None = None,
     ) -> None:
         """Hand one turn to the suggestion worker: daily budget, per-session
         utterance budget (P2-1), latest-wins supersede, then put. Shared by
@@ -3184,6 +3198,34 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 logger.debug("Session %s: turn not coached (%s)", session_id, reason)
                 return
 
+        identity = _resolve_wearer(ctx, utterance, is_self)
+        history = _history_for_prompt(ctx, utterance, is_self=is_self, identity=identity)
+
+        # Quiet coach (coach_trigger, MINDSHIFT_TRIGGER_GATE, default ON): a
+        # free-form cloud line is generated only when a cheap trigger fires
+        # on this turn (heated words, the wearer's long floor, a direct
+        # question to the wearer, a selected Coach library phrase). Anything
+        # else is never sent to the LLM. Before latest-wins on purpose, like
+        # the turn skip: an untriggered turn must not supersede a triggered
+        # one still waiting in the queue. Room mode has its own rules.
+        if ctx.room is None and coach_trigger.enabled():
+            lib = ctx.library
+            floor_s = _wearer_floor_s(ctx, utterance, identity)
+            verdict = coach_trigger.evaluate(
+                utterance.text,
+                is_wearer=identity == WEARER_SELF,
+                wearer_floor_s=floor_s,
+                wearer_floor_before_s=max(0.0, floor_s - (float(utterance.end_time) - float(utterance.start_time))),
+                phone_triggers=phone_triggers,
+                library=lib.phrases() if lib is not None and hasattr(lib, "phrases") else None,
+            )
+            if not verdict.fires:
+                queue_stats["untriggered"] = queue_stats.get("untriggered", 0) + 1
+                logger.debug("Session %s: turn not coached (no trigger)", session_id)
+                return
+            queue_stats["triggered"] = queue_stats.get("triggered", 0) + 1
+            logger.debug("Session %s: coach trigger %s", session_id, ",".join(verdict.triggers))
+
         # Latest-wins: a suggestion takes seconds (LLM + TTS). If newer
         # speech has arrived while one is still cooking, coaching the
         # backlog is stale by definition — the user hears advice about
@@ -3208,7 +3250,6 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         timing.enqueued = ctx.latency.now()
         timing.queue_depth = suggestion_queue.qsize()
         previous = chain_tail[0]
-        identity = _resolve_wearer(ctx, utterance, is_self)
         job = SuggestionJob(
             utterance=utterance,
             empathy_slider=ctx.empathy_slider,
@@ -3223,7 +3264,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             timing=timing,
             is_self=is_self,
             tone_context=tone_context,
-            history=_history_for_prompt(ctx, utterance, is_self=is_self, identity=identity),
+            history=history,
             identity=identity,
             room=ctx.room is not None,
             prev_done=previous.done if previous is not None else None,
@@ -3396,6 +3437,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             ctx.latency.start(frame_received=received, segment_finalized=received),
             is_self=event.is_self,
             tone_context=_tone_context_from_event(event),
+            phone_triggers=list(event.triggers or []),
         )
 
     # In-app calls: what this session exposes to a call it is bound to (see

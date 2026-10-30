@@ -233,6 +233,13 @@ class TurnLocalEvent(BaseModel):
     suggestion: str | None = Field(default=None, max_length=TURN_TEXT_MAX)
     suggestion_source: SuggestionSource | None = None
     tts_source: TtsSource | None = None
+    # Quiet coach (server/coach_trigger.py): cues the PHONE saw on this turn
+    # that the server cannot see itself — today the mid-turn floor cue. The
+    # server unions them with its own triggers; absent = none (old clients).
+    triggers: list[Literal["heat", "floor", "question", "library"]] | None = Field(
+        default=None, max_length=4,
+        description="Quiet-coach triggers the phone saw on this turn (e.g. its mid-turn floor cue fired)",
+    )
 
 
 class ToneFlagEvent(ObserverTagged):
