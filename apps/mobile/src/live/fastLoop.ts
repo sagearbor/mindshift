@@ -62,6 +62,7 @@ import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
 import { instantHeatScore } from "./instantTier";
 import { FloorTracker, wearerFromScores, type FloorFire, type FloorTickConfig } from "./floorTick";
+import { HeatLexiconBuzz, type HeatLexiconBuzzOptions } from "./heatLexicon";
 
 /** The rolling window the acoustic instant tier scores, and how often. Both
  *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
@@ -261,6 +262,16 @@ export interface FastLoopDeps {
    */
   activationNudges?: boolean;
   /**
+   * Text-heat buzz (live/heatLexicon.ts): a curated phrase lexicon scored on
+   * each finalized on-device transcript; one gentle level-1 cue when a unit
+   * reads as counterproductive conduct (contempt, "your fault", "shut up",
+   * threats, directed profanity, "you're lying"). No identity, no model,
+   * microseconds. Default OFF (dark): evaluated offline only
+   * (tmp/recordings/fable_heat/REPORT.md, 2026-10-10). `true` = the tuned
+   * defaults (threshold 1.5, 20 s cooldown); an object overrides them.
+   */
+  heatLexiconBuzz?: boolean | Partial<HeatLexiconBuzzOptions>;
+  /**
    * Run the single-mic overlap probe (live/overlapProbe.ts). Default FALSE
    * since 2026-09-07, when it was finally measured against real overlapping
    * speech and did not survive.
@@ -448,6 +459,7 @@ export class FastLoop {
    *  disabled (deps.repeatGate === null). */
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
+  private readonly heatLexicon: HeatLexiconBuzz | null;
   private readonly overlapProbe: boolean;
   private readonly instantHeat: boolean;
   /** Mid-turn floor tracker (deps.floorTick); null = off. */
@@ -551,6 +563,7 @@ export class FastLoop {
     this.earlyTurnLocal = deps.earlyTurnLocal ?? false;
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
+    this.heatLexicon = FastLoop.heatLexiconFrom(deps.heatLexiconBuzz);
     this.overlapProbe = deps.overlapProbe ?? false;
     this.instantHeat = deps.instantHeat ?? true;
     const ft = deps.floorTick ?? false;
@@ -1578,7 +1591,17 @@ export class FastLoop {
     if (sttOwned && !earlySent) {
       this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion);
     }
+    // Dark text-heat buzz: the words of this turn alone, one level-1 cue.
+    if (this.heatLexicon && aligned.text && this.heatLexicon.observe(aligned.text, span.end) && this.deps.haptics) {
+      void this.deps.haptics.nudge(1, "H").catch(() => {});
+    }
     this.deps.onTurn(turn);
+  }
+
+  /** The dark text-heat gate for a flag value: absent/false = off (null). */
+  static heatLexiconFrom(flag: FastLoopDeps["heatLexiconBuzz"]): HeatLexiconBuzz | null {
+    if (!flag) return null;
+    return new HeatLexiconBuzz(typeof flag === "object" ? flag : {});
   }
 
   private sendTurnLocal(
