@@ -992,3 +992,64 @@ describe("prosodyHint", () => {
     expect(prosodyHint({ rms_dbfs: null, pitch_hz: null, speech_rate: null })).toBeUndefined();
   });
 });
+
+describe("FastLoop identity plumbing (labeler tuning)", () => {
+  const D = 192;
+  const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+
+  it("windowVote: a long turn is also embedded as non-overlapping windows (newest audio, capped)", async () => {
+    const lengths: number[] = [];
+    const embedder: Embedder = {
+      embed: async (pcm) => {
+        lengths.push(pcm.length);
+        return unitVector(D, 0, 0.1, lengths.length);
+      },
+    };
+    const labeler = new SpeakerLabeler([you], { windowVote: { seconds: 2, selfThreshold: 0.6, otherCeiling: 0.3, minFrac: 0.5, maxWindows: 2 } });
+    const h = harness({ embedder, labeler });
+    await h.loop.start({ sessionId: "w1", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(6.5, -20));
+    h.rec.emit({ text: "a long turn of words", isFinal: true });
+    push(h.loop, silenceInt16(0.6));
+    await h.loop.settle();
+    // One full-turn embedding, then two 2 s windows (the cap), nothing else.
+    expect(lengths.length).toBe(3);
+    expect(lengths[0]).toBeGreaterThan(6 * 16000);
+    expect(lengths.slice(1)).toEqual([32000, 32000]);
+    expect(h.sent[0].is_self).toBe(true);
+    await h.loop.stop();
+  });
+
+  it("windowVote off: one embedding per turn, as before", async () => {
+    let calls = 0;
+    const embedder: Embedder = { embed: async () => { calls++; return unitVector(D, 0); } };
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    await h.loop.start({ sessionId: "w2", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(6.5, -20));
+    h.rec.emit({ text: "a long turn of words", isFinal: true });
+    push(h.loop, silenceInt16(0.6));
+    await h.loop.settle();
+    expect(calls).toBe(1);
+    await h.loop.stop();
+  });
+
+  it("a 'session' (sticky) owner verdict is coached as self but sent with a null basis (not a server basis)", async () => {
+    const queue = [unitVector(D, 0), unitVector(D, 0), vectorAtCosine(D, 0.52, 0, 3)];
+    const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 5) };
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you], { sticky: { after: 2, threshold: 0.48 } }) });
+    await h.loop.start({ sessionId: "w3", mode: "earpiece", empathy: 50 });
+    for (let i = 0; i < 3; i++) {
+      push(h.loop, toneInt16(2.0, -20));
+      h.rec.emit({ text: `turn number ${i} words`, isFinal: true });
+      push(h.loop, silenceInt16(0.6));
+      await h.loop.settle();
+    }
+    expect(h.sent.map((e) => [e.is_self, e.speaker_match_basis])).toEqual([
+      [true, "absolute"],
+      [true, "absolute"],
+      [true, null],
+    ]);
+    expect(h.turns[2].matchBasis).toBe("session");
+    await h.loop.stop();
+  });
+});

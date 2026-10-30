@@ -16,7 +16,7 @@
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop } from "./fastLoop";
 import type { FastLoopBuild, FastLoopCapabilities, FastLoopHandlers, DefaultFastLoopOptions } from "./defaultDeps";
-import { EnergyVad, SileroVad, type FrameVad } from "./vad";
+import { baseVad, EnergyVad, SileroVad, withVadAgc, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
   activeCapability,
@@ -65,7 +65,7 @@ async function buildVad(
       webOrtSessionFactory(ort),
       sileroUrl === undefined ? undefined : sileroUrl,
     );
-    if (session) return { vad: new SileroVad(session), name: "Silero VAD (wasm)" };
+    if (session) return { vad: withVadAgc(new SileroVad(session)), name: "Silero VAD (wasm)" };
   }
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
@@ -168,7 +168,7 @@ export async function createWebFastLoop(
     haptics: null,
   });
   const capabilities: FastLoopCapabilities = {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };
@@ -208,7 +208,7 @@ export async function probeWebFastLoopCapabilities(
   ]);
   const llm = new ProviderChain([cloudProvider()], options.providerOrder);
   return {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };
