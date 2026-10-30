@@ -167,11 +167,33 @@ def test_owner_must_supply_is_spelled_exactly(name):
         assert near_miss not in text, f"{PACKS[name].name} contains {near_miss!r}"
 
 
-def test_the_two_packs_are_for_different_apps():
+def test_both_packs_are_for_the_one_mindshift_listing():
+    """Since 2026-10-30 the watch ships inside the MindShift listing (Google's
+    single-listing model for phone + Wear OS), so both packs name the same
+    package — and it must match what the watch build actually produces."""
     phone = _load(PACKS["phone"])["app_identity"]["package_name"]
     wear = _load(PACKS["wear"])["app_identity"]["package_name"]
     assert phone == "com.sagearbor.mindshift.app"
-    assert wear == "com.sagearbor.gauge.wear"
+    assert wear == phone
+    gradle = (REPO_ROOT / "apps" / "watch" / "wearApp" / "build.gradle.kts").read_text(
+        encoding="utf-8"
+    )
+    assert f'applicationId = "{wear}"' in gradle
+
+
+def test_listing_data_safety_covers_everything_the_watch_collects():
+    """One listing has ONE Data safety form. The phone pack is what is entered
+    there, so it must declare every data type the watch pack declares as
+    collected — otherwise uploading the Wear build under-declares."""
+    def collected(name):
+        return {
+            t["play_path"]
+            for t in _load(PACKS[name])["data_safety"]["data_types"]
+            if t.get("collected")
+        }
+
+    missing = collected("wear") - collected("phone")
+    assert not missing, f"phone pack (the listing's form) lacks watch data types: {missing}"
 
 
 def test_wear_pack_declares_health_data():

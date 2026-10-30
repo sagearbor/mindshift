@@ -5,8 +5,10 @@ apps:
   com.sagearbor.mindshift.app:
     console_app_id: "4975426204431832627"
     production_track_id: "4698091812124000859"
+    # Since 2026-10-30 the Wear OS app ships in THIS listing (Wear OS form factor).
   com.sagearbor.gauge.wear:
     console_app_id: "4975829673983009446"
+    status: "RETIRED 2026-10-30 — watch moved into com.sagearbor.mindshift.app; unpublish, never delete."
 # IARC content-rating certificates ("Global Rating ID"), emailed by
 # noreply@globalratings.com when a questionnaire goes live. Only needed if a
 # title is later listed on another IARC storefront (Xbox, Nintendo eShop,

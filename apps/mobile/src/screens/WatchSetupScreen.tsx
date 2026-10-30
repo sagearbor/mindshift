@@ -14,12 +14,13 @@ import { showAlert } from "../utils/showAlert";
 import { claimWatchPairing, disconnectWatch } from "../api/watchPairing";
 import { getMe } from "../api/me";
 
-/** Play listing for the watch app — package name is permanent (see
- *  apps/watch/PORTED_FROM_GAUGE.md), branding changes never touch it. Play
- *  handles the remote-install-to-watch device picker on its own; nothing
- *  here talks to the watch directly. */
+/** Play listing for the watch app. Since 2026-10-30 the Wear OS build ships
+ *  inside MindShift's own listing (same package as this phone app — Google's
+ *  single-listing model), so this is the phone's own store page; Play offers
+ *  the "install on watch" device picker there. Nothing here talks to the
+ *  watch directly. */
 const WATCH_PLAY_URL =
-  "https://play.google.com/store/apps/details?id=com.sagearbor.gauge.wear";
+  "https://play.google.com/store/apps/details?id=com.sagearbor.mindshift.app";
 
 const PAIR_CODE_LENGTH = 6;
 

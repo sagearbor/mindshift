@@ -73,7 +73,15 @@ app_identity:
   changed_2026_09_21: "versionCode 38 -> 40 (39 was an interim production build; 40 ships the now-playing notification, see other_declarations.foreground_service_declaration). versionName unchanged at 1.18.0."
   proof_version: apps/mobile/app.json:5,30
   companion_wear_os_app:
-    value: "com.sagearbor.gauge.wear — a SEPARATE Play listing with its own answer pack."
+    value: "SAME LISTING. The Wear OS app ships inside this listing (same package, Wear OS form factor, versionCodes 1_000_000+) since 2026-10-30."
+    changed_2026_10_30: >
+      The watch moved here from its own listing (com.sagearbor.gauge.wear, now
+      being unpublished). One listing = ONE Data safety form, so THIS pack's
+      data_safety is the form for both binaries: it now also declares the
+      watch's "Device or other IDs" (see that block). The wear pack still holds
+      the watch-specific reasoning and the Wear form-factor answers.
+      Enforced by server/tests/test_play_answer_packs.py::test_listing_data_safety_covers_everything_the_watch_collects.
+    proof: apps/watch/wearApp/build.gradle.kts
     changed_2026_09_20: "New cross-reference. The watch pack's Data safety answers differ on purpose (health data, device ids, login model); never import one listing's answers into the other."
     see: docs/play/play-answers-mindshift-wear.yaml
 
@@ -573,7 +581,12 @@ data_safety:
       - "Web browsing history"
       - "Installed apps"                            # getSpeechRecognitionServices() is a local probe, never transmitted
       - "In-app search history"
-      - "Device or other IDs"                       # no ad ID, no Android ID, no Firebase installation ID
+    changed_2026_10_30:
+      note: >
+        "Device or other IDs" moved OUT of this list: the Wear OS app now ships
+        in this listing and sends an app-minted install UUID on every
+        telemetry batch. The phone binary itself still reads no ad ID, no
+        Android ID and no Firebase installation ID.
     changed_2026_09_20:
       note: >
         Two lines moved out of this list. "Health and fitness (all)" is now
@@ -743,7 +756,7 @@ data_safety:
         HEART RATE, IN BEATS PER MINUTE. The phone binary itself reads no body
         sensor — there is no sensor permission in app.json and no health library
         in package.json. The data arrives from the MindShift Wear OS companion
-        (com.sagearbor.gauge.wear), which reads the wearer's pulse through Wear
+        (same listing since 2026-10-30), which reads the wearer's pulse through Wear
         Health Services and streams it to the MindShift backend as
         {"type":"hr"} frames on the live-session socket. The server appends
         EVERY sample — not just the ones that crossed a threshold — to
@@ -1056,6 +1069,28 @@ data_safety:
       proof:
         - apps/mobile/src/diagnostics/diagnostics.ts:84-104,235-239
         - apps/mobile/src/hooks/useAudioStream.ts:1069-1073   # void store.send("auto", {uid, email})
+
+    - play_path: "Device or other IDs"
+      changed_2026_10_30: >
+        NEW BLOCK on this listing — the Wear OS app joined it. Was "not
+        collected" (true of the phone binary alone).
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        The WATCH's install id: a random UUID minted on first launch and kept in
+        SharedPreferences, sent as the `device` field of every telemetry batch
+        and every capture. Not an advertising id, not the Android id, not a
+        hardware serial; reset by reinstalling or clearing app data. The phone
+        binary sends none. Required because watch telemetry is auto-sent with
+        no opt-out.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/TelemetryClient.kt
+        - apps/mobile/public/privacy/index.html   # "Watch install ID (Wear OS)" row
+      see_also: docs/play/play-answers-mindshift-wear.yaml
 
     - play_path: "App info and performance → Crash logs"
       collected: true
@@ -1552,7 +1587,7 @@ graphics_checklist:
     value: "Skip — not required, and the app is phone-first (orientation: portrait)."
     proof: apps/mobile/app.json:7
   wear_os_screenshots:
-    value: "Skip — the Wear OS companion is a separate listing (com.sagearbor.gauge.wear)."
+    value: "Upload the Wear screenshots from docs/play/graphics/wear (the watch now ships in THIS listing, 2026-10-30)."
     proof: apps/mobile/src/screens/WatchSetupScreen.tsx:21-22
     changed_2026_09_20: >
       Still skip HERE, but that listing now has a pack of its own and its Wear
