@@ -268,6 +268,42 @@ class LiveLibrary:
             return None
         return ctx
 
+    def phrases(self) -> frozenset[str]:
+        """Content-word bigrams of the selected items, for the quiet coach's
+        library trigger (coach_trigger.library_hit). Never waits and never
+        raises: it reads the full-mode block the warm-up (or an earlier turn)
+        already fetched, harvests a finished warm-up fetch, and starts a
+        refresh in the background when the block is older than
+        :data:`FULL_CACHE_TTL_S`. Empty until a block has landed, and in
+        retrieved mode (a selection too big to send whole)."""
+        try:
+            task = self._inflight
+            if task is not None and task.done() and not task.cancelled():
+                self._inflight = None
+                if task.exception() is None:
+                    ctx = task.result()
+                    if ctx.mode == "full" and ctx.text:
+                        self._full, self._full_at = ctx, time.monotonic()
+                    elif ctx.mode != "full":
+                        self._needs_retrieval = True
+            if (self._full is not None and not self._needs_retrieval and self._inflight is None
+                    and time.monotonic() - self._full_at >= FULL_CACHE_TTL_S):
+                self._start("")
+            full = self._full
+            if full is None or not full.text:
+                return frozenset()
+            cached = getattr(self, "_phrases", None)
+            if cached is not None and cached[0] is full:
+                return cached[1]
+            import coach_trigger  # local: library/ must not import the pipeline at module load
+
+            out = coach_trigger.library_phrases(full.text)
+            self._phrases = (full, out)
+            return out
+        except Exception:  # noqa: BLE001 - a trigger lookup never breaks coaching
+            logger.warning("library phrase lookup failed (%d items)", len(self.item_ids), exc_info=True)
+            return frozenset()
+
     def close(self) -> None:
         for task in (
             self._inflight, self._facts_warm,

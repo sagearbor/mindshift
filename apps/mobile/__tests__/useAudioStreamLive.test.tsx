@@ -257,7 +257,10 @@ describe("useAudioStream live mode", () => {
       session_id: "live-2",
       text: "you never call me",
       transcript_source: "on-device",
-      suggestion_source: "on-device",
+      // earlyTurnLocal is ON by default (live/liveCoachFlags.ts): the frame
+      // leaves BEFORE the local LLM answers, so it carries no suggestion.
+      suggestion: null,
+      suggestion_source: null,
       tts_source: "on-device",
     });
 

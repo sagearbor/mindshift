@@ -1476,6 +1476,36 @@ def _coach_stance(slider: int) -> str:
     )
 
 
+# Importance calibration (DARK: MINDSHIFT_IMPORTANCE_PROMPT, default off).
+# The overnight corpus batch (2026-10-10) found the live coach's importance
+# sitting at 72 for nearly every turn, calm or heated, so no threshold could
+# separate them. "anchored" replaces the one-line importance description with
+# explicit score anchors and a base rate; unset keeps every prompt
+# byte-identical (and every recorded LLM cache entry valid).
+IMPORTANCE_ANCHORS = (
+    "Calibrate importance to these anchors; in an ordinary conversation most "
+    "turns score below 30 and 80+ is rare: 0-15 small talk, logistics, "
+    "agreement, jokes or laughter, storytelling, a fragment or filler; 20-40 "
+    "a question, mild disagreement, a slightly awkward moment; 45-65 clear "
+    "tension the wearer should handle with care (blame, sarcasm, "
+    "defensiveness, someone talked over); 70-85 conflict escalating right now "
+    "(raised voices, accusations, someone shutting down or hurt); 90-100 "
+    "shouting, insults, or a pivotal moment that will go badly without help."
+)
+
+
+def _importance_variant() -> str:
+    return os.getenv("MINDSHIFT_IMPORTANCE_PROMPT", "").strip().lower()
+
+
+def _with_importance_anchors(contract: str) -> str:
+    """Append :data:`IMPORTANCE_ANCHORS` to an output contract when the dark
+    flag asks for it; otherwise return it unchanged."""
+    if _importance_variant() == "anchored":
+        return f"{contract} {IMPORTANCE_ANCHORS}"
+    return contract
+
+
 def _coach_preamble(
     slider: int, role: str | None, relationship: str | None,
     session_context: str | None = None, library: bool = False,
@@ -1545,6 +1575,7 @@ def empathy_system_prompt(
             "high-stakes, or pivotal turns; low for small talk, filler, or "
             "logistics). No other keys."
         )
+        contract = _with_importance_anchors(contract)
     else:
         contract = (
             "Provide exactly 3 short suggested responses the wearer could say "
@@ -1625,6 +1656,8 @@ def self_feedback_prompt(
         "nudge is empty). No other keys — the pipeline reads only these two, "
         "so anything else is wasted latency on a real-time whisper."
     )
+    if _importance_variant() == "anchored":
+        parts[-1] += " " + IMPORTANCE_ANCHORS
     return _append_voice_profile("\n\n".join(parts), voice_profile)
 
 
@@ -1674,6 +1707,7 @@ def unknown_wearer_prompt(
         "emotionally charged or pivotal turns; low for small talk, filler, "
         "or logistics). No other keys."
     )
+    contract = _with_importance_anchors(contract)
     rules = COACH_UNKNOWN_WEARER_RULES
     if library:
         rules += (

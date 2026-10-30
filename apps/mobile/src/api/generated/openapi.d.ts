@@ -4303,6 +4303,11 @@ export interface components {
             suggestion_source?: ("on-device" | "cloud") | null;
             /** Tts Source */
             tts_source?: ("on-device" | "server") | null;
+            /**
+             * Triggers
+             * @description Quiet-coach triggers the phone saw on this turn (e.g. its mid-turn floor cue fired)
+             */
+            triggers?: ("heat" | "floor" | "question" | "library")[] | null;
         };
         /**
          * TurnProsody

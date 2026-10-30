@@ -21,7 +21,8 @@
 import { Platform } from "react-native";
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
-import { EnergyVad, SileroVad, type FrameVad } from "./vad";
+import { liveCoachDeps } from "./liveCoachFlags";
+import { baseVad, EnergyVad, SileroVad, withVadAgc, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
   activeCapability,
@@ -46,7 +47,7 @@ import { hapticFor, hapticRuns, phonePattern } from "./nudgeVocabulary";
 /** The callbacks the hook supplies; everything else is wired here. */
 export type FastLoopHandlers = Pick<
   FastLoopDeps,
-  "speak" | "send" | "onTurn" | "onNudge" | "onPositiveNudge" | "onSttError" | "onDegrade"
+  "speak" | "send" | "onTurn" | "onNudge" | "onPositiveNudge" | "onSttError" | "onDegrade" | "earlyTurnLocal"
 > & {
   /** Progress while the loop is being built ("Downloading voice model … 42 %").
    *  The web build uses it; native builds are quick enough not to. */
@@ -233,7 +234,7 @@ function ortNative(): typeof import("./ortNative") | null {
 /** The VAD rung on its own (shared with the Journal mode, journalDeps.ts). */
 export async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   const session = await ortNative()?.loadSileroSession();
-  if (session) return { vad: new SileroVad(session), name: "Silero VAD" };
+  if (session) return { vad: withVadAgc(new SileroVad(session)), name: "Silero VAD" };
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
@@ -339,6 +340,8 @@ export async function createDefaultFastLoop(
   void _primed;
   void _status;
   const loop = new FastLoop({
+    // Quiet coach defaults (live/liveCoachFlags.ts, OTA-reversible).
+    ...liveCoachDeps(),
     ...loopHandlers,
     vad,
     embedder: speaker.embedder,
@@ -348,7 +351,7 @@ export async function createDefaultFastLoop(
     haptics: expoHaptics,
   });
   const capabilities: FastLoopCapabilities = {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };
@@ -395,7 +398,7 @@ export async function probeFastLoopCapabilities(
   // Fire-and-forget; each provider memoizes the preparation. See ProviderChain.prewarm.
   llm.prewarm();
   return {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };

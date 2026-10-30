@@ -41,6 +41,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 import calls
+import coach_gate
+import coach_trigger
+import speak_verifier
 import guest_quota
 import llm_client
 import session_resume
@@ -860,6 +863,8 @@ class UtteranceTiming:
     llm_start: float | None = None
     llm_first_partial: float | None = None  # first suggestion string complete (streaming)
     llm_end: float | None = None
+    verifier_start: float | None = None     # speak_verifier call (only lines the gate would voice)
+    verifier_end: float | None = None
     tts_start: float | None = None
     tts_end: float | None = None
     sent: float | None = None               # SuggestionEvent on the wire (or decided: nothing to send)
@@ -879,6 +884,7 @@ class UtteranceTiming:
         ("llm_first_partial", "llm_start", "llm_first_partial"),
         ("tts", "tts_start", "tts_end"),
         ("total", "frame_received", "sent"),
+        ("verifier", "verifier_start", "verifier_end"),
     )
 
     def stage_ms(self) -> dict[str, float]:
@@ -955,7 +961,7 @@ class LatencyRecorder:
             self.hedge["hedge_won"] += int(timing.hedge_won)
         logger.info(
             "latency session=%s seg_to_enqueue=%s queue_wait=%s llm=%s "
-            "llm_first_partial=%s tts=%s total=%s queue_depth=%d "
+            "llm_first_partial=%s tts=%s total=%s verifier=%s queue_depth=%d "
             "hedged=%s hedge_won=%s",
             session_id,
             *(
@@ -1431,11 +1437,25 @@ def _history_for_prompt(
     if ctx.wearer_known and ctx.self_speaker:
         self_labels.add(ctx.self_speaker)
 
+    turn_ctx = _turn_context_on()
+    now = float(utterance.end_time)
+    other_confirmed = bool(self_labels)
     turns: list[dict] = []
     for u in ctx.utterances:
         if u is utterance:
             continue
         if not u.text.strip():
+            continue
+        if turn_ctx:
+            # Never future info: a turn that begins after "now" is excluded;
+            # one still running at "now" is marked ongoing.
+            if float(u.start_time) > now:
+                continue
+            turns.append({
+                "t": float(u.end_time), "start": float(u.start_time),
+                "who": _turn_role(ctx, u.speaker, self_labels, other_confirmed),
+                "text": u.text, "ongoing": float(u.end_time) > now,
+            })
             continue
         turns.append({
             "t": float(u.end_time),
@@ -1449,27 +1469,99 @@ def _history_for_prompt(
         for c in ctx.coaching_log
         if float(c["t"]) >= since or c is ctx.coaching_log[-1]
     ][-COACH_CONTEXT_TURNS:] if ctx.coaching_log else []
-    return {
+    out = {
         "turns": turns, "coach": coach_lines,
         "self": identity == WEARER_SELF, "unknown": identity == WEARER_UNKNOWN,
     }
+    if turn_ctx:
+        out["now"] = now
+        out["turn_start"] = float(utterance.start_time)
+        out["wearer_floor_s"] = _wearer_floor_s(ctx, utterance, identity, self_labels)
+    return out
+
+
+def _wearer_floor_s(
+    ctx: SessionContext, utterance: Utterance, identity: str, self_labels: set | None = None,
+) -> float:
+    """Continuous wearer floor at the end of ``utterance``: this turn plus the
+    unbroken run of the wearer's own turns right before it (0 unless the turn
+    is the confirmed wearer's). Feeds the prompt (turn context) and the quiet
+    coach's floor trigger (coach_trigger)."""
+    if identity != WEARER_SELF:
+        return 0.0
+    if self_labels is None:
+        self_labels = set(ctx.self_labels)
+        if ctx.wearer_known and ctx.self_speaker:
+            self_labels.add(ctx.self_speaker)
+    now = float(utterance.end_time)
+    floor_start = float(utterance.start_time)
+    for u in reversed([x for x in ctx.utterances if x is not utterance]):
+        if not u.text.strip():
+            continue
+        if u.speaker not in self_labels or float(u.start_time) > now:
+            break
+        floor_start = min(floor_start, float(u.start_time))
+    return max(0.0, now - floor_start)
+
+
+def _turn_context_on() -> bool:
+    """MINDSHIFT_TURN_CONTEXT (default ON; "0" restores the old prompt).
+    Read at call time so a replay can A/B the two prompts."""
+    return os.getenv("MINDSHIFT_TURN_CONTEXT", "1").strip().lower() not in ("0", "false", "off", "")
+
+
+def _turn_role(ctx: SessionContext, speaker: str, self_labels: set, other_confirmed: bool) -> str:
+    """Role shown to the LLM for a history turn: "You" (confirmed wearer),
+    "Other" (confirmed not the wearer) or "Unknown". A mid-call name is kept
+    as "Other (Mom)"; a raw diarizer label is never shown."""
+    if speaker in self_labels:
+        return "You"
+    entry = ctx.speaker_labels.get(speaker)
+    name = entry.get("display_name") if isinstance(entry, dict) else None
+    has_name = isinstance(name, str) and name and not coach_gate.has_label(name)
+    if other_confirmed or speaker in ctx.other_labels:
+        return f"Other ({name})" if has_name else "Other"
+    return f"Unknown ({name})" if has_name else "Unknown"
+
+
+def _rel(now: float, t: float) -> str:
+    return f"{max(0, round(now - t))}s"
 
 
 def _render_history(history: dict) -> str:
     """Deterministic rendering of :func:`_history_for_prompt`'s dict."""
     turns = list(history.get("turns") or [])
     coach = list(history.get("coach") or [])
+    now = history.get("now")
+    stamped = now is not None
     rows: list[tuple[float, int, str]] = []
     for t in turns:
-        rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
+        if stamped:
+            when = f'{_rel(now, t["start"])}\u2013{_rel(now, t["t"])} ago'
+            if t.get("ongoing"):
+                when = f'started {_rel(now, t["start"])} ago, ongoing'
+            rows.append((float(t["t"]), 0, f'- [{when}] {t["who"]}: "{t["text"]}"'))
+        else:
+            rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
     for c in coach:
         what = "whispered to the wearer" if c.get("kind") == "nudge" else "suggested to the wearer"
-        rows.append((float(c["t"]), 1, f'- (coach {what}: "{c["text"]}")'))
+        tag = f"[{_rel(now, c['t'])} ago] " if stamped else ""
+        rows.append((float(c["t"]), 1, f'- {tag}(coach {what}: "{c["text"]}")'))
     rows.sort(key=lambda r: (r[0], r[1]))
     lines: list[str] = []
     if rows:
         lines.append("Recent exchange before this turn (oldest first):")
         lines.extend(r[2] for r in rows)
+    if stamped:
+        who = "the wearer (You)" if history.get("self") else (
+            "an unidentified speaker" if history.get("unknown") else "someone else (Other)")
+        lines.append(
+            f"The turn above is from {who}; it began {_rel(now, history.get('turn_start', now))} "
+            "before now and is the latest thing said. Times are seconds before now."
+        )
+        floor = float(history.get("wearer_floor_s") or 0)
+        if floor >= 1:
+            lines.append(f"The wearer has held the floor continuously for {round(floor)}s.")
     if history.get("self"):
         lines.append(_SELF_GUIDANCE)
     elif history.get("unknown"):
@@ -1647,6 +1739,9 @@ class SessionContext:
     # re-sending identity on every frame.
     coaching_log: list[dict] = field(default_factory=list)
     self_labels: set[str] = field(default_factory=set)
+    # Speak gate (coach_gate.SpeakGate): session seconds (the answered
+    # turn's end) of the last line sent with speak=True; None = none yet.
+    last_spoken_t: float | None = None
     # Mid-stream identity (2026-10-07): labels CONFIRMED as someone other
     # than the wearer (phone/server voiceprint verdict, or the user naming
     # the label as another person), the labels with a server voiceprint
@@ -2134,6 +2229,44 @@ def apply_speaker_label(ctx: SessionContext, payload: dict) -> dict | None:
         if ctx.self_speaker == speaker:
             ctx.self_speaker = None
     return {"type": "speaker_label_ack", "speaker": speaker, **entry}
+
+
+def _turns_up_to(ctx: SessionContext, utterance: Utterance, n: int = 6) -> list[Utterance]:
+    """The last ``n`` remembered turns ending with ``utterance`` (turns the
+    phone finalized AFTER it are not context for its coach line)."""
+    out: list[Utterance] = []
+    for u in ctx.utterances:
+        if u.text.strip():
+            out.append(u)
+        if u is utterance:
+            break
+    return out[-n:]
+
+
+def _gate_turns(ctx: SessionContext, utterance: Utterance) -> list[tuple[str, float, float, str]]:
+    """(speaker, start, end, text) for coach_gate.interruption_evidence."""
+    return [(u.speaker, float(u.start_time), float(u.end_time), u.text) for u in _turns_up_to(ctx, utterance)]
+
+
+def _verifier_user(ctx: SessionContext, utterance: Utterance, line: str, *, kind: str,
+                   identity: str, relationship: str | None, session_context: str | None) -> str:
+    """speak_verifier prompt from the session's own turns and roles: a
+    CONFIRMED wearer label is "wearer"; with the wearer unknown every other
+    turn is "unknown", otherwise "other"."""
+    self_labels = set(ctx.self_labels)
+    if ctx.wearer_known and ctx.self_speaker:
+        self_labels.add(ctx.self_speaker)
+    unknown = identity == WEARER_UNKNOWN
+    turns = []
+    for u in _turns_up_to(ctx, utterance, speak_verifier.CONTEXT_TURNS):
+        if u.speaker in self_labels or (u is utterance and identity == WEARER_SELF):
+            role = "wearer"
+        else:
+            role = "unknown" if unknown else "other"
+        turns.append(speak_verifier.Turn(role, display_speaker(ctx, u.speaker), float(u.start_time),
+                                         float(u.end_time), u.text))
+    return speak_verifier.build_user(turns, line, kind=kind, setting=session_context,
+                                     relationship=relationship, wearer_unknown=unknown)
 
 
 def display_speaker(ctx: SessionContext, speaker: str) -> str:
@@ -2733,6 +2866,51 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 else WEARER_SELF if job.is_self else WEARER_OTHER
             )
         self_turn = identity == WEARER_SELF
+        speak_gate = coach_gate.SpeakGate.from_env()
+        turn_dur = max(0.0, float(utterance.end_time) - float(utterance.start_time))
+
+        def gate_speak(importance: int, interject_level: int, line: str = "") -> bool:
+            # Interject slider AND the speak gate (coach_gate). The gap rule
+            # reads ctx.last_spoken_t, so the decisive call is made AFTER
+            # wait_turn (final events are in utterance order); a line that
+            # fails is still sent, with speak=False (shown dimmed, silent).
+            if importance < interject_level:
+                return False
+            # Mid-argument switch-on: an unknown-wearer, speaker-neutral cue
+            # ("Pause. Let them finish.") backed by turn-taking evidence.
+            neutral_ok = (
+                identity == WEARER_UNKNOWN and bool(line) and coach_gate.neutral_cue(line)
+                and coach_gate.interruption_evidence(_gate_turns(ctx, utterance))
+            )
+            ok, why = speak_gate.passes(
+                importance, wearer_unknown=identity == WEARER_UNKNOWN,
+                turn_text=utterance.text, turn_duration_s=turn_dur,
+                now_s=float(utterance.end_time), last_spoken_s=ctx.last_spoken_t,
+                neutral_ok=neutral_ok,
+            )
+            if not ok:
+                logger.debug("Session %s: line shown, not spoken (%s)", session_id, why)
+            return ok
+
+        async def verify_speak(line: str, kind: str) -> bool:
+            # Speak verifier (MINDSHIFT_SPEAK_VERIFIER, default off): a
+            # second, strict LLM yes/no for a line the gate would voice.
+            # Fails closed (error / timeout = silent); never rewrites a line.
+            if not speak_verifier.enabled() or not line:
+                return True
+            user = _verifier_user(ctx, utterance, line, kind=kind, identity=identity,
+                                  relationship=job.relationship, session_context=job.session_context)
+            timing.verifier_start = ctx.latency.now()
+            verdict = await speak_verifier.verify(llm_client, user)
+            timing.verifier_end = ctx.latency.now()
+            speak_verifier.note(verdict, line=line, t=float(utterance.end_time))
+            if not verdict.speak:
+                logger.debug("Session %s: verifier silenced a line (%s)", session_id,
+                             verdict.error or verdict.reason)
+            return verdict.speak
+
+        def mark_spoken() -> None:
+            ctx.last_spoken_t = float(utterance.end_time)
 
         # Coach knowledge library: bounded wait (library_live.TURN_TIMEOUT_S);
         # None on timeout/failure/nothing selected — the turn is then coached
@@ -2774,6 +2952,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # Policy after the model (nudge-quality): importance floor and
             # the don't-nag repeat gate. Both turn the nudge into silence.
             nudge, importance = _gate_nudge(ctx, utterance, nudge, importance, job.tone_context)
+            # Never say a raw diarization label (coach_gate label scrub).
+            nudge = coach_gate.scrub_line(nudge, ctx.self_labels)
             if not nudge:
                 # "Only speak when something should change." The transcript
                 # event already went out at enqueue; a self turn that needs no
@@ -2783,13 +2963,19 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 return
             # Same interjection gate as below: voice (and synthesize TTS) only
             # when the nudge's urgency clears the session's threshold.
-            speak = importance >= job.interject_level
+            speak = gate_speak(importance, job.interject_level)
+            if speak:
+                speak = await verify_speak(nudge, "nudge")
             tts_audio = None
             if speak and server_owns_tts():
                 timing.tts_start = ctx.latency.now()
                 tts_audio = await tts.synthesize(nudge)
                 timing.tts_end = ctx.latency.now()
             await job.wait_turn()  # final events go out in utterance order
+            if speak and not gate_speak(importance, job.interject_level):
+                speak, tts_audio = False, None  # an earlier turn spoke meanwhile
+            if speak:
+                mark_spoken()
             await send_event(SuggestionEvent(
                 session_id=session_id,
                 utterance_text=utterance.text,
@@ -2816,6 +3002,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # importance; the final event below supersedes it. Best-effort — a
             # failed preview send must never sink the final suggestion.
             timing.llm_first_partial = ctx.latency.now()
+            text = coach_gate.scrub_line(text, ctx.self_labels)
+            if not text:
+                return
             with contextlib.suppress(Exception):
                 await send_event(SuggestionEvent(
                     session_id=session_id,
@@ -2844,6 +3033,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # Don't-nag gate: a first line that re-issues a recent coaching line
         # is demoted behind the model's first different alternative.
         suggestion_texts = _gate_suggestions(ctx, utterance, suggestion_texts)
+        # Never show or say a raw diarization label (coach_gate label scrub).
+        suggestion_texts = coach_gate.scrub_lines(suggestion_texts, ctx.self_labels)
 
         # Interjection gate: the coach only VOICES a suggestion when the
         # LLM-scored importance of the moment clears the session's threshold.
@@ -2851,7 +3042,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # is synthesized for it, so the earpiece stays quiet. `speak` stays
         # True for a local-first client even without server TTS: it means
         # "worth voicing", and the phone voices it itself.
-        speak = importance >= job.interject_level
+        first_line = suggestion_texts[0] if suggestion_texts else ""
+        speak = gate_speak(importance, job.interject_level, first_line)
+        if speak:
+            speak = await verify_speak(first_line, "response")
 
         # TTS for first suggestion (only when it will actually be voiced, and
         # only when this server is the voice).
@@ -2867,6 +3061,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # gated — it is a best-effort glimpse, keyed by utterance_text, and
         # gating it would give back the time-to-first-partial we bought.
         await job.wait_turn()
+        if speak and not gate_speak(importance, job.interject_level, first_line):
+            speak, tts_audio = False, None  # an earlier turn spoke meanwhile
+        if speak:
+            mark_spoken()
         await send_event(SuggestionEvent(
             session_id=session_id,
             utterance_text=utterance.text,
@@ -2941,6 +3139,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         *,
         is_self: bool | None = None,
         tone_context: dict | None = None,
+        phone_triggers: list[str] | None = None,
     ) -> None:
         """Hand one turn to the suggestion worker: daily budget, per-session
         utterance budget (P2-1), latest-wins supersede, then put. Shared by
@@ -2979,6 +3178,54 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     await send_json({"type": "limit_reached"})
             return
 
+        # Turn skip (coach_gate, MINDSHIFT_TURN_SKIP): fragments,
+        # backchannels and laughter are never coached — no LLM call, and
+        # (because this runs BEFORE latest-wins) a "yeah" can no longer
+        # supersede the substantive turn still waiting in the queue. Room
+        # mode keeps every turn (a short addressed question is still a
+        # question). The transcript line already went out.
+        if ctx.room is None:
+            recent = [
+                (float(u.start_time), float(u.end_time), u.text)
+                for u in ctx.utterances[-6:] if u is not utterance
+            ]
+            reason = coach_gate.skip_reason(
+                utterance.text, float(utterance.start_time), float(utterance.end_time),
+                recent, tone_context,
+            )
+            if reason is not None:
+                queue_stats["skipped"] = queue_stats.get("skipped", 0) + 1
+                logger.debug("Session %s: turn not coached (%s)", session_id, reason)
+                return
+
+        identity = _resolve_wearer(ctx, utterance, is_self)
+        history = _history_for_prompt(ctx, utterance, is_self=is_self, identity=identity)
+
+        # Quiet coach (coach_trigger, MINDSHIFT_TRIGGER_GATE, default ON): a
+        # free-form cloud line is generated only when a cheap trigger fires
+        # on this turn (heated words, the wearer's long floor, a direct
+        # question to the wearer, a selected Coach library phrase). Anything
+        # else is never sent to the LLM. Before latest-wins on purpose, like
+        # the turn skip: an untriggered turn must not supersede a triggered
+        # one still waiting in the queue. Room mode has its own rules.
+        if ctx.room is None and coach_trigger.enabled():
+            lib = ctx.library
+            floor_s = _wearer_floor_s(ctx, utterance, identity)
+            verdict = coach_trigger.evaluate(
+                utterance.text,
+                is_wearer=identity == WEARER_SELF,
+                wearer_floor_s=floor_s,
+                wearer_floor_before_s=max(0.0, floor_s - (float(utterance.end_time) - float(utterance.start_time))),
+                phone_triggers=phone_triggers,
+                library=lib.phrases() if lib is not None and hasattr(lib, "phrases") else None,
+            )
+            if not verdict.fires:
+                queue_stats["untriggered"] = queue_stats.get("untriggered", 0) + 1
+                logger.debug("Session %s: turn not coached (no trigger)", session_id)
+                return
+            queue_stats["triggered"] = queue_stats.get("triggered", 0) + 1
+            logger.debug("Session %s: coach trigger %s", session_id, ",".join(verdict.triggers))
+
         # Latest-wins: a suggestion takes seconds (LLM + TTS). If newer
         # speech has arrived while one is still cooking, coaching the
         # backlog is stale by definition — the user hears advice about
@@ -3003,7 +3250,6 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         timing.enqueued = ctx.latency.now()
         timing.queue_depth = suggestion_queue.qsize()
         previous = chain_tail[0]
-        identity = _resolve_wearer(ctx, utterance, is_self)
         job = SuggestionJob(
             utterance=utterance,
             empathy_slider=ctx.empathy_slider,
@@ -3018,7 +3264,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             timing=timing,
             is_self=is_self,
             tone_context=tone_context,
-            history=_history_for_prompt(ctx, utterance, is_self=is_self, identity=identity),
+            history=history,
             identity=identity,
             room=ctx.room is not None,
             prev_done=previous.done if previous is not None else None,
@@ -3191,6 +3437,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             ctx.latency.start(frame_received=received, segment_finalized=received),
             is_self=event.is_self,
             tone_context=_tone_context_from_event(event),
+            phone_triggers=list(event.triggers or []),
         )
 
     # In-app calls: what this session exposes to a call it is bound to (see

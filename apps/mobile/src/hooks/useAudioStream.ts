@@ -22,6 +22,7 @@ import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop, SpeakerBinding } from "../live/fastLoop";
 import { formatLatencyLog } from "../live/fastLoop";
+import { LIVE_COACH_FLAGS } from "../live/liveCoachFlags";
 import { PleasantnessTracker, type Scoreboard } from "../live/pleasantness";
 import {
   enrollSpeakerAudio,
@@ -215,6 +216,10 @@ export interface UseAudioStreamOptions {
   capability?: LiveCapability;
   /** Build the fast loop for a session. */
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
+  /** Send turn_local before the on-device LLM runs so the cloud suggestion
+   *  starts sooner (FastLoopDeps.earlyTurnLocal). Default: LIVE_COACH_FLAGS
+   *  (ON since the quiet coach, 2026-10-29). */
+  earlyTurnLocal?: boolean;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
   /** Override of the "Debug session capture" switch (default: the switch,
@@ -649,6 +654,18 @@ export function cloudAnswersOpenMoment(
   if (idx === -1) return !latest.hadSuggestion;
   if (idx === recent.length - 1) return !recent[idx].hadSuggestion;
   return false;
+}
+
+/** Did the phone itself answer this turn (for cloudAnswersOpenMoment)?
+ *  A local line counts unless the quiet coach muted it; a turn the mid-turn
+ *  floor cue answered counts even without one. Exported for tests. */
+export function phoneAnsweredTurn(turn: {
+  suggestion: string | null;
+  quietMuted?: boolean;
+  triggers?: readonly string[];
+}): boolean {
+  if (turn.triggers?.includes("floor")) return true;
+  return turn.suggestion !== null && !turn.quietMuted;
 }
 
 /** How the wearer's identity is known this session (see wearerIdentityRef). */
@@ -1518,6 +1535,7 @@ export function useAudioStream(
       let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
         ...(primedRecognizer ? { recognizer: primedRecognizer } : {}),
+        ...((options.earlyTurnLocal ?? LIVE_COACH_FLAGS.earlyTurnLocal) ? { earlyTurnLocal: true } : {}),
         // Build progress (the web build's one-time voice-model download).
         onStatus: (line) => {
           if (sessionActiveRef.current && !drainingRef.current) setLiveStatus(line);
@@ -1596,7 +1614,10 @@ export function useAudioStream(
           // The wearer's own enrolled voice, matched outright on-device.
           if (turn.isSelf === true && turn.matchBasis === "absolute") noteWearerIdentity("voiceprint");
           const recent = recentLocalTurnsRef.current;
-          recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
+          // Quiet coach: a local line muted for lack of a trigger did not
+          // answer the moment (the cloud may, on a library mention); a turn
+          // the floor cue answered did, even without an LLM line.
+          recent.push({ text: turn.text, hadSuggestion: phoneAnsweredTurn(turn) });
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
           // Scoreboard: every on-device turn scores from what it carries
           // (tone, prosody, balance) — null inputs are honest gaps.
@@ -2540,10 +2561,17 @@ export function useAudioStream(
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
-                    cloudAnswersOpenMoment(
+                    (cloudAnswersOpenMoment(
                       recentLocalTurnsRef.current,
                       typeof data.utterance_text === "string" ? data.utterance_text : null,
-                    )));
+                    ) ||
+                      // earlyTurnLocal: the turn's record does not exist yet
+                      // (its local LLM is still running) but the loop knows
+                      // the words are its open turn — the cloud answers it.
+                      (loop?.claimsOpenTurn(
+                        typeof data.utterance_text === "string" ? data.utterance_text : null,
+                      ) ??
+                        false))));
               if (voiceIt) {
                 // Earpiece mode: speak the newest TOP suggestion with free
                 // on-device TTS — nudges too, they're short. (The event also
@@ -2554,7 +2582,10 @@ export function useAudioStream(
                 if (!loop || !liveActiveRef.current) {
                   speakSuggestion(items[0]);
                 } else {
-                  loop.offerSpeech(items[0]);
+                  loop.offerSpeech(
+                    items[0],
+                    typeof data.utterance_text === "string" ? data.utterance_text : null,
+                  );
                 }
               }
             }

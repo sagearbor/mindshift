@@ -45,6 +45,10 @@ function harness(opts: {
   /** The overlap probe is off in production (it did not survive validation —
    *  see FastLoopDeps.overlapProbe); its own test turns it on. */
   overlapProbe?: boolean;
+  /** Send turn_local before the local LLM runs (FastLoopDeps.earlyTurnLocal, default off). */
+  earlyTurnLocal?: boolean;
+  /** Quiet coach (FastLoopDeps.quietCoach, default off). */
+  quietCoach?: boolean;
 } = {}): Harness {
   const rec = opts.recognizer === undefined ? new FakeSpeechRecognizer() : opts.recognizer;
   const h: Harness = {
@@ -76,6 +80,8 @@ function harness(opts: {
     haptics: { nudge: async (level) => { h.haptic.push(level); } },
     sttGraceMs: 150,
     pollMs: 5,
+    ...(opts.earlyTurnLocal !== undefined ? { earlyTurnLocal: opts.earlyTurnLocal } : {}),
+    ...(opts.quietCoach !== undefined ? { quietCoach: opts.quietCoach } : {}),
   });
   return h;
 }
@@ -990,5 +996,261 @@ describe("prosodyHint", () => {
     expect(prosodyHint({ rms_dbfs: -40, pitch_hz: null, speech_rate: 1 })).toBe("quiet, slow");
     expect(prosodyHint({ rms_dbfs: -25, pitch_hz: null, speech_rate: 2.5 })).toBeUndefined();
     expect(prosodyHint({ rms_dbfs: null, pitch_hz: null, speech_rate: null })).toBeUndefined();
+  });
+});
+
+describe("FastLoop identity plumbing (labeler tuning)", () => {
+  const D = 192;
+  const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+
+  it("windowVote: a long turn is also embedded as non-overlapping windows (newest audio, capped)", async () => {
+    const lengths: number[] = [];
+    const embedder: Embedder = {
+      embed: async (pcm) => {
+        lengths.push(pcm.length);
+        return unitVector(D, 0, 0.1, lengths.length);
+      },
+    };
+    const labeler = new SpeakerLabeler([you], { windowVote: { seconds: 2, selfThreshold: 0.6, otherCeiling: 0.3, minFrac: 0.5, maxWindows: 2 } });
+    const h = harness({ embedder, labeler });
+    await h.loop.start({ sessionId: "w1", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(6.5, -20));
+    h.rec.emit({ text: "a long turn of words", isFinal: true });
+    push(h.loop, silenceInt16(0.6));
+    await h.loop.settle();
+    // One full-turn embedding, then two 2 s windows (the cap), nothing else.
+    expect(lengths.length).toBe(3);
+    expect(lengths[0]).toBeGreaterThan(6 * 16000);
+    expect(lengths.slice(1)).toEqual([32000, 32000]);
+    expect(h.sent[0].is_self).toBe(true);
+    await h.loop.stop();
+  });
+
+  it("windowVote off: one embedding per turn, as before", async () => {
+    let calls = 0;
+    const embedder: Embedder = { embed: async () => { calls++; return unitVector(D, 0); } };
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    await h.loop.start({ sessionId: "w2", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(6.5, -20));
+    h.rec.emit({ text: "a long turn of words", isFinal: true });
+    push(h.loop, silenceInt16(0.6));
+    await h.loop.settle();
+    expect(calls).toBe(1);
+    await h.loop.stop();
+  });
+
+  it("a 'session' (sticky) owner verdict is coached as self but sent with a null basis (not a server basis)", async () => {
+    const queue = [unitVector(D, 0), unitVector(D, 0), vectorAtCosine(D, 0.52, 0, 3)];
+    const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 5) };
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you], { sticky: { after: 2, threshold: 0.48 } }) });
+    await h.loop.start({ sessionId: "w3", mode: "earpiece", empathy: 50 });
+    for (let i = 0; i < 3; i++) {
+      push(h.loop, toneInt16(2.0, -20));
+      h.rec.emit({ text: `turn number ${i} words`, isFinal: true });
+      push(h.loop, silenceInt16(0.6));
+      await h.loop.settle();
+    }
+    expect(h.sent.map((e) => [e.is_self, e.speaker_match_basis])).toEqual([
+      [true, "absolute"],
+      [true, "absolute"],
+      [true, null],
+    ]);
+    expect(h.turns[2].matchBasis).toBe("session");
+    await h.loop.stop();
+  });
+});
+
+/**
+ * Early turn_local (perf/latency, 2026-10-10). Today the phone sends
+ * turn_local only AFTER its own LLM chain has answered, so the cloud
+ * suggestion's clock starts late: by the scripted 400 ms in the replay
+ * harness, and on a real Pixel 10 by up to the OS model's 8 s budget
+ * (localLlm.osModelProvider). The server never reads turn_local.suggestion
+ * for coaching (only text/speaker/is_self/times + tone context), so the
+ * frame can go out as soon as the words and the identity are known. Behind
+ * `earlyTurnLocal` (default OFF): the frame carries no suggestion and no
+ * text tone, the local LLM still runs, and whichever answer lands first —
+ * cloud (via offerSpeech for the open turn) or local — is the one voiced.
+ */
+describe("FastLoop earlyTurnLocal", () => {
+  /** A provider the test releases by hand, so the LLM-pending window is
+   *  deterministic rather than a sleep race. */
+  function gatedProvider() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let asked = 0;
+    const provider = okProvider(GOOD, async () => { asked += 1; await gate; });
+    return { provider, release, asked: () => asked };
+  }
+
+  async function speakOneTurn(h: Harness) {
+    await h.loop.start({ sessionId: "s1", mode: "earpiece", empathy: 60 });
+    push(h.loop, toneInt16(1.0, -20));
+    h.rec.emit({
+      text: "you never call",
+      isFinal: true,
+      segments: [
+        { startTimeMillis: 100, endTimeMillis: 400, segment: "you" },
+        { startTimeMillis: 400, endTimeMillis: 700, segment: "never" },
+        { startTimeMillis: 700, endTimeMillis: 950, segment: "call" },
+      ],
+    });
+    push(h.loop, silenceInt16(0.5));
+  }
+
+  async function untilAsked(g: { asked: () => number }) {
+    for (let i = 0; i < 400 && g.asked() === 0; i++) await sleep(5);
+    expect(g.asked()).toBe(1);
+  }
+
+  it("default OFF: turn_local still goes out only after the local LLM answered (today's order)", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    expect(h.sent).toHaveLength(0); // the LLM is pending: nothing sent yet
+    expect(h.loop.claimsOpenTurn("you never call")).toBe(false);
+    g.release();
+    await h.loop.settle();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatchObject({ suggestion: "Tell her you miss the calls too.", suggestion_source: "on-device" });
+    await h.loop.stop();
+  });
+
+  it("ON: turn_local is sent before the local LLM is asked, without suggestion or tone, and never twice", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider, earlyTurnLocal: true });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatchObject({
+      type: "turn_local",
+      text: "you never call",
+      transcript_source: "on-device",
+      suggestion: null,
+      suggestion_source: null,
+      text_tone: null,
+      tts_source: "on-device",
+    });
+    expect(h.sent[0].prosody?.rms_dbfs).toBeCloseTo(-20, 0);
+    expect(h.loop.claimsOpenTurn("you never call")).toBe(true);
+    expect(h.loop.claimsOpenTurn("something else")).toBe(false);
+    g.release();
+    await h.loop.settle();
+    expect(h.sent).toHaveLength(1); // not re-sent with the suggestion
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]); // no cloud line came: local speaks
+    expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too.");
+    expect(h.turns[0].spoken).toBe(true);
+    expect(h.loop.claimsOpenTurn("you never call")).toBe(false);
+    expect(h.loop.latencyLog[0].earlySent).toBe(true);
+    await h.loop.stop();
+  });
+
+  it("ON: a cloud line for the open turn is voiced at once and the slower local line stays silent", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider, earlyTurnLocal: true });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    expect(h.loop.offerSpeech("Ask what the calls meant to her.", "you never call")).toBe(true);
+    expect(h.spoken).toEqual(["Ask what the calls meant to her."]);
+    g.release();
+    await h.loop.settle();
+    expect(h.spoken).toEqual(["Ask what the calls meant to her."]); // one answer per moment
+    expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too."); // recorded, not voiced
+    expect(h.turns[0].spoken).toBe(false);
+    expect(h.turns[0].cloudAnswered).toBe(true);
+    expect(h.loop.claimsOpenTurn("you never call")).toBe(false);
+    await h.loop.stop();
+  });
+
+  it("ON: a cloud line for OTHER words does not claim the open turn (today's rule applies)", async () => {
+    const g = gatedProvider();
+    const h = harness({ provider: g.provider, earlyTurnLocal: true });
+    await speakOneTurn(h);
+    await untilAsked(g);
+    expect(h.loop.claimsOpenTurn("some words the phone never reported")).toBe(false);
+    expect(h.loop.offerSpeech("Let them finish.", "some words the phone never reported")).toBe(true);
+    g.release();
+    await h.loop.settle();
+    expect(h.spoken).toEqual(["Let them finish.", "Tell her you miss the calls too."]);
+    expect(h.turns[0].cloudAnswered).toBeFalsy();
+    await h.loop.stop();
+  });
+
+  it("ON: with STT dead no turn_local goes out early either (the server owns those words)", async () => {
+    const h = harness({ recognizer: null, earlyTurnLocal: true });
+    await h.loop.start({ sessionId: "s1", mode: "earpiece", empathy: 60 });
+    push(h.loop, toneInt16(1.0, -20));
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    // No recognizer at all = a loop built without STT: it reports its turns
+    // (text "") exactly as before, once, after the (skipped) LLM stage.
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatchObject({ text: "", suggestion: null });
+    expect(h.loop.latencyLog[0].earlySent).toBeFalsy();
+    await h.loop.stop();
+  });
+});
+
+describe("FastLoop quietCoach", () => {
+  /** One finalized turn of `text` (words spread over 0.1-0.95 s). */
+  async function sayOneTurn(h: Harness, text: string) {
+    await h.loop.start({ sessionId: "s1", mode: "earpiece", empathy: 60 });
+    push(h.loop, toneInt16(1.0, -20));
+    const words = text.split(" ");
+    const step = 850 / words.length;
+    h.rec.emit({
+      text,
+      isFinal: true,
+      segments: words.map((w, i) => ({
+        startTimeMillis: Math.round(100 + i * step),
+        endTimeMillis: Math.round(100 + (i + 1) * step),
+        segment: w,
+      })),
+    });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+  }
+
+  it("default OFF: every local line is voiced, and no triggers ride on the wire", async () => {
+    const h = harness();
+    await sayOneTurn(h, "you never call");
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.turns[0].triggers).toBeUndefined();
+    expect(h.turns[0].quietMuted).toBeUndefined();
+    expect(h.sent[0].triggers).toBeUndefined();
+    await h.loop.stop();
+  });
+
+  it("ON: an untriggered turn's line is recorded and sent, never voiced", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "you never call");
+    expect(h.spoken).toEqual([]);
+    expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too.");
+    expect(h.turns[0].quietMuted).toBe(true);
+    expect(h.turns[0].triggers).toEqual([]);
+    expect(h.turns[0].spoken).toBe(false);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0].triggers).toBeUndefined(); // old wire shape when nothing fired
+    await h.loop.stop();
+  });
+
+  it("ON: heated words trigger the line and travel to the server", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "shut up it is your fault");
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.turns[0].triggers).toContain("heat");
+    expect(h.turns[0].quietMuted).toBeUndefined();
+    expect(h.sent[0].triggers).toContain("heat");
+    await h.loop.stop();
+  });
+
+  it("ON: a direct question from someone who is not the wearer triggers the line", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "what do you think we should do");
+    expect(h.turns[0].triggers).toEqual(["question"]);
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.sent[0].triggers).toEqual(["question"]);
+    await h.loop.stop();
   });
 });

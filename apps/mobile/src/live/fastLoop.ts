@@ -61,6 +61,9 @@ import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolic
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
 import { instantHeatScore } from "./instantTier";
+import { FloorTracker, wearerFromScores, type FloorFire, type FloorTickConfig } from "./floorTick";
+import { HeatLexiconBuzz, type HeatLexiconBuzzOptions } from "./heatLexicon";
+import { quietCoachFrom, turnTriggers, type CoachTrigger, type QuietCoachOptions } from "./coachTrigger";
 
 /** The rolling window the acoustic instant tier scores, and how often. Both
  *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
@@ -68,6 +71,7 @@ export const HEAT_WINDOW_SECONDS = 2;
 export const HEAT_TICK_SECONDS = 1;
 import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
+import { splitSpanBySpeaker, TURN_SPLIT_DEFAULTS, TURN_SPLIT_ENABLED, type TurnSplitConfig } from "./turnSplit";
 
 export type SuggestionKind = "response" | "nudge";
 
@@ -104,6 +108,8 @@ export interface TurnLatency {
   toSpeakMs: number | null;
   provider: string;
   held: boolean;
+  /** turn_local went out BEFORE the local LLM ran (FastLoopDeps.earlyTurnLocal). */
+  earlySent?: boolean;
   /** Per-provider outcome for THIS turn's suggestion attempt (os/bundled/cloud
    *  × ok/refused/timeout/unavailable/error/cloud), with the error/refusal
    *  detail so diagnostics can show WHY a local provider didn't answer — e.g.
@@ -178,12 +184,25 @@ export interface LocalTurn {
   /** Which provider produced the suggestion ("cloud" = waiting on server). */
   provider: string;
   spoken: boolean;
+  /** The cloud answered this turn first (earlyTurnLocal): the local
+   *  suggestion above was recorded but deliberately not voiced. */
+  cloudAnswered?: boolean;
+  /** Quiet coach (deps.quietCoach): the triggers this turn carried
+   *  (live/coachTrigger.ts); [] = none. Absent when the gate is off. */
+  triggers?: CoachTrigger[];
+  /** Quiet coach: the local line above was recorded but NOT voiced because
+   *  no trigger held (the cloud may still answer a library mention). */
+  quietMuted?: boolean;
   latency: TurnLatency;
 }
 
 export interface FastLoopDeps {
   vad: FrameVad;
   segmenter?: SegmenterConfig;
+  /** Speaker-change split inside a VAD span (turnSplit.ts): true = the
+   *  defaults, a config = those settings, false = off. Absent =
+   *  TURN_SPLIT_ENABLED. Needs the embedder; without one spans stay whole. */
+  turnSplit?: boolean | TurnSplitConfig;
   /** Null => speaker-ID disabled (no ECAPA model): every turn is "Unknown". */
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
@@ -250,6 +269,16 @@ export interface FastLoopDeps {
    */
   activationNudges?: boolean;
   /**
+   * Text-heat buzz (live/heatLexicon.ts): a curated phrase lexicon scored on
+   * each finalized on-device transcript; one gentle level-1 cue when a unit
+   * reads as counterproductive conduct (contempt, "your fault", "shut up",
+   * threats, directed profanity, "you're lying"). No identity, no model,
+   * microseconds. Default OFF here; ON in production via live/liveCoachFlags.ts (quiet coach, 2026-10-29). Evaluated offline
+   * (tmp/recordings/fable_heat/REPORT.md, 2026-10-10). `true` = the tuned
+   * defaults (threshold 1.5, 20 s cooldown); an object overrides them.
+   */
+  heatLexiconBuzz?: boolean | Partial<HeatLexiconBuzzOptions>;
+  /**
    * Run the single-mic overlap probe (live/overlapProbe.ts). Default FALSE
    * since 2026-09-07, when it was finally measured against real overlapping
    * speech and did not survive.
@@ -281,6 +310,35 @@ export interface FastLoopDeps {
    * not only on a call.
    */
   overlapProbe?: boolean;
+  /**
+   * Mid-turn wearer floor cue (live/floorTick.ts). Default FALSE here; ON in production via live/liveCoachFlags.ts.
+   * Once a second while audio flows, the trailing 2 s window is embedded
+   * (one ECAPA pass) and scored against the wearer's print — read-only, no
+   * cluster is founded — and a FloorTracker keeps the wearer's floor clock.
+   * At >= 45 s (configurable) it buzzes the hogging cue ("A", level 1) and
+   * offers the fixed line "You've had the floor a while. Check in with
+   * them." through the same never-over-speech gate as every other line —
+   * WHILE the turn is still running, instead of after it ends (an
+   * end-of-turn trigger is a median 30.8 s late on >= 45 s floor runs). No
+   * LLM. Needs an embedder, a labeler and an enrolled wearer print; without
+   * them the wearer is unknown and it never fires. `true` = the defaults
+   * (exp_FT's best live cell: 45 s, gap 30 s); an object overrides fields.
+   */
+  floorTick?: boolean | Partial<FloorTickConfig>;
+  /**
+   * Quiet coach (live/coachTrigger.ts). Default FALSE here (the production
+   * factories turn it on through live/liveCoachFlags.ts). When on, a local
+   * free-form line is VOICED only when a trigger holds on its turn - heated
+   * words (the lexicon, >= 1.5), or a direct question from someone other
+   * than the wearer; a turn the mid-turn floor cue already answered stays
+   * silent (the cue was the answer). Untriggered lines are still recorded
+   * and shown (`LocalTurn.quietMuted`). Every turn_local carries the
+   * triggers the phone saw (`triggers`), which the server's own pre-LLM
+   * gate (server/coach_trigger.py) unions with its own.
+   */
+  quietCoach?: boolean | Partial<QuietCoachOptions>;
+  /** Every floor cue the tracker fired (dark telemetry / replay report). */
+  onFloorCue?: (fire: FloorFire) => void;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -294,6 +352,16 @@ export interface FastLoopDeps {
    *  pause) — which the replay harness showed lands most suggestions inside
    *  the other person's sentence pauses; see the PR for the measurements. */
   speakQuietMs?: number;
+  /** Send turn_local as soon as the words, identity and prosody are known —
+   *  BEFORE the local LLM chain runs — so the cloud suggestion's clock no
+   *  longer starts after it (scripted 400 ms in the replay harness; up to the
+   *  OS model's 8 s budget on a real Pixel 10, see localLlm.osModelProvider).
+   *  The frame then carries no suggestion/text_tone (the server never reads
+   *  the suggestion for coaching; its tone context falls back to prosody).
+   *  A cloud line that answers the open turn (`offerSpeech(text, words)`) is
+   *  voiced at once and the slower local line stays silent — one answer per
+   *  moment. Default OFF here; ON in production via live/liveCoachFlags.ts (2026-10-29; replay-measured, not yet device-verified). */
+  earlyTurnLocal?: boolean;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
    *  convention). Null disables the convention. Changeable mid-session via
@@ -410,8 +478,16 @@ export class FastLoop {
    *  disabled (deps.repeatGate === null). */
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
+  private readonly heatLexicon: HeatLexiconBuzz | null;
+  private readonly quiet: QuietCoachOptions | null;
   private readonly overlapProbe: boolean;
   private readonly instantHeat: boolean;
+  /** Mid-turn floor tracker (deps.floorTick); null = off. */
+  private readonly floor: FloorTracker | null;
+  private nextFloorSecond = 0;
+  private floorQueue: Promise<void> = Promise.resolve();
+  /** Every floor cue fired this session (dark; see FastLoopDeps.floorTick). */
+  readonly floorLog: FloorFire[] = [];
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -420,6 +496,10 @@ export class FastLoop {
   private readonly contextTurns: number;
   private readonly speakHoldMaxMs: number;
   private readonly speakQuietMs: number;
+  private readonly earlyTurnLocal: boolean;
+  /** The turn whose turn_local went out early and whose local LLM is still
+   *  running (at most one: turns finalize serially). */
+  private openTurn: { index: number; text: string; cloudAnswered: boolean } | null = null;
   private readonly historySamples: number;
   private readonly maxEmbedSamples: number;
   private readonly maxPitchSeconds: number;
@@ -500,10 +580,15 @@ export class FastLoop {
     this.contextTurns = deps.contextTurns ?? 6;
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
+    this.earlyTurnLocal = deps.earlyTurnLocal ?? false;
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
+    this.heatLexicon = FastLoop.heatLexiconFrom(deps.heatLexiconBuzz);
+    this.quiet = quietCoachFrom(deps.quietCoach);
     this.overlapProbe = deps.overlapProbe ?? false;
     this.instantHeat = deps.instantHeat ?? true;
+    const ft = deps.floorTick ?? false;
+    this.floor = ft === false ? null : new FloorTracker(ft === true ? {} : ft);
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -744,9 +829,14 @@ export class FastLoop {
     this.lastFrameEnd = 0;
     this.nextHeatSecond = HEAT_WINDOW_SECONDS;
     this.heatLog.length = 0;
+    this.floor?.reset();
+    this.nextFloorSecond = this.floor ? this.floor.config.windowSeconds : 0;
+    this.floorQueue = Promise.resolve();
+    this.floorLog.length = 0;
     this.turnUidPrefix = this.deps.turnUidPrefix ?? newTurnUidPrefix();
     this.turnUidSeq = 0;
     this.latencyLog.length = 0;
+    this.openTurn = null;
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
     this.speakerPools = new Map();
@@ -872,6 +962,7 @@ export class FastLoop {
   /** Wait for every queued VAD frame and turn to finish (tests, stop()). */
   async settle(): Promise<void> {
     await this.vadQueue;
+    await this.floorQueue;
     await this.turnQueue;
   }
 
@@ -882,9 +973,14 @@ export class FastLoop {
    * the loop took it (false = this mode never speaks; the caller shows it
    * on screen only).
    */
-  offerSpeech(text: string): boolean {
+  offerSpeech(text: string, utteranceText?: string | null): boolean {
     if (!this.session || this.session.mode === "therapist") return false;
     if (!this.running) return false;
+    // earlyTurnLocal: the cloud answered the turn whose local LLM is still
+    // running — it wins, and the local line for that turn stays silent.
+    if (utteranceText != null && this.claimsOpenTurn(utteranceText)) {
+      this.openTurn!.cloudAnswered = true;
+    }
     if (!this.quietEnoughToSpeak()) {
       this.held = { text, expiresAtMs: this.now() + this.speakHoldMaxMs, latency: null, turn: null };
     } else {
@@ -893,10 +989,22 @@ export class FastLoop {
     return true;
   }
 
+  /**
+   * earlyTurnLocal: is `utteranceText` the words of a turn whose turn_local
+   * already went out while its local LLM is still running? The hook uses it
+   * to voice a cloud answer for that turn before the turn record exists
+   * (useAudioStream.cloudAnswersOpenMoment cannot see an unfinished turn).
+   * Always false with the flag off.
+   */
+  claimsOpenTurn(utteranceText: string | null): boolean {
+    return utteranceText != null && this.openTurn !== null && this.openTurn.text === utteranceText;
+  }
+
   /** Flush the open turn, wait for every queued stage, stop STT. */
   async stop(): Promise<FastLoopSummary> {
     this.running = false;
     await this.vadQueue;
+    await this.floorQueue;
     const tail = this.segmenter.flush();
     if (tail) this.enqueueTurn(tail);
     await this.turnQueue;
@@ -965,6 +1073,64 @@ export class FastLoop {
     if (this.quietEnoughToSpeak()) this.releaseHeld();
     // Last: the dark acoustic tier must never sit in front of the real path.
     this.tickHeat(tEnd);
+    this.tickFloor(tEnd);
+  }
+
+  /**
+   * The mid-turn floor tick (deps.floorTick): once a second, score the
+   * trailing window's voice against the wearer's print and advance the
+   * floor clock. Queued on its own chain, so the ECAPA pass (~40 ms on a
+   * Pixel) never delays a VAD frame or a turn; observations still arrive in
+   * order. Windows without speech are observed too (they end runs) but are
+   * never embedded.
+   */
+  private tickFloor(tEnd: number): void {
+    const floor = this.floor;
+    if (!floor) return;
+    const { windowSeconds, tickSeconds } = floor.config;
+    while (tEnd >= this.nextFloorSecond) {
+      const end = this.nextFloorSecond;
+      this.nextFloorSecond += tickSeconds;
+      const start = end - windowSeconds;
+      const speaking = this.lastSpeechEnd > start;
+      const pcm = speaking ? this.sliceHistory({ start, end }) : null;
+      this.floorQueue = this.floorQueue
+        .then(async () => {
+          const wearer = pcm && pcm.length > 0 ? await this.windowWearer(pcm) : null;
+          const fire = floor.observe({ t: end, windowStart: start, speaking, wearer });
+          if (fire) this.deliverFloorCue(fire);
+        })
+        .catch(() => {});
+    }
+  }
+
+  /** Live wearer estimate for one window: read-only cosine vs the wearer's
+   *  print (SpeakerLabeler.scoreWindow) — never founds a cluster or moves an
+   *  identity. null without a voice model or a wearer print. */
+  private async windowWearer(pcm: Float32Array): Promise<boolean | null> {
+    const { embedder, labeler } = this.deps;
+    if (!embedder || !labeler || !this.floor) return null;
+    try {
+      const emb = await embedder.embed(pcm, SILERO_SAMPLE_RATE);
+      return wearerFromScores(labeler.scoreWindow(emb), this.floor.config);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Buzz now; voice the fixed line in the next pause (the wearer is the one
+   *  talking, so it is held — dropped if no pause comes within speakHoldMs).
+   *  Bypasses the LLM and the repeat gate: the tracker's min gap is its own
+   *  don't-nag rule. */
+  private deliverFloorCue(fire: FloorFire): void {
+    const cfg = this.floor?.config;
+    if (!cfg || !this.running) return;
+    this.floorLog.push(fire);
+    this.deps.onFloorCue?.(fire);
+    if (cfg.buzz && this.deps.haptics) void this.deps.haptics.nudge(1, "A").catch(() => {});
+    if (!cfg.speak || !this.session || this.session.mode === "therapist") return;
+    if (this.quietEnoughToSpeak()) this.speakNow(fire.text, null, null);
+    else this.held = { text: fire.text, expiresAtMs: this.now() + cfg.speakHoldMs, latency: null, turn: null };
   }
 
   /** Nobody is talking, and hasn't been for at least speakQuietMs. */
@@ -975,9 +1141,24 @@ export class FastLoop {
 
   private enqueueTurn(span: Span) {
     const segmentEndMs = this.now() - this.startWallMs;
+    const split = this.turnSplitConfig();
     this.turnQueue = this.turnQueue
-      .then(() => this.finalizeTurn(span, segmentEndMs))
+      .then(async () => {
+        const embedder = this.deps.embedder;
+        const pieces = split && embedder ? await splitSpanBySpeaker(this.sliceHistory(span), span, embedder, split) : [span];
+        if (pieces.length > 1) this.spansSplit += 1;
+        for (const piece of pieces) await this.finalizeTurn(piece, segmentEndMs);
+      })
       .catch(() => {});
+  }
+
+  /** Spans the speaker-change pass cut into two or more turns. */
+  spansSplit = 0;
+
+  private turnSplitConfig(): TurnSplitConfig | null {
+    const t = this.deps.turnSplit ?? TURN_SPLIT_ENABLED;
+    if (t === false) return null;
+    return t === true ? TURN_SPLIT_DEFAULTS : t;
   }
 
   /** Deliver policy nudges: screen always; haptic on ESCALATION only
@@ -1176,7 +1357,20 @@ export class FastLoop {
           const embedPcm =
             pcm.length > this.maxEmbedSamples ? pcm.subarray(pcm.length - this.maxEmbedSamples) : pcm;
           const emb = await this.deps.embedder.embed(embedPcm, SILERO_SAMPLE_RATE);
-          verdict = this.deps.labeler.label(emb, duration);
+          // Sub-turn windows (SpeakerLabelerOptions.windowVote; off = none):
+          // non-overlapping, newest audio first-cut, at most maxWindows.
+          let windows: Float32Array[] | undefined;
+          const winS = this.deps.labeler.identityWindowSeconds;
+          if (winS > 0 && embedPcm.length >= 2 * winS * SILERO_SAMPLE_RATE) {
+            const n = Math.round(winS * SILERO_SAMPLE_RATE);
+            const count = Math.min(Math.floor(embedPcm.length / n), this.deps.labeler.identityMaxWindows);
+            windows = [];
+            for (let k = 1; k <= count; k++) {
+              const end = embedPcm.length - (k - 1) * n;
+              windows.push(await this.deps.embedder.embed(embedPcm.subarray(end - n, end), SILERO_SAMPLE_RATE));
+            }
+          }
+          verdict = this.deps.labeler.label(emb, duration, windows);
         } catch {
           // Unembeddable segment: no identity, never a guess.
         }
@@ -1287,6 +1481,18 @@ export class FastLoop {
     let provider = "none";
     let llmMs = 0;
     let attempts: { provider: string; outcome: string }[] | undefined;
+    // Quiet coach: what on this turn could justify a free-form line.
+    const floorFired = this.floorLog.some((f) => f.t >= span.start - 1 && f.t <= span.end + 1);
+    const triggers: CoachTrigger[] | null = this.quiet
+      ? turnTriggers({ text: aligned.text, isSelf: verdict.isSelf, floorFired }, this.quiet)
+      : null;
+    // earlyTurnLocal: the cloud's clock starts NOW, not after the local LLM.
+    // Same frame as below minus the two fields the LLM would fill in.
+    const earlySent = this.earlyTurnLocal && sttOwned && !!aligned.text && turnKind === "primary";
+    if (earlySent) {
+      this.openTurn = { index, text: aligned.text, cloudAnswered: false };
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, null, null, triggers);
+    }
     if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
       // The prompt names people the way the user does ("Mom", not
@@ -1326,6 +1532,15 @@ export class FastLoop {
 
     const overlap = await overlapPromise;
 
+    // earlyTurnLocal: did a cloud line for this turn get voiced while the
+    // local LLM was running? Then the local line is recorded, not spoken.
+    const cloudTookIt = this.openTurn?.index === index && this.openTurn.cloudAnswered;
+    if (this.openTurn?.index === index) this.openTurn = null;
+    // Quiet coach: voice a local line only on a heat / question trigger. A
+    // floor-cue turn already got its fixed line; no trigger = shown only.
+    const quietMuted =
+      triggers !== null && suggestion !== null && !triggers.some((t) => t === "heat" || t === "question");
+
     const latency: TurnLatency = {
       turn: index,
       segmentEndMs,
@@ -1336,6 +1551,7 @@ export class FastLoop {
       toSpeakMs: null,
       provider,
       held: false,
+      ...(earlySent ? { earlySent: true } : {}),
       attempts,
     };
     const turn: LocalTurn = {
@@ -1361,6 +1577,9 @@ export class FastLoop {
       suggestionKind: suggestion ? (coachedAsSelf ? "nudge" : "response") : null,
       provider,
       spoken: false,
+      ...(cloudTookIt ? { cloudAnswered: true } : {}),
+      ...(triggers !== null ? { triggers } : {}),
+      ...(quietMuted ? { quietMuted: true } : {}),
       latency,
     };
     this.turns.push(turn);
@@ -1385,7 +1604,7 @@ export class FastLoop {
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end, duration), instantBuzzedLevel);
     this.emitPositives(turn, coachedAsSelf, measuredLoudLevel);
 
-    if (suggestion && session.mode !== "therapist") {
+    if (suggestion && session.mode !== "therapist" && !cloudTookIt && !quietMuted) {
       if (!this.quietEnoughToSpeak()) {
         // Someone is talking (or just stopped): hold until the VAD has been
         // quiet long enough (most recent wins).
@@ -1400,35 +1619,62 @@ export class FastLoop {
     // suppresses the server's own transcript/suggestion for the span. Only
     // claim that when on-device STT actually heard the span — with STT
     // dead (or absent) the server's transcript is the only one there is.
-    if (sttOwned) {
-      this.sentTurns += 1;
-      this.deps.send({
-        type: "turn_local",
-        session_id: session.sessionId,
-        // Stamped here, once, so a turn the phone had to buffer through a
-        // network drop keeps the SAME id when it is finally sent — that is
-        // what lets the server ignore the copy that was in flight when the
-        // socket died (server/session_resume.py).
-        turn_uid: `${this.turnUidPrefix}-${(this.turnUidSeq += 1)}`,
-        speaker: verdict.speaker,
-        speaker_person_id: verdict.personId,
-        speaker_match_score: verdict.score,
-        // "solo" is journal-only and never reaches turn_local (the wire
-        // Literal is absolute|contrast); narrow defensively.
-        speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
-        is_self: verdict.isSelf,
-        text: aligned.text,
-        start_time: span.start,
-        end_time: span.end,
-        transcript_source: "on-device",
-        prosody,
-        text_tone: textTone,
-        suggestion,
-        suggestion_source: suggestion ? "on-device" : null,
-        tts_source: "on-device",
-      });
+    // (earlyTurnLocal already sent this turn's frame above: never twice.)
+    if (sttOwned && !earlySent) {
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion, triggers);
+    }
+    // Dark text-heat buzz: the words of this turn alone, one level-1 cue.
+    if (this.heatLexicon && aligned.text && this.heatLexicon.observe(aligned.text, span.end) && this.deps.haptics) {
+      void this.deps.haptics.nudge(1, "H").catch(() => {});
     }
     this.deps.onTurn(turn);
+  }
+
+  /** The dark text-heat gate for a flag value: absent/false = off (null). */
+  static heatLexiconFrom(flag: FastLoopDeps["heatLexiconBuzz"]): HeatLexiconBuzz | null {
+    if (!flag) return null;
+    return new HeatLexiconBuzz(typeof flag === "object" ? flag : {});
+  }
+
+  private sendTurnLocal(
+    sessionId: string,
+    verdict: SpeakerVerdict,
+    text: string,
+    span: Span,
+    prosody: TurnProsody,
+    textTone: TextTone | null,
+    suggestion: string | null,
+    triggers: CoachTrigger[] | null = null,
+  ) {
+    this.sentTurns += 1;
+    this.deps.send({
+      type: "turn_local",
+      session_id: sessionId,
+      // Stamped here, once, so a turn the phone had to buffer through a
+      // network drop keeps the SAME id when it is finally sent — that is
+      // what lets the server ignore the copy that was in flight when the
+      // socket died (server/session_resume.py).
+      turn_uid: `${this.turnUidPrefix}-${(this.turnUidSeq += 1)}`,
+      speaker: verdict.speaker,
+      speaker_person_id: verdict.personId,
+      speaker_match_score: verdict.score,
+      // "solo" is journal-only and never reaches turn_local (the wire
+      // Literal is absolute|raised|contrast); "session" (in-session
+      // adaptation) is phone-only too. Narrow both to null.
+      speaker_match_basis: verdict.basis === "solo" || verdict.basis === "session" ? null : verdict.basis,
+      is_self: verdict.isSelf,
+      text,
+      start_time: span.start,
+      end_time: span.end,
+      transcript_source: "on-device",
+      prosody,
+      text_tone: textTone,
+      suggestion,
+      suggestion_source: suggestion ? "on-device" : null,
+      tts_source: "on-device",
+      // Quiet coach: only when the phone saw one (old wire shape otherwise).
+      ...(triggers && triggers.length ? { triggers } : {}),
+    });
   }
 
   private speakNow(text: string, latency: TurnLatency | null, turn: LocalTurn | null) {

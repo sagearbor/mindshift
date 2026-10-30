@@ -34,6 +34,7 @@ from models.audio import TurnLocalEvent
 _REPO = Path(__file__).resolve().parents[2]
 _COMMITTED = Path(__file__).resolve().parent / "fixtures" / "replay"
 _JEST_OUT = _REPO / "apps" / "mobile" / ".replay-out"
+_OMITTED_WHEN_EMPTY = {"triggers"}
 
 
 def _dump_files() -> list[Path]:
@@ -80,7 +81,10 @@ def test_every_dumped_turn_local_event_validates(path: Path):
         # day still carried a `speaker_match_basis` field the code no longer
         # emits. The message says so, with the file's age, before it accuses
         # anyone of breaking the contract.
-        drift = set(raw) ^ set(TurnLocalEvent.model_fields)
+        # `triggers` (quiet coach) is the one optional the phone OMITS when
+        # empty, so old clients and new ones send the same frame for an
+        # untriggered turn; it must still never appear unknown to the model.
+        drift = (set(raw) ^ set(TurnLocalEvent.model_fields)) - (_OMITTED_WHEN_EMPTY - set(raw))
         if drift:
             age_h = (time.time() - path.stat().st_mtime) / 3600.0
             pytest.fail(

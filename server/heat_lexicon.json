@@ -1,0 +1,136 @@
+{
+ "version": "v3",
+ "note": "generated from tmp/recordings/fable_heat/lexicon.py; flags i; score = sum of weights of matching patterns",
+ "patterns": [
+  {
+   "pattern": "\\b(?:you['\u2019 ]?re|you are|you|you people are|you guys are|you all are|y['\u2019 ]?all are|you two are|you both are) (?:a |an |so |such a |just a |nothing but a |being |all |both |really |truly |probably |obviously |clearly |fucking |so fucking )?(?:idiot|idiots|moron|morons|stupid|dumb|pathetic|disgusting|a disgrace|clown|clowns|loser|losers|hypocrite|hypocrites|incompetent|clueless|coward|cowards|a fool|a joke|a liar|liars|a fraud|a crook|crooks|an embarrassment|childish|a child|ignorant|lazy|useless|selfish|delusional|retarded|deceitful|dishonest|a thief|thieves|a traitor|traitors|scum|trash|evil|corrupt|a coward|a bully|sick in the head|full of shit|full of it)\\b",
+   "weight": 2.0,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\b(?:they['\u2019 ]?re|they are|he['\u2019 ]?s|she['\u2019 ]?s|he is|she is) (?:a |an |so |such a |just a |really )?(?:idiot|idiots|moron|morons|stupid|dumb|pathetic|disgusting|a disgrace|clown|clowns|loser|losers|hypocrite|hypocrites|incompetent|clueless|coward|cowards|a fool|a joke|a liar|liars|a fraud|a crook|crooks|an embarrassment|childish|a child|ignorant|lazy|useless|selfish|delusional|retarded|deceitful|dishonest|a thief|thieves|a traitor|traitors|scum|trash|evil|corrupt|a coward|a bully|sick in the head|full of shit|full of it)\\b",
+   "weight": 0.5,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\b(?:idiot|idiots|moron|morons|imbecile|pathetic|disgusting|disgraceful|hypocrite|hypocrites|incompetent|clueless|cowards?|scum|losers?|retarded|deceitful|thieves|traitors)\\b",
+   "weight": 1.0,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\b(?:shame on you|grow up|get a life|get over yourself|pipe down|you people|your kind|who the hell are you|what is wrong with you|what['\u2019 ]?s wrong with you|get a grip|wake up|read the room|do your job|do your homework|you make me sick|i hate you|you disgust me|i can['\u2019 ]?t stand you|the truth hurts|isn['\u2019 ]?t that (?:very |so |just )?(?:sweet|nice|kind) of you|how (?:very )?(?:sweet|nice|kind) of you)\\b",
+   "weight": 1.0,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\b(?:who do you think you are|how dare you)\\b",
+   "weight": 1.5,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\b(?:stupid|dumb|ridiculous|absurd|nonsense|insane|crazy|you['\u2019 ]?re wrong|you are wrong|look at you)\\b",
+   "weight": 0.5,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\byou (?:don['\u2019 ]?t|do not) (?:even )?(?:know|understand|get|have a clue|have any idea) (?:anything|what you['\u2019 ]?re talking about|what you are talking about|a thing|the first thing)\\b",
+   "weight": 1.5,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\byou have no (?:idea|clue|right|business|shame|respect|credibility)\\b",
+   "weight": 1.0,
+   "cat": "C1"
+  },
+  {
+   "pattern": "\\byou (?:always|never|constantly) \\b",
+   "weight": 0.5,
+   "cat": "C2"
+  },
+  {
+   "pattern": "\\b(?:it['\u2019 ]?s|it is|this is|that['\u2019 ]?s|that is|which is) (?:all |entirely |completely )?your fault\\b",
+   "weight": 2.0,
+   "cat": "C2"
+  },
+  {
+   "pattern": "\\b(?:because of you|you did nothing|you['\u2019 ]?ve done nothing|you do nothing|you never cared|you couldn['\u2019 ]?t care less|you did this|you caused this|you ruined|you['\u2019 ]?re to blame|you made this|you['\u2019 ]?re the (?:problem|reason)|you only care about|you just care about|all you (?:ever )?do is|all you care about|you people did|you didn['\u2019 ]?t (?:even )?(?:bother|care|try|listen))\\b",
+   "weight": 1.5,
+   "cat": "C2"
+  },
+  {
+   "pattern": "\\b(?:you don['\u2019 ]?t care|you don['\u2019 ]?t even care|you never listen|every single time you|every time you|you blame)\\b",
+   "weight": 1.0,
+   "cat": "C2"
+  },
+  {
+   "pattern": "\\b(?:shut up|shut your mouth|shut it|zip it|shut the hell up|shut the fuck up)\\b",
+   "weight": 2.0,
+   "cat": "C3"
+  },
+  {
+   "pattern": "\\b(?:stay out of (?:it|this|my)|don['\u2019 ]?t start (?:with|on) me|get out of (?:here|my (?:house|face|way|office|sight))|get the hell out|get the fuck out|don['\u2019 ]?t (?:you )?talk to me|i['\u2019 ]?m done (?:talking|with you|with this|here)|we['\u2019 ]?re done here|none of your (?:business|concern)|mind your own business|don['\u2019 ]?t you dare|not another word|i don['\u2019 ]?t want to hear (?:it|another word|anything))\\b",
+   "weight": 1.5,
+   "cat": "C3"
+  },
+  {
+   "pattern": "\\b(?:leave me alone|back off|stop talking|quit talking|i['\u2019 ]?m not listening|be quiet|you['\u2019 ]?re done|you are done)\\b",
+   "weight": 1.0,
+   "cat": "C3"
+  },
+  {
+   "pattern": "\\b(?:oh (?:really|great|wonderful|sure|please|wow|right|brilliant)|yeah right|sure you (?:did|do|are|will)|good for you|nice try|if you say so|here we go again|cry about it|boo hoo|whatever you say|thanks for nothing|aren['\u2019 ]?t you (?:clever|smart|special)|big (?:man|shot|words))\\b",
+   "weight": 0.5,
+   "cat": "C4"
+  },
+  {
+   "pattern": "\\b(?:you['\u2019 ]?ll regret|you will regret|you['\u2019 ]?ll be sorry|i['\u2019 ]?ll make sure|i will make sure|i['\u2019 ]?ll see to it|i['\u2019 ]?m warning you|last warning|i['\u2019 ]?ll (?:kill|hurt|destroy|ruin|end|break|smack|hit|slap|punch|get|find|come after|take care of) you|i will (?:kill|hurt|destroy|ruin|end|break|smack|hit|slap|punch|get|find|come after) you|mark my words|stop (?:him|her|them) or (?:else )?i will|or else i will|meet (?:me )?outside|take (?:it|this) outside|step outside|you better not|you['\u2019 ]?d better not|you had better|watch your mouth|watch yourself)\\b",
+   "weight": 1.5,
+   "cat": "C5"
+  },
+  {
+   "pattern": "\\b(?:or else|try me|don['\u2019 ]?t make me|i swear to god|i['\u2019 ]?ll go lower|you don['\u2019 ]?t want to (?:go|do|mess|start) (?:there|that|with me))\\b",
+   "weight": 0.5,
+   "cat": "C5"
+  },
+  {
+   "pattern": "\\b(?:fuck you|fuck off|screw you(?! up| over)|go to hell|damn you|piss off|kiss my ass|you (?:fucking |stupid |little |dumb )?(?:asshole|bitch|bastard|dickhead|prick|son of a bitch|motherfucker|jackass|dumbass|moron|idiot)|what the (?:hell|fuck) is wrong with you|big ass baby|get your (?:ass|shit) out)\\b",
+   "weight": 2.0,
+   "cat": "C6"
+  },
+  {
+   "pattern": "\\b(?:asshole|assholes|bitch|bitches|bastard|bastards|dickhead|prick|son of a bitch|motherfucker|jackass|dumbass)\\b",
+   "weight": 1.0,
+   "cat": "C6"
+  },
+  {
+   "pattern": "\\b(?:are you (?:fucking |freaking |even )?(?:kidding me|serious|crazy|insane|stupid|out of your mind|deaf|blind|dense)|bullshit|bull shit)\\b",
+   "weight": 1.0,
+   "cat": "C6"
+  },
+  {
+   "pattern": "\\b(?:fucking|freaking|goddamn|god damn|the fuck|the hell are you|shit)\\b",
+   "weight": 0.5,
+   "cat": "C6"
+  },
+  {
+   "pattern": "\\byou(?:['\u2019 ]?re| are)? (?:\\w+ ){0,2}(?:lying|lied)\\b",
+   "weight": 1.5,
+   "cat": "C7"
+  },
+  {
+   "pattern": "\\b(?:that['\u2019 ]?s a lie|that is a lie|such a lie|a (?:damn |complete |total |flat out |blatant |big |bald faced |outright )lie|stop lying|quit lying|you['\u2019 ]?re making (?:this|that|it|things|stuff) up|you made that up|liar|liars|you lie to me|that['\u2019 ]?s bullshit|that['\u2019 ]?s a lie|lies)\\b",
+   "weight": 1.5,
+   "cat": "C7"
+  },
+  {
+   "pattern": "\\b(?:i don['\u2019 ]?t care what you (?:think|say|want|believe)|nobody cares|no one cares|who cares what you|you['\u2019 ]?re not listening|you don['\u2019 ]?t listen|you keep interrupting|you['\u2019 ]?re interrupting|you interrupted|you don['\u2019 ]?t get it)\\b",
+   "weight": 1.0,
+   "cat": "C7"
+  },
+  {
+   "pattern": "\\b(?:that['\u2019 ]?s not true|that is not true|not true|that['\u2019 ]?s false|that is false|let me finish|don['\u2019 ]?t interrupt|i['\u2019 ]?m talking|i am talking|i wasn['\u2019 ]?t finished|i['\u2019 ]?m not finished|excuse me|i don['\u2019 ]?t care)\\b",
+   "weight": 0.5,
+   "cat": "C7"
+  }
+ ]
+}

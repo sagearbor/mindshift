@@ -21,9 +21,11 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
-import { SileroVad, EnergyVad, type FrameVad } from "../vad";
-import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "../speakerId";
+import { FastLoop, type FastLoopDeps, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
+import type { FloorFire } from "../floorTick";
+import { SileroVad, EnergyVad, SpeechGate, withVadAgc, type FrameVad } from "../vad";
+import type { ListeningTuning } from "./tuning";
+import { EcapaEmbedder, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
 import { vocabularyForCode } from "../nudgeVocabulary";
@@ -180,9 +182,26 @@ export interface ReplayOptions {
    *  Default TRUE, as on the phone; a replay that only cares about the nudge
    *  ladder can turn it off and save the arithmetic. */
   instantHeat: boolean;
+  /** FastLoopDeps.floorTick — the mid-turn wearer floor cue (dark on the
+   *  phone; default false here too). */
+  floorTick?: FastLoopDeps["floorTick"];
+  /** FastLoopDeps.heatLexiconBuzz / quietCoach / earlyTurnLocal (the quiet
+   *  coach's production defaults, live/liveCoachFlags.ts); absent = off. */
+  heatLexiconBuzz?: FastLoopDeps["heatLexiconBuzz"];
+  quietCoach?: FastLoopDeps["quietCoach"];
+  earlyTurnLocal?: boolean;
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
+  /** VAD / segmenter / splitter overrides (replay/tuning.ts); absent = the
+   *  production constants. Applied by loadModels (VAD) and the loop. */
+  listening?: ListeningTuning;
+  /** Pre-built voiceprints used INSTEAD of enrolling from the meta — e.g.
+   *  the owner's real enrolled print replaying one of his own recordings
+   *  (replay/recordingReplay.ts). `enroll` / `enrollFrom` are ignored. */
+  enrolled?: EnrollmentRecord[];
+  /** Labeler tuning (identity sweeps); absent = the shipped labeler. */
+  speakerOptions?: SpeakerLabelerOptions;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: Omit<ReplayOptions, "mode"> = {
@@ -217,12 +236,20 @@ export interface LoadedModels {
 
 /** Load Silero (per run — it is stateful) and ECAPA (once) through the node
  *  ORT seam. Returns `embedder: null` when no export is on this machine. */
-export async function loadModels(opts: Pick<ReplayOptions, "ortFactory" | "sileroPath" | "ecapaPath" | "energyVad">): Promise<LoadedModels> {
+export async function loadModels(
+  opts: Pick<ReplayOptions, "ortFactory" | "sileroPath" | "ecapaPath" | "energyVad" | "listening">,
+): Promise<LoadedModels> {
   const factory = opts.ortFactory ?? (await nodeFactory());
   const embedder = opts.ecapaPath && !opts.energyVad ? new EcapaEmbedder(await factory(opts.ecapaPath)) : null;
   const ecapaPath = embedder ? opts.ecapaPath : null;
   return {
-    vad: async () => (opts.energyVad ? new EnergyVad() : new SileroVad(await factory(opts.sileroPath))),
+    vad: async () => {
+      if (opts.energyVad) return new EnergyVad();
+      const t = opts.listening;
+      const silero = new SileroVad(await factory(opts.sileroPath), t ? new SpeechGate(t.vadOn, t.vadOff) : undefined);
+      // The same gain stage the phone's buildVad adds (vad.ts withVadAgc).
+      return t ? withVadAgc(silero, t.agc) : withVadAgc(silero);
+    },
     embedder,
     ecapaPath,
   };
@@ -255,6 +282,15 @@ export interface HapticFire {
   code: string | null;
 }
 
+/** One raw `SpeakerLabeler.label` verdict (before mid-call bindings). */
+export interface LabelLogEntry {
+  seconds: number | null;
+  selfScore: number | null;
+  isSelf: boolean | null;
+  basis: string | null;
+  speaker: string;
+}
+
 /** A NudgeEvent plus the virtual clock at which the loop emitted it
  *  (`t` is the audio second the turn closed; `atMs` is when the words and
  *  the tone were in — the LLM tier's latency is the difference). */
@@ -276,6 +312,9 @@ export interface ReplayResult {
   capability: { vad: "silero" | "energy"; speakerId: boolean; enrolled: EnrollmentRecord[] };
   turns: LocalTurn[];
   sent: TurnLocalEvent[];
+  /** Virtual ms at which each `sent[i]` left the loop (when the real phone
+   *  would have put it on the socket). */
+  sentAtMs: number[];
   spoken: SpokenLine[];
   nudges: NudgeEvent[];
   /** ALERT haptic levels, in order — the lane the scene invariants pin
@@ -295,11 +334,15 @@ export interface ReplayResult {
    *  Nothing escalates on these — they are here so the report can show what
    *  the acoustic tier WOULD have said next to what loudness actually did. */
   heat: HeatWindow[];
+  /** Mid-turn floor cues (FastLoopDeps.floorTick), with the virtual clock
+   *  at which the loop delivered each. Empty when the flag is off. */
+  floorCues: (FloorFire & { atMs: number })[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
   stt: { emitted: number; finals: number };
   providerCalls: { os: number; osRefused: number; bundled: number };
   attribution: AttributionScore;
+  labelLog: LabelLogEntry[];
   boundaries: BoundaryScore;
   nudgeScore: NudgeScore;
   speaking: SpeakScore;
@@ -321,8 +364,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const script = scene.script;
 
   // --- speaker-ID: enroll from the meta -----------------------------------
-  const enrolled: EnrollmentRecord[] = [];
-  if (models.embedder && opts.enroll !== "none") {
+  const enrolled: EnrollmentRecord[] = opts.enrolled ? [...opts.enrolled] : [];
+  if (models.embedder && opts.enroll !== "none" && !opts.enrolled) {
     const who = opts.enroll === "all" ? script.speakers : script.selfSpeaker ? [script.selfSpeaker] : [];
     const sources: EnrollmentSource[] = opts.enrollFrom.map((s) => ({ script: s.script, pcm: s.pcmF32 }));
     for (const speaker of who) {
@@ -346,7 +389,18 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   }
   const speakerId = models.embedder !== null;
   const embedder = models.embedder ? new TrackedEmbedder(models.embedder, tracker, clock, opts.speakerCostMs) : null;
-  const labeler = speakerId ? new SpeakerLabeler(enrolled) : null;
+  const labeler = speakerId ? new SpeakerLabeler(enrolled, opts.speakerOptions ?? {}) : null;
+  // Every raw labeler verdict, in call order (one per embedded turn) — the
+  // identity sweeps read the self cosine of turns that did NOT match.
+  const labelLog: LabelLogEntry[] = [];
+  if (labeler) {
+    const label = labeler.label.bind(labeler);
+    labeler.label = (embedding, seconds, windows) => {
+      const v = label(embedding, seconds, windows);
+      labelLog.push({ seconds: seconds ?? null, selfScore: v.selfScore ?? null, isSelf: v.isSelf, basis: v.basis, speaker: v.speaker });
+      return v;
+    };
+  }
 
   // --- the loop -------------------------------------------------------------
   const vad = new TrackedVad(await models.vad(), tracker);
@@ -362,6 +416,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const spokenLog = new SpokenLog(clock, () => vad.lastVerdict);
   const policy = recordingPolicy(phoneNudgePolicy(), () => clock.now());
   const sent: TurnLocalEvent[] = [];
+  const sentAtMs: number[] = [];
   const turns: LocalTurn[] = [];
   const nudges: NudgeEvent[] = [];
   const haptics: number[] = [];
@@ -370,15 +425,21 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const positives: PositiveEmission[] = [];
   const nudgeLog: NudgeEmission[] = [];
   const heat: HeatWindow[] = [];
+  const floorCues: (FloorFire & { atMs: number })[] = [];
 
   const loop: FastLoop = new FastLoop({
     vad,
+    ...(opts.listening ? { segmenter: opts.listening.segmenter } : {}),
+    ...(opts.listening && opts.listening.turnSplit !== null ? { turnSplit: opts.listening.turnSplit } : {}),
     embedder,
     labeler,
     recognizer,
     llm,
     speak: spokenLog.speak,
-    send: (e) => sent.push(e),
+    send: (e) => {
+      sent.push(e);
+      sentAtMs.push(clock.now());
+    },
     onTurn: (t) => turns.push(t),
     onHeat: (w) => heat.push(w),
     onNudge: (n) => {
@@ -404,6 +465,10 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     now: () => clock.now(),
     sleep: (ms) => clock.sleep(ms),
     instantHeat: opts.instantHeat,
+    ...(opts.floorTick ? { floorTick: opts.floorTick, onFloorCue: (f: FloorFire) => floorCues.push({ ...f, atMs: clock.now() }) } : {}),
+    ...(opts.heatLexiconBuzz ? { heatLexiconBuzz: opts.heatLexiconBuzz } : {}),
+    ...(opts.quietCoach ? { quietCoach: opts.quietCoach } : {}),
+    ...(opts.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
     sttGraceMs: opts.sttGraceMs,
     speakHoldMaxMs: opts.speakHoldMaxMs,
     speakQuietMs: opts.speakQuietMs,
@@ -454,9 +519,10 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const nudgeScore = scoreNudges(script, summary.turns, policy.log);
   const speaking = scoreSpeaking(script, summary.turns, spokenLog.lines, vad);
   const latency = scoreLatency(script, summary.turns);
-  const { enrollFrom, ortFactory: _f, models: _m, ...rest } = opts;
+  const { enrollFrom, ortFactory: _f, models: _m, enrolled: _e, ...rest } = opts;
   void _f;
   void _m;
+  void _e;
   return {
     scene: scene.name,
     mode: opts.mode,
@@ -466,6 +532,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     capability: { vad: opts.energyVad ? "energy" : "silero", speakerId, enrolled },
     turns: summary.turns,
     sent,
+    sentAtMs,
     spoken: spokenLog.lines,
     nudges,
     haptics,
@@ -475,6 +542,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     calm: loop.positiveSummary(scene.pcm.length / 16000).calm,
     nudgeLog,
     heat,
+    floorCues,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,
     stt: { emitted: recognizer?.emitted.length ?? 0, finals: recognizer?.emitted.filter((e) => e.isFinal).length ?? 0 },
@@ -484,6 +552,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
       bundled: bundled.calls.length,
     },
     attribution,
+    labelLog,
     boundaries,
     nudgeScore,
     speaking,
