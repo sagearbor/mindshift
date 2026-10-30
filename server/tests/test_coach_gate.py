@@ -267,3 +267,19 @@ def test_floor_composes_with_gap_and_substance():
     assert g.passes(79, now_s=100, last_spoken_s=80, **kw) == (False, "importance")
     assert g.passes(85, wearer_unknown=False, turn_text="Yeah okay.", turn_duration_s=1,
                     now_s=100, last_spoken_s=None) == (False, "not_substantive")
+
+
+@pytest.mark.parametrize("line", [
+    "Let Speaker B finish", "ask speaker 2 what they mean", "S2 sounds tense",
+    "Give S3 a turn", "SPEAKER_01 is upset", "let speaker b finish",
+])
+def test_diarizer_labels_never_survive_the_scrub(line):
+    import re
+    out = cg.scrub_line(line)
+    assert out == "" or not cg.has_label(out)
+    assert not re.search(r"(?i)\bspeaker[ _]?(?:[a-z]|\d+)\b|\bS\d\b", out)
+
+
+def test_scrub_leaves_normal_words_alone():
+    for line in ("I speak to Sam", "Speak slowly and listen", "Your speaker is loud", "Ask about the 2nd option"):
+        assert cg.scrub_line(line) == line

@@ -56,6 +56,11 @@ def ctx() -> SessionContext:
 # ---------------------------------------------------------------------------
 
 class TestHistoryForPrompt:
+    @pytest.fixture(autouse=True)
+    def _legacy_prompt(self, monkeypatch):
+        # These pin the pre-turn-context prompt; TestTurnContext covers the new one.
+        monkeypatch.setenv("MINDSHIFT_TURN_CONTEXT", "0")
+
     def test_prompt_is_byte_identical_without_history(self):
         u = _utt("hi")
         assert _turn_prompt(u) == 'Transcript turn: "hi"'
@@ -209,6 +214,11 @@ def _turn_local(text: str, *, start: float, end: float, is_self: bool | None, sp
 
 
 class TestThroughTheWorker:
+    @pytest.fixture(autouse=True)
+    def _legacy_prompt(self, monkeypatch):
+        # These pin the pre-turn-context prompt; TestTurnContext covers the new one.
+        monkeypatch.setenv("MINDSHIFT_TURN_CONTEXT", "0")
+
     """The same harness shape as test_audio_pipeline.TestTurnLocal: the app's
     WS endpoint with the transcriber/TTS/LLM injected on app.state."""
 
@@ -281,3 +291,74 @@ class TestThroughTheWorker:
             json.loads(ws.receive_text())
         prompts = [c.kwargs["user"] for c in llm.complete.call_args_list]
         assert prompts == ['Transcript turn: "Hi."', 'Transcript turn: "Still there?"']
+
+
+
+# ---------------------------------------------------------------------------
+# Turn context: timestamps + roles (MINDSHIFT_TURN_CONTEXT)
+# ---------------------------------------------------------------------------
+
+class TestTurnContext:
+    def _scene(self, ctx):
+        a1 = _utt("You never listen.", "Speaker A", 0, 4)
+        b1 = _utt("I do listen.", "Speaker B", 4, 9)
+        a2 = _utt("Then prove it.", "Speaker A", 9, 14)
+        for u in (a1, b1, a2):
+            _remember_utterance(ctx, u)
+        return a1, b1, a2
+
+    def test_prompt_has_relative_times_and_roles_never_raw_labels(self, ctx):
+        a1, b1, a2 = self._scene(ctx)
+        h = _history_for_prompt(ctx, a2, is_self=True)
+        prompt = _turn_prompt(a2, None, None, h)
+        assert '- [14s–10s ago] You: "You never listen."' in prompt
+        assert '- [10s–5s ago] Other: "I do listen."' in prompt
+        assert "Speaker A" not in prompt and "Speaker B" not in prompt
+        assert "continuously for 5s" in prompt  # B broke a1's run; only a2 counts
+
+    def test_unknown_wearer_roles_are_unknown(self, ctx):
+        a1 = _utt("hello there", "Speaker A", 0, 2)
+        b1 = _utt("hi", "Speaker B", 2, 4)
+        c = _utt("how are you", "Speaker A", 4, 6)
+        for u in (a1, b1, c):
+            _remember_utterance(ctx, u)
+        h = _history_for_prompt(ctx, c, is_self=None)
+        prompt = _turn_prompt(c, None, None, h)
+        assert "] Unknown:" in prompt
+        assert "You:" not in prompt
+        assert "Speaker" not in prompt
+        assert "held the floor" not in prompt
+
+    def test_named_other_keeps_role(self, ctx):
+        a1, b1, a2 = self._scene(ctx)
+        ctx.speaker_labels["Speaker B"] = {"display_name": "Mom", "is_self": False}
+        h = _history_for_prompt(ctx, a2, is_self=True)
+        assert 'Other (Mom): "I do listen."' in _turn_prompt(a2, None, None, h)
+
+    def test_floor_time_sums_the_wearers_unbroken_run(self, ctx):
+        a1 = _utt("one", "Speaker A", 0, 5)
+        a2 = _utt("two", "Speaker A", 5, 12)
+        for u in (a1, a2):
+            _remember_utterance(ctx, u)
+        h = _history_for_prompt(ctx, a2, is_self=True)
+        assert h["wearer_floor_s"] == 12.0
+
+    def test_future_and_ongoing_turns_never_leak(self, ctx):
+        now_turn = _utt("current", "Speaker A", 10, 14)
+        ongoing = _utt("still talking right now", "Speaker B", 12, 20)
+        future = _utt("secret future words", "Speaker B", 15, 18)
+        for u in (ongoing, future, now_turn):
+            _remember_utterance(ctx, u)
+        h = _history_for_prompt(ctx, now_turn, is_self=True)
+        prompt = _turn_prompt(now_turn, None, None, h)
+        assert "secret future words" not in prompt
+        assert "still talking right now" in prompt
+        assert "[started 2s ago, ongoing]" in prompt
+
+    def test_flag_off_restores_the_old_prompt(self, ctx, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_TURN_CONTEXT", "0")
+        a1, b1, a2 = self._scene(ctx)
+        h = _history_for_prompt(ctx, a2, is_self=True)
+        prompt = _turn_prompt(a2, None, None, h)
+        assert '- You: "You never listen."' in prompt
+        assert " ago]" not in prompt and "held the floor" not in prompt
