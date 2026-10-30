@@ -1,7 +1,7 @@
 /**
  * TEXT-HEAT LEXICON — "something counterproductive was just SAID", from the
  * on-device transcript alone, in microseconds, no model and no cloud.
- * DARK: FastLoopDeps.heatLexiconBuzz, default off.
+ * FastLoopDeps.heatLexiconBuzz: off in the class, ON in production (live/liveCoachFlags.ts).
  *
  * Why words: loudness measures arousal and fires on delighted shouting as
  * hard as on anger (2026-09-10), and the frozen audio embeddings did not

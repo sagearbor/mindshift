@@ -273,7 +273,7 @@ export interface FastLoopDeps {
    * each finalized on-device transcript; one gentle level-1 cue when a unit
    * reads as counterproductive conduct (contempt, "your fault", "shut up",
    * threats, directed profanity, "you're lying"). No identity, no model,
-   * microseconds. Default OFF (dark): evaluated offline only
+   * microseconds. Default OFF here; ON in production via live/liveCoachFlags.ts (quiet coach, 2026-10-29). Evaluated offline
    * (tmp/recordings/fable_heat/REPORT.md, 2026-10-10). `true` = the tuned
    * defaults (threshold 1.5, 20 s cooldown); an object overrides them.
    */
@@ -311,7 +311,7 @@ export interface FastLoopDeps {
    */
   overlapProbe?: boolean;
   /**
-   * Mid-turn wearer floor cue (live/floorTick.ts). Default FALSE (dark).
+   * Mid-turn wearer floor cue (live/floorTick.ts). Default FALSE here; ON in production via live/liveCoachFlags.ts.
    * Once a second while audio flows, the trailing 2 s window is embedded
    * (one ECAPA pass) and scored against the wearer's print — read-only, no
    * cluster is founded — and a FloorTracker keeps the wearer's floor clock.
@@ -360,7 +360,7 @@ export interface FastLoopDeps {
    *  the suggestion for coaching; its tone context falls back to prosody).
    *  A cloud line that answers the open turn (`offerSpeech(text, words)`) is
    *  voiced at once and the slower local line stays silent — one answer per
-   *  moment. Default OFF (2026-10-10, measured but not yet device-verified). */
+   *  moment. Default OFF here; ON in production via live/liveCoachFlags.ts (2026-10-29; replay-measured, not yet device-verified). */
   earlyTurnLocal?: boolean;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
