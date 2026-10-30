@@ -1,0 +1,27 @@
+{
+  "note": "Shared by apps/mobile/__tests__/coachTrigger.test.ts and server/tests/test_coach_trigger.py: both runtimes must agree on every vector.",
+  "question": [
+    {"text": "What do you think we should do about it?", "q": true},
+    {"text": "Can you pass me the salt?", "q": true},
+    {"text": "Why did you say that to her?", "q": true},
+    {"text": "So, are you coming on Friday or not?", "q": true},
+    {"text": "I told you already. Where were you last night?", "q": true},
+    {"text": "what do you want me to say", "q": true},
+    {"text": "how are you feeling about the move", "q": true},
+    {"text": "Is that your final answer?", "q": true},
+    {"text": "Did the bus come late again?", "q": true},
+    {"text": "We went to the shop, right?", "q": false},
+    {"text": "It was really good, you know?", "q": false},
+    {"text": "Right?", "q": false},
+    {"text": "Really?", "q": false},
+    {"text": "What?", "q": false},
+    {"text": "you know what I mean", "q": false},
+    {"text": "I went to the store and bought some milk.", "q": false},
+    {"text": "the meeting is at three", "q": false},
+    {"text": "What a day.", "q": false},
+    {"text": "Is it? Okay. Then we leave at five.", "q": false},
+    {"text": "", "q": false},
+    {"text": "Where are the keys?", "q": true},
+    {"text": "do you have the 1.5 version or the newer one?", "q": true}
+  ]
+}

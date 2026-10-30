@@ -22,6 +22,7 @@ import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop, SpeakerBinding } from "../live/fastLoop";
 import { formatLatencyLog } from "../live/fastLoop";
+import { LIVE_COACH_FLAGS } from "../live/liveCoachFlags";
 import { PleasantnessTracker, type Scoreboard } from "../live/pleasantness";
 import {
   enrollSpeakerAudio,
@@ -216,7 +217,8 @@ export interface UseAudioStreamOptions {
   /** Build the fast loop for a session. */
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
   /** Send turn_local before the on-device LLM runs so the cloud suggestion
-   *  starts sooner (FastLoopDeps.earlyTurnLocal). Default OFF. */
+   *  starts sooner (FastLoopDeps.earlyTurnLocal). Default: LIVE_COACH_FLAGS
+   *  (ON since the quiet coach, 2026-10-29). */
   earlyTurnLocal?: boolean;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
@@ -652,6 +654,18 @@ export function cloudAnswersOpenMoment(
   if (idx === -1) return !latest.hadSuggestion;
   if (idx === recent.length - 1) return !recent[idx].hadSuggestion;
   return false;
+}
+
+/** Did the phone itself answer this turn (for cloudAnswersOpenMoment)?
+ *  A local line counts unless the quiet coach muted it; a turn the mid-turn
+ *  floor cue answered counts even without one. Exported for tests. */
+export function phoneAnsweredTurn(turn: {
+  suggestion: string | null;
+  quietMuted?: boolean;
+  triggers?: readonly string[];
+}): boolean {
+  if (turn.triggers?.includes("floor")) return true;
+  return turn.suggestion !== null && !turn.quietMuted;
 }
 
 /** How the wearer's identity is known this session (see wearerIdentityRef). */
@@ -1521,7 +1535,7 @@ export function useAudioStream(
       let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
         ...(primedRecognizer ? { recognizer: primedRecognizer } : {}),
-        ...(options.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
+        ...((options.earlyTurnLocal ?? LIVE_COACH_FLAGS.earlyTurnLocal) ? { earlyTurnLocal: true } : {}),
         // Build progress (the web build's one-time voice-model download).
         onStatus: (line) => {
           if (sessionActiveRef.current && !drainingRef.current) setLiveStatus(line);
@@ -1600,7 +1614,10 @@ export function useAudioStream(
           // The wearer's own enrolled voice, matched outright on-device.
           if (turn.isSelf === true && turn.matchBasis === "absolute") noteWearerIdentity("voiceprint");
           const recent = recentLocalTurnsRef.current;
-          recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
+          // Quiet coach: a local line muted for lack of a trigger did not
+          // answer the moment (the cloud may, on a library mention); a turn
+          // the floor cue answered did, even without an LLM line.
+          recent.push({ text: turn.text, hadSuggestion: phoneAnsweredTurn(turn) });
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
           // Scoreboard: every on-device turn scores from what it carries
           // (tone, prosody, balance) — null inputs are honest gaps.

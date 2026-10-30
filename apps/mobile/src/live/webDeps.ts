@@ -15,6 +15,7 @@
  */
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop } from "./fastLoop";
+import { liveCoachDeps } from "./liveCoachFlags";
 import type { FastLoopBuild, FastLoopCapabilities, FastLoopHandlers, DefaultFastLoopOptions } from "./defaultDeps";
 import { baseVad, EnergyVad, SileroVad, withVadAgc, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
@@ -159,6 +160,8 @@ export async function createWebFastLoop(
   void _primed;
   void _status;
   const loop = new FastLoop({
+    // Quiet coach defaults (live/liveCoachFlags.ts, OTA-reversible).
+    ...liveCoachDeps(),
     ...loopHandlers,
     vad,
     embedder: speaker.embedder,

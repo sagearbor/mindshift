@@ -185,6 +185,11 @@ export interface ReplayOptions {
   /** FastLoopDeps.floorTick — the mid-turn wearer floor cue (dark on the
    *  phone; default false here too). */
   floorTick?: FastLoopDeps["floorTick"];
+  /** FastLoopDeps.heatLexiconBuzz / quietCoach / earlyTurnLocal (the quiet
+   *  coach's production defaults, live/liveCoachFlags.ts); absent = off. */
+  heatLexiconBuzz?: FastLoopDeps["heatLexiconBuzz"];
+  quietCoach?: FastLoopDeps["quietCoach"];
+  earlyTurnLocal?: boolean;
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
@@ -461,6 +466,9 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     sleep: (ms) => clock.sleep(ms),
     instantHeat: opts.instantHeat,
     ...(opts.floorTick ? { floorTick: opts.floorTick, onFloorCue: (f: FloorFire) => floorCues.push({ ...f, atMs: clock.now() }) } : {}),
+    ...(opts.heatLexiconBuzz ? { heatLexiconBuzz: opts.heatLexiconBuzz } : {}),
+    ...(opts.quietCoach ? { quietCoach: opts.quietCoach } : {}),
+    ...(opts.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
     sttGraceMs: opts.sttGraceMs,
     speakHoldMaxMs: opts.speakHoldMaxMs,
     speakQuietMs: opts.speakQuietMs,

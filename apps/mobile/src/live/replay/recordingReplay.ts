@@ -9,6 +9,10 @@
  *   MINDSHIFT_FLOOR_TICK=1 turns on the mid-turn floor cue
  *   (FastLoopDeps.floorTick, dark on the phone); MINDSHIFT_FLOOR_TICK_X /
  *   _GAP override its threshold / min gap (s). Cues land in `floorCues`.
+ *   MINDSHIFT_HEAT_LEXICON=1, MINDSHIFT_QUIET_COACH=1 and
+ *   MINDSHIFT_EARLY_TURN_LOCAL=1 turn on the other quiet-coach behaviours;
+ *   MINDSHIFT_LIVE_DEFAULTS=1 runs every flag at its PRODUCTION value
+ *   (live/liveCoachFlags.ts). The flags used land in `liveFlags`.
  *
  * Runs the REAL on-device fast loop (`replayScene`: Silero VAD + segmenter +
  * ECAPA speaker-ID, the real nudge policy) over a real recording whose meta
@@ -37,6 +41,7 @@ import type { SpeakerLabelerOptions } from "../speakerId";
 import type { TurnLocalEvent } from "../types";
 import type { FastLoopDeps } from "../fastLoop";
 import type { FloorTickConfig } from "../floorTick";
+import { LIVE_COACH_FLAGS } from "../liveCoachFlags";
 import type { EnrollmentRecord } from "./enroll";
 import { loadModels, loadScene, replayScene, DEFAULT_REPLAY_OPTIONS, type LoadedModels, type ReplayResult } from "./sceneReplay";
 import { describeTuning, tuningFromEnv, type ListeningTuning } from "./tuning";
@@ -160,12 +165,37 @@ export interface RecordingReplayOutput {
   /** Mid-turn floor cues (MINDSHIFT_FLOOR_TICK=1), audio seconds. */
   floorCues?: ReplayResult["floorCues"];
   floorTick?: Exclude<FastLoopDeps["floorTick"], undefined> | null;
+  /** Quiet-coach flags this run used (env, see the header). */
+  liveFlags?: ReplayLiveFlags;
+}
+
+export interface ReplayLiveFlags {
+  heatLexiconBuzz: boolean;
+  quietCoach: boolean;
+  earlyTurnLocal: boolean;
+}
+
+function envOn(v: string | undefined): boolean | null {
+  const s = (v ?? "").trim().toLowerCase();
+  if (!s) return null;
+  return !["0", "false", "off", "no"].includes(s);
+}
+
+/** MINDSHIFT_LIVE_DEFAULTS=1 = production values; each flag's own env wins. */
+export function liveFlagsFromEnv(env: Record<string, string | undefined> = process.env): ReplayLiveFlags {
+  const prod = envOn(env.MINDSHIFT_LIVE_DEFAULTS) === true;
+  const pick = (name: string, key: keyof ReplayLiveFlags) => envOn(env[name]) ?? (prod ? LIVE_COACH_FLAGS[key] : false);
+  return {
+    heatLexiconBuzz: pick("MINDSHIFT_HEAT_LEXICON", "heatLexiconBuzz"),
+    quietCoach: pick("MINDSHIFT_QUIET_COACH", "quietCoach"),
+    earlyTurnLocal: pick("MINDSHIFT_EARLY_TURN_LOCAL", "earlyTurnLocal"),
+  };
 }
 
 /** MINDSHIFT_FLOOR_TICK=1 [MINDSHIFT_FLOOR_TICK_X=45] [MINDSHIFT_FLOOR_TICK_GAP=30]. */
 export function floorTickFromEnv(env: Record<string, string | undefined> = process.env): Partial<FloorTickConfig> | null {
-  const on = (env.MINDSHIFT_FLOOR_TICK ?? "").trim().toLowerCase();
-  if (!on || ["0", "false", "off", "no"].includes(on)) return null;
+  const on = envOn(env.MINDSHIFT_FLOOR_TICK) ?? (envOn(env.MINDSHIFT_LIVE_DEFAULTS) === true && LIVE_COACH_FLAGS.floorTick);
+  if (!on) return null;
   const cfg: Partial<FloorTickConfig> = {};
   const x = Number(env.MINDSHIFT_FLOOR_TICK_X);
   const gap = Number(env.MINDSHIFT_FLOOR_TICK_GAP);
@@ -214,6 +244,7 @@ export async function runRecordingReplay(
   models?: LoadedModels,
   listening: ListeningTuning = tuningFromEnv(),
   floorTick: Partial<FloorTickConfig> | null = floorTickFromEnv(),
+  liveFlags: ReplayLiveFlags = liveFlagsFromEnv(),
 ): Promise<RecordingReplayOutput> {
   const scene = loadScene(args.wav, { metaPath: args.meta, selfSpeaker: args.self ?? undefined });
   const loaded =
@@ -238,9 +269,13 @@ export async function runRecordingReplay(
     enrolled,
     ...(args.speakerOptions ? { speakerOptions: args.speakerOptions } : {}),
     ...(floorTick ? { floorTick } : {}),
+    ...(liveFlags.heatLexiconBuzz ? { heatLexiconBuzz: true } : {}),
+    ...(liveFlags.quietCoach ? { quietCoach: true } : {}),
+    ...(liveFlags.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
     listening,
   });
-  const out = { ...outputFor(result, args.enroll), listening: describeTuning(listening) };
+  const anyLive = liveFlags.heatLexiconBuzz || liveFlags.quietCoach || liveFlags.earlyTurnLocal;
+  const out = { ...outputFor(result, args.enroll), listening: describeTuning(listening), ...(anyLive ? { liveFlags } : {}) };
   fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
   fs.writeFileSync(args.out, JSON.stringify(out, null, 1) + "\n");
   return out;

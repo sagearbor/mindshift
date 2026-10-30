@@ -47,6 +47,8 @@ function harness(opts: {
   overlapProbe?: boolean;
   /** Send turn_local before the local LLM runs (FastLoopDeps.earlyTurnLocal, default off). */
   earlyTurnLocal?: boolean;
+  /** Quiet coach (FastLoopDeps.quietCoach, default off). */
+  quietCoach?: boolean;
 } = {}): Harness {
   const rec = opts.recognizer === undefined ? new FakeSpeechRecognizer() : opts.recognizer;
   const h: Harness = {
@@ -79,6 +81,7 @@ function harness(opts: {
     sttGraceMs: 150,
     pollMs: 5,
     ...(opts.earlyTurnLocal !== undefined ? { earlyTurnLocal: opts.earlyTurnLocal } : {}),
+    ...(opts.quietCoach !== undefined ? { quietCoach: opts.quietCoach } : {}),
   });
   return h;
 }
@@ -1185,6 +1188,69 @@ describe("FastLoop earlyTurnLocal", () => {
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]).toMatchObject({ text: "", suggestion: null });
     expect(h.loop.latencyLog[0].earlySent).toBeFalsy();
+    await h.loop.stop();
+  });
+});
+
+describe("FastLoop quietCoach", () => {
+  /** One finalized turn of `text` (words spread over 0.1-0.95 s). */
+  async function sayOneTurn(h: Harness, text: string) {
+    await h.loop.start({ sessionId: "s1", mode: "earpiece", empathy: 60 });
+    push(h.loop, toneInt16(1.0, -20));
+    const words = text.split(" ");
+    const step = 850 / words.length;
+    h.rec.emit({
+      text,
+      isFinal: true,
+      segments: words.map((w, i) => ({
+        startTimeMillis: Math.round(100 + i * step),
+        endTimeMillis: Math.round(100 + (i + 1) * step),
+        segment: w,
+      })),
+    });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+  }
+
+  it("default OFF: every local line is voiced, and no triggers ride on the wire", async () => {
+    const h = harness();
+    await sayOneTurn(h, "you never call");
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.turns[0].triggers).toBeUndefined();
+    expect(h.turns[0].quietMuted).toBeUndefined();
+    expect(h.sent[0].triggers).toBeUndefined();
+    await h.loop.stop();
+  });
+
+  it("ON: an untriggered turn's line is recorded and sent, never voiced", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "you never call");
+    expect(h.spoken).toEqual([]);
+    expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too.");
+    expect(h.turns[0].quietMuted).toBe(true);
+    expect(h.turns[0].triggers).toEqual([]);
+    expect(h.turns[0].spoken).toBe(false);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0].triggers).toBeUndefined(); // old wire shape when nothing fired
+    await h.loop.stop();
+  });
+
+  it("ON: heated words trigger the line and travel to the server", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "shut up it is your fault");
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.turns[0].triggers).toContain("heat");
+    expect(h.turns[0].quietMuted).toBeUndefined();
+    expect(h.sent[0].triggers).toContain("heat");
+    await h.loop.stop();
+  });
+
+  it("ON: a direct question from someone who is not the wearer triggers the line", async () => {
+    const h = harness({ quietCoach: true });
+    await sayOneTurn(h, "what do you think we should do");
+    expect(h.turns[0].triggers).toEqual(["question"]);
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.sent[0].triggers).toEqual(["question"]);
     await h.loop.stop();
   });
 });

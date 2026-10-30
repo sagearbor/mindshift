@@ -63,6 +63,7 @@ import { turnActivationAsync, type TurnActivation } from "./activation";
 import { instantHeatScore } from "./instantTier";
 import { FloorTracker, wearerFromScores, type FloorFire, type FloorTickConfig } from "./floorTick";
 import { HeatLexiconBuzz, type HeatLexiconBuzzOptions } from "./heatLexicon";
+import { quietCoachFrom, turnTriggers, type CoachTrigger, type QuietCoachOptions } from "./coachTrigger";
 
 /** The rolling window the acoustic instant tier scores, and how often. Both
  *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
@@ -186,6 +187,12 @@ export interface LocalTurn {
   /** The cloud answered this turn first (earlyTurnLocal): the local
    *  suggestion above was recorded but deliberately not voiced. */
   cloudAnswered?: boolean;
+  /** Quiet coach (deps.quietCoach): the triggers this turn carried
+   *  (live/coachTrigger.ts); [] = none. Absent when the gate is off. */
+  triggers?: CoachTrigger[];
+  /** Quiet coach: the local line above was recorded but NOT voiced because
+   *  no trigger held (the cloud may still answer a library mention). */
+  quietMuted?: boolean;
   latency: TurnLatency;
 }
 
@@ -318,6 +325,18 @@ export interface FastLoopDeps {
    * (exp_FT's best live cell: 45 s, gap 30 s); an object overrides fields.
    */
   floorTick?: boolean | Partial<FloorTickConfig>;
+  /**
+   * Quiet coach (live/coachTrigger.ts). Default FALSE here (the production
+   * factories turn it on through live/liveCoachFlags.ts). When on, a local
+   * free-form line is VOICED only when a trigger holds on its turn - heated
+   * words (the lexicon, >= 1.5), or a direct question from someone other
+   * than the wearer; a turn the mid-turn floor cue already answered stays
+   * silent (the cue was the answer). Untriggered lines are still recorded
+   * and shown (`LocalTurn.quietMuted`). Every turn_local carries the
+   * triggers the phone saw (`triggers`), which the server's own pre-LLM
+   * gate (server/coach_trigger.py) unions with its own.
+   */
+  quietCoach?: boolean | Partial<QuietCoachOptions>;
   /** Every floor cue the tracker fired (dark telemetry / replay report). */
   onFloorCue?: (fire: FloorFire) => void;
   now?: () => number;
@@ -460,6 +479,7 @@ export class FastLoop {
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
   private readonly heatLexicon: HeatLexiconBuzz | null;
+  private readonly quiet: QuietCoachOptions | null;
   private readonly overlapProbe: boolean;
   private readonly instantHeat: boolean;
   /** Mid-turn floor tracker (deps.floorTick); null = off. */
@@ -564,6 +584,7 @@ export class FastLoop {
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
     this.heatLexicon = FastLoop.heatLexiconFrom(deps.heatLexiconBuzz);
+    this.quiet = quietCoachFrom(deps.quietCoach);
     this.overlapProbe = deps.overlapProbe ?? false;
     this.instantHeat = deps.instantHeat ?? true;
     const ft = deps.floorTick ?? false;
@@ -1460,12 +1481,17 @@ export class FastLoop {
     let provider = "none";
     let llmMs = 0;
     let attempts: { provider: string; outcome: string }[] | undefined;
+    // Quiet coach: what on this turn could justify a free-form line.
+    const floorFired = this.floorLog.some((f) => f.t >= span.start - 1 && f.t <= span.end + 1);
+    const triggers: CoachTrigger[] | null = this.quiet
+      ? turnTriggers({ text: aligned.text, isSelf: verdict.isSelf, floorFired }, this.quiet)
+      : null;
     // earlyTurnLocal: the cloud's clock starts NOW, not after the local LLM.
     // Same frame as below minus the two fields the LLM would fill in.
     const earlySent = this.earlyTurnLocal && sttOwned && !!aligned.text && turnKind === "primary";
     if (earlySent) {
       this.openTurn = { index, text: aligned.text, cloudAnswered: false };
-      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, null, null);
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, null, null, triggers);
     }
     if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
@@ -1510,6 +1536,10 @@ export class FastLoop {
     // local LLM was running? Then the local line is recorded, not spoken.
     const cloudTookIt = this.openTurn?.index === index && this.openTurn.cloudAnswered;
     if (this.openTurn?.index === index) this.openTurn = null;
+    // Quiet coach: voice a local line only on a heat / question trigger. A
+    // floor-cue turn already got its fixed line; no trigger = shown only.
+    const quietMuted =
+      triggers !== null && suggestion !== null && !triggers.some((t) => t === "heat" || t === "question");
 
     const latency: TurnLatency = {
       turn: index,
@@ -1548,6 +1578,8 @@ export class FastLoop {
       provider,
       spoken: false,
       ...(cloudTookIt ? { cloudAnswered: true } : {}),
+      ...(triggers !== null ? { triggers } : {}),
+      ...(quietMuted ? { quietMuted: true } : {}),
       latency,
     };
     this.turns.push(turn);
@@ -1572,7 +1604,7 @@ export class FastLoop {
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end, duration), instantBuzzedLevel);
     this.emitPositives(turn, coachedAsSelf, measuredLoudLevel);
 
-    if (suggestion && session.mode !== "therapist" && !cloudTookIt) {
+    if (suggestion && session.mode !== "therapist" && !cloudTookIt && !quietMuted) {
       if (!this.quietEnoughToSpeak()) {
         // Someone is talking (or just stopped): hold until the VAD has been
         // quiet long enough (most recent wins).
@@ -1589,7 +1621,7 @@ export class FastLoop {
     // dead (or absent) the server's transcript is the only one there is.
     // (earlyTurnLocal already sent this turn's frame above: never twice.)
     if (sttOwned && !earlySent) {
-      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion);
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion, triggers);
     }
     // Dark text-heat buzz: the words of this turn alone, one level-1 cue.
     if (this.heatLexicon && aligned.text && this.heatLexicon.observe(aligned.text, span.end) && this.deps.haptics) {
@@ -1612,6 +1644,7 @@ export class FastLoop {
     prosody: TurnProsody,
     textTone: TextTone | null,
     suggestion: string | null,
+    triggers: CoachTrigger[] | null = null,
   ) {
     this.sentTurns += 1;
     this.deps.send({
@@ -1639,6 +1672,8 @@ export class FastLoop {
       suggestion,
       suggestion_source: suggestion ? "on-device" : null,
       tts_source: "on-device",
+      // Quiet coach: only when the phone saw one (old wire shape otherwise).
+      ...(triggers && triggers.length ? { triggers } : {}),
     });
   }
 

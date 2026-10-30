@@ -4,6 +4,7 @@
  */
 import type { TurnProsody } from "./prosody";
 import type { TextTone } from "./localLlm";
+import type { CoachTrigger } from "./coachTrigger";
 
 /** Client -> server: a turn the phone finalized itself (`TurnLocalEvent`). */
 export interface TurnLocalEvent {
@@ -35,6 +36,10 @@ export interface TurnLocalEvent {
   suggestion: string | null;
   suggestion_source: "on-device" | null;
   tts_source: "on-device";
+  /** Quiet coach (live/coachTrigger.ts): the triggers the phone saw on this
+   *  turn — the server unions them with its own (server/coach_trigger.py).
+   *  Omitted when there are none. */
+  triggers?: CoachTrigger[];
 }
 
 /**

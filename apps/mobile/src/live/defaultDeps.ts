@@ -21,6 +21,7 @@
 import { Platform } from "react-native";
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
+import { liveCoachDeps } from "./liveCoachFlags";
 import { baseVad, EnergyVad, SileroVad, withVadAgc, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
@@ -339,6 +340,8 @@ export async function createDefaultFastLoop(
   void _primed;
   void _status;
   const loop = new FastLoop({
+    // Quiet coach defaults (live/liveCoachFlags.ts, OTA-reversible).
+    ...liveCoachDeps(),
     ...loopHandlers,
     vad,
     embedder: speaker.embedder,
