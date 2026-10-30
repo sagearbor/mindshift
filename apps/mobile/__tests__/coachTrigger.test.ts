@@ -26,13 +26,13 @@ describe("turnTriggers", () => {
   it("heat, floor and question each fire on their own", () => {
     expect(turnTriggers({ text: "shut up", isSelf: false, floorFired: false })).toEqual(["heat"]);
     expect(turnTriggers({ text: "and then we drove on", isSelf: true, floorFired: true })).toEqual(["floor"]);
-    expect(turnTriggers({ text: "what do you think?", isSelf: false, floorFired: false })).toEqual(["question"]);
-    expect(turnTriggers({ text: "what do you think?", isSelf: null, floorFired: false })).toEqual(["question"]);
+    expect(turnTriggers({ text: "what do you think we should do?", isSelf: false, floorFired: false })).toEqual(["question"]);
+    expect(turnTriggers({ text: "what do you think we should do?", isSelf: null, floorFired: false })).toEqual(["question"]);
   });
 
   it("calm talk and the wearer's own questions trigger nothing", () => {
     expect(turnTriggers({ text: "we should look at the budget for next quarter", isSelf: false, floorFired: false })).toEqual([]);
-    expect(turnTriggers({ text: "what do you think?", isSelf: true, floorFired: false })).toEqual([]);
+    expect(turnTriggers({ text: "what do you think we should do?", isSelf: true, floorFired: false })).toEqual([]);
   });
 
   it("each trigger can be switched off", () => {

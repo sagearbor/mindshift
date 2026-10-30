@@ -68,20 +68,37 @@ function lastSentence(text: string): string {
   return parts.length ? parts[parts.length - 1] : "";
 }
 
-/** The turn's LAST sentence is a question put to the listener (see the
- *  server's coach_trigger.is_direct_question — same rule, same vectors). */
+export const QUESTION_MIN_WORDS = 5;
+const DISCOURSE =
+  "(?:So|Well|Okay|OK|Ok|And|But|Now|Then|Like|Um|Uh|Hey|Yes|No|Yeah|Look|Listen|Honestly|" +
+  "Seriously|Sorry|Please|Oh|Wait|Right|Alright|Anyway|Actually|Man|Dude|Guys|God)";
+// A question put to a NAMED person ("Where'd you go, Mel?") is casual
+// address to whoever was named, not a moment to coach the wearer.
+const UNPUNCT_Q = new RegExp(
+  `^(?:(?:so|and|but|okay|ok|well|um|uh|hey|then|now)[, ]+)*(?:${WH}\\s+)?${AUX}\\s+(?:you|u|ya)\\b`,
+  "i",
+);
+const VOCATIVE_END =/,\s*[A-Z][a-z]+\s*[?!.]*$/;
+const VOCATIVE_START = new RegExp(`^(?:[Hh]ey\\s+)?(?!${DISCOURSE}\\b)[A-Z][a-z]+,\\s`);
+
+/** The turn's LAST sentence is a question put to the listener (v2, see the
+ *  server's coach_trigger.is_direct_question — same rule, same vectors):
+ *  addresses "you", >= QUESTION_MIN_WORDS words, ends in "?" or opens with
+ *  an interrogative, not addressed to a name, not a tag question. */
 export function isDirectQuestion(text: string): boolean {
   const last = lastSentence(text ?? "");
-  if (!last) return false;
-  if (words(last).length < 3 || TAG.test(last)) return false;
+  if (!last || TAG.test(last)) return false;
   const body = last.replace(TRAILING_TAG, "").trim();
-  if (words(body).length < 3) return false;
+  if (words(body).length < QUESTION_MIN_WORDS) return false;
+  if (VOCATIVE_END.test(body) || VOCATIVE_START.test(body)) return false;
+  if (!YOU.test(body)) return false;
   const opener = OPENER.test(body);
-  const you = YOU.test(body);
   const endsQ = last.endsWith("?");
   if (endsQ && body !== last.replace(/\?+$/, "").trim() && !opener) return false;
-  if (endsQ) return you || opener;
-  return opener && you;
+  // Without a "?" (on-device STT drops punctuation) only an inverted
+  // question counts ("do you…", "what do you…"); a bare wh-word opener is
+  // usually a clause ("when you fold it open").
+  return endsQ || UNPUNCT_Q.test(body);
 }
 
 /** Every phone-visible trigger on one finalized turn. */

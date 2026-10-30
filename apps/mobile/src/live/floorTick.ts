@@ -33,6 +33,11 @@ export interface FloorTickConfig {
   thresholdSeconds: number;
   /** Seconds between two cues, fire to fire (exp_FT gap). */
   minGapSeconds: number;
+  /** At most one cue per floor run (quiet coach, 2026-10-30): a monologue
+   *  gets ONE reminder, and a run the tracker still believes is going on
+   *  after the wearer actually stopped cannot re-fire. false = exp_FT's
+   *  repeat-every-minGapSeconds behaviour. */
+  oncePerRun: boolean;
   /** Seconds of another confirmed voice that take the floor away. */
   resetOtherSeconds: number;
   /** Longest wearer pause (or run of unconfirmed windows) inside one run. */
@@ -58,6 +63,7 @@ export interface FloorTickConfig {
 export const FLOOR_TICK_DEFAULTS: FloorTickConfig = {
   thresholdSeconds: 45,
   minGapSeconds: 30,
+  oncePerRun: true,
   resetOtherSeconds: 2,
   pauseSeconds: 3,
   speakingRecencySeconds: 2,
@@ -97,6 +103,7 @@ export class FloorTracker {
   private lastWearerAt = -Infinity;
   private otherAccum = 0;
   private lastFireAt = -Infinity;
+  private firedThisRun = false;
   private prevT: number | null = null;
 
   constructor(config: Partial<FloorTickConfig> = {}) {
@@ -108,6 +115,7 @@ export class FloorTracker {
     this.lastWearerAt = -Infinity;
     this.otherAccum = 0;
     this.lastFireAt = -Infinity;
+    this.firedThisRun = false;
     this.prevT = null;
   }
 
@@ -136,12 +144,15 @@ export class FloorTracker {
     if (floor < c.thresholdSeconds) return null;
     if (o.t - this.lastWearerAt > c.speakingRecencySeconds) return null;
     if (o.t - this.lastFireAt < c.minGapSeconds) return null;
+    if (c.oncePerRun && this.firedThisRun) return null;
     this.lastFireAt = o.t;
+    this.firedThisRun = true;
     return { t: o.t, floorStart: this.runStart, floorSeconds: floor, text: c.text };
   }
 
   private endRun(): void {
     this.runStart = null;
+    this.firedThisRun = false;
     this.otherAccum = 0;
   }
 }

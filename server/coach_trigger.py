@@ -22,9 +22,10 @@ model, microseconds):
               audio_pipeline._history_for_prompt), or the phone says its
               mid-turn floor cue fired during the turn (turn_local.triggers).
 ``question``  someone OTHER than the wearer (or an unknown voice) asked a
-              direct question: the last sentence ends in "?" or opens with an
-              interrogative and addresses "you". Tag questions ("you know?",
-              "right?") do not count.
+              direct question: the last sentence addresses "you", has >= 5
+              words, ends in "?" or opens with an interrogative, and is not
+              addressed to a name ("Where'd you go, Mel?"). Tag questions
+              ("you know?", "right?") do not count.
 ``library``   the turn mentions a distinctive phrase from the user's selected
               Coach library items (LiveLibrary.phrase_hit: content-word
               bigrams of the selected items' text; no embedding call).
@@ -123,32 +124,47 @@ def _last_sentence(text: str) -> str:
     return parts[-1] if parts else ""
 
 
+QUESTION_MIN_WORDS = 5
+_DISCOURSE = (r"(?:So|Well|Okay|OK|Ok|And|But|Now|Then|Like|Um|Uh|Hey|Yes|No|Yeah|Look|Listen|Honestly|"
+              r"Seriously|Sorry|Please|Oh|Wait|Right|Alright|Anyway|Actually|Man|Dude|Guys|God)")
+# A question put to a NAMED person ("Where'd you go, Mel?", "Mel, are you
+# coming?"): the listener is whoever was named, which the coach cannot tell
+# is the wearer, and in practice it is casual address, not a moment to coach.
+_UNPUNCT_Q = re.compile(
+    rf"^(?:(?:so|and|but|okay|ok|well|um|uh|hey|then|now)[, ]+)*(?:{_WH}\s+)?{_AUX}\s+(?:you|u|ya)\b", re.I)
+_VOCATIVE_END = re.compile(r",\s*[A-Z][a-z]+\s*[?!.]*$")
+_VOCATIVE_START = re.compile(rf"^(?:[Hh]ey\s+)?(?!{_DISCOURSE}\b)[A-Z][a-z]+,\s")
+
+
 def is_direct_question(text: str) -> bool:
     """True when the turn's LAST sentence is a question put to the listener.
 
-    "?" + (addresses "you" or opens with an interrogative), or - for
-    transcripts without punctuation (on-device STT) - an interrogative
-    opener that addresses "you" ("what do you think we should do").
-    Tag questions and one-word "what?" / "really?" do not count.
+    v2 (2026-10-30, tightened after replay review): the question must
+    address "you" in its body, have >= ``QUESTION_MIN_WORDS`` words once a
+    trailing tag ("..., right?") is stripped, end in "?" or open with an
+    interrogative (on-device STT drops punctuation), and not be addressed to
+    a NAME ("Where'd you go, Mel?"). Tag questions ("you know?", "right?")
+    never count.
     """
     last = _last_sentence(text or "")
-    if not last:
+    if not last or _TAG.match(last):
         return False
-    words = _words(last)
-    if len(words) < 3 or _TAG.match(last):
-        return False
-    # Strip a trailing tag ("..., right?") before judging the body.
     body = re.sub(r"[, ]+(?:you know|right|okay|ok|yeah|huh|eh)\s*\?*$", "", last, flags=re.I).strip()
-    if len(_words(body)) < 3:
+    if len(_words(body)) < QUESTION_MIN_WORDS:
+        return False
+    if _VOCATIVE_END.search(body) or _VOCATIVE_START.match(body):
         return False
     opener = bool(_OPENER.match(body))
-    you = bool(_YOU.search(body))
-    if last.endswith("?") and body != last.rstrip("?").strip() and not opener:
-        # "We went to the shop, right?" - the question mark belongs to a tag.
+    if not _YOU.search(body):
         return False
-    if last.endswith("?"):
-        return you or opener
-    return opener and you
+    ends_q = last.endswith("?")
+    if ends_q and body != last.rstrip("?").strip() and not opener:
+        # "You went to the shop, right?" - the question mark belongs to a tag.
+        return False
+    # Without a "?" (on-device STT drops punctuation) only an inverted
+    # question counts: "do you...", "what do you...", "are you...". A bare
+    # wh-word opener is usually a clause ("when you fold it open").
+    return ends_q or bool(_UNPUNCT_Q.match(body))
 
 
 # ---------------------------------------------------------------------------

@@ -82,11 +82,23 @@ describe("FloorTracker", () => {
     expect(long.map((f) => f.t)).toEqual([24 + 45]);
   });
 
-  it("respects the minimum gap between fires on one long monologue", () => {
-    const tr = new FloorTracker();
-    const fires = run(tr, 2, 120, () => true);
+  it("fires ONCE per floor run by default (quiet coach): a 120 s monologue gets one cue", () => {
+    expect(FLOOR_TICK_DEFAULTS.oncePerRun).toBe(true);
+    expect(run(new FloorTracker(), 2, 120, () => true).map((f) => f.t)).toEqual([45]);
+  });
+
+  it("a new run (after another voice took the floor) may cue again", () => {
+    // wearer 0-50 fires at 45; other 51-54 ends the run; wearer from 55 reaches 45 s at ~100
+    const fires = run(new FloorTracker(), 2, 110, (t) => (t >= 51 && t <= 54 ? false : true));
+    expect(fires).toHaveLength(2);
+    expect(fires[0].t).toBe(45);
+    expect(fires[1].floorStart).toBeGreaterThanOrEqual(53);
+  });
+
+  it("oncePerRun: false restores the min-gap repeats on one long monologue", () => {
+    const fires = run(new FloorTracker({ oncePerRun: false }), 2, 120, () => true);
     expect(fires.map((f) => f.t)).toEqual([45, 75, 105]);
-    const slow = run(new FloorTracker({ minGapSeconds: 60 }), 2, 120, () => true);
+    const slow = run(new FloorTracker({ oncePerRun: false, minGapSeconds: 60 }), 2, 120, () => true);
     expect(slow.map((f) => f.t)).toEqual([45, 105]);
   });
 

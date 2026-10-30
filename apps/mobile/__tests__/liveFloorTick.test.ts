@@ -130,10 +130,10 @@ describe("FastLoop floorTick", () => {
     expect(h.cues).toEqual([]);
   });
 
-  it("respects the min gap on one long monologue (45 s, 75 s)", async () => {
+  it("one long monologue gets ONE cue (once per run)", async () => {
     const h = harness({ floorTick: true });
     await play(h, [toneInt16(90, WEARER_DB), silenceInt16(1)]);
-    expect(h.cues.map((c) => Math.round(c.fire.t))).toEqual([45, 75]);
+    expect(h.cues.map((c) => Math.round(c.fire.t))).toEqual([45]);
   });
 
   it("therapist mode buzzes but never speaks", async () => {
