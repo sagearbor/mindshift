@@ -61,6 +61,7 @@ import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolic
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
 import { instantHeatScore } from "./instantTier";
+import { FloorTracker, wearerFromScores, type FloorFire, type FloorTickConfig } from "./floorTick";
 
 /** The rolling window the acoustic instant tier scores, and how often. Both
  *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
@@ -291,6 +292,23 @@ export interface FastLoopDeps {
    * not only on a call.
    */
   overlapProbe?: boolean;
+  /**
+   * Mid-turn wearer floor cue (live/floorTick.ts). Default FALSE (dark).
+   * Once a second while audio flows, the trailing 2 s window is embedded
+   * (one ECAPA pass) and scored against the wearer's print — read-only, no
+   * cluster is founded — and a FloorTracker keeps the wearer's floor clock.
+   * At >= 45 s (configurable) it buzzes the hogging cue ("A", level 1) and
+   * offers the fixed line "You've had the floor a while. Check in with
+   * them." through the same never-over-speech gate as every other line —
+   * WHILE the turn is still running, instead of after it ends (an
+   * end-of-turn trigger is a median 30.8 s late on >= 45 s floor runs). No
+   * LLM. Needs an embedder, a labeler and an enrolled wearer print; without
+   * them the wearer is unknown and it never fires. `true` = the defaults
+   * (exp_FT's best live cell: 45 s, gap 30 s); an object overrides fields.
+   */
+  floorTick?: boolean | Partial<FloorTickConfig>;
+  /** Every floor cue the tracker fired (dark telemetry / replay report). */
+  onFloorCue?: (fire: FloorFire) => void;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -432,6 +450,12 @@ export class FastLoop {
   private readonly activationNudges: boolean;
   private readonly overlapProbe: boolean;
   private readonly instantHeat: boolean;
+  /** Mid-turn floor tracker (deps.floorTick); null = off. */
+  private readonly floor: FloorTracker | null;
+  private nextFloorSecond = 0;
+  private floorQueue: Promise<void> = Promise.resolve();
+  /** Every floor cue fired this session (dark; see FastLoopDeps.floorTick). */
+  readonly floorLog: FloorFire[] = [];
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -529,6 +553,8 @@ export class FastLoop {
     this.activationNudges = deps.activationNudges ?? true;
     this.overlapProbe = deps.overlapProbe ?? false;
     this.instantHeat = deps.instantHeat ?? true;
+    const ft = deps.floorTick ?? false;
+    this.floor = ft === false ? null : new FloorTracker(ft === true ? {} : ft);
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -769,6 +795,10 @@ export class FastLoop {
     this.lastFrameEnd = 0;
     this.nextHeatSecond = HEAT_WINDOW_SECONDS;
     this.heatLog.length = 0;
+    this.floor?.reset();
+    this.nextFloorSecond = this.floor ? this.floor.config.windowSeconds : 0;
+    this.floorQueue = Promise.resolve();
+    this.floorLog.length = 0;
     this.turnUidPrefix = this.deps.turnUidPrefix ?? newTurnUidPrefix();
     this.turnUidSeq = 0;
     this.latencyLog.length = 0;
@@ -898,6 +928,7 @@ export class FastLoop {
   /** Wait for every queued VAD frame and turn to finish (tests, stop()). */
   async settle(): Promise<void> {
     await this.vadQueue;
+    await this.floorQueue;
     await this.turnQueue;
   }
 
@@ -939,6 +970,7 @@ export class FastLoop {
   async stop(): Promise<FastLoopSummary> {
     this.running = false;
     await this.vadQueue;
+    await this.floorQueue;
     const tail = this.segmenter.flush();
     if (tail) this.enqueueTurn(tail);
     await this.turnQueue;
@@ -1007,6 +1039,64 @@ export class FastLoop {
     if (this.quietEnoughToSpeak()) this.releaseHeld();
     // Last: the dark acoustic tier must never sit in front of the real path.
     this.tickHeat(tEnd);
+    this.tickFloor(tEnd);
+  }
+
+  /**
+   * The mid-turn floor tick (deps.floorTick): once a second, score the
+   * trailing window's voice against the wearer's print and advance the
+   * floor clock. Queued on its own chain, so the ECAPA pass (~40 ms on a
+   * Pixel) never delays a VAD frame or a turn; observations still arrive in
+   * order. Windows without speech are observed too (they end runs) but are
+   * never embedded.
+   */
+  private tickFloor(tEnd: number): void {
+    const floor = this.floor;
+    if (!floor) return;
+    const { windowSeconds, tickSeconds } = floor.config;
+    while (tEnd >= this.nextFloorSecond) {
+      const end = this.nextFloorSecond;
+      this.nextFloorSecond += tickSeconds;
+      const start = end - windowSeconds;
+      const speaking = this.lastSpeechEnd > start;
+      const pcm = speaking ? this.sliceHistory({ start, end }) : null;
+      this.floorQueue = this.floorQueue
+        .then(async () => {
+          const wearer = pcm && pcm.length > 0 ? await this.windowWearer(pcm) : null;
+          const fire = floor.observe({ t: end, windowStart: start, speaking, wearer });
+          if (fire) this.deliverFloorCue(fire);
+        })
+        .catch(() => {});
+    }
+  }
+
+  /** Live wearer estimate for one window: read-only cosine vs the wearer's
+   *  print (SpeakerLabeler.scoreWindow) — never founds a cluster or moves an
+   *  identity. null without a voice model or a wearer print. */
+  private async windowWearer(pcm: Float32Array): Promise<boolean | null> {
+    const { embedder, labeler } = this.deps;
+    if (!embedder || !labeler || !this.floor) return null;
+    try {
+      const emb = await embedder.embed(pcm, SILERO_SAMPLE_RATE);
+      return wearerFromScores(labeler.scoreWindow(emb), this.floor.config);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Buzz now; voice the fixed line in the next pause (the wearer is the one
+   *  talking, so it is held — dropped if no pause comes within speakHoldMs).
+   *  Bypasses the LLM and the repeat gate: the tracker's min gap is its own
+   *  don't-nag rule. */
+  private deliverFloorCue(fire: FloorFire): void {
+    const cfg = this.floor?.config;
+    if (!cfg || !this.running) return;
+    this.floorLog.push(fire);
+    this.deps.onFloorCue?.(fire);
+    if (cfg.buzz && this.deps.haptics) void this.deps.haptics.nudge(1, "A").catch(() => {});
+    if (!cfg.speak || !this.session || this.session.mode === "therapist") return;
+    if (this.quietEnoughToSpeak()) this.speakNow(fire.text, null, null);
+    else this.held = { text: fire.text, expiresAtMs: this.now() + cfg.speakHoldMs, latency: null, turn: null };
   }
 
   /** Nobody is talking, and hasn't been for at least speakQuietMs. */

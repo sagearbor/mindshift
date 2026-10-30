@@ -21,7 +21,8 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
+import { FastLoop, type FastLoopDeps, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
+import type { FloorFire } from "../floorTick";
 import { SileroVad, EnergyVad, SpeechGate, withVadAgc, type FrameVad } from "../vad";
 import type { ListeningTuning } from "./tuning";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
@@ -181,6 +182,9 @@ export interface ReplayOptions {
    *  Default TRUE, as on the phone; a replay that only cares about the nudge
    *  ladder can turn it off and save the arithmetic. */
   instantHeat: boolean;
+  /** FastLoopDeps.floorTick — the mid-turn wearer floor cue (dark on the
+   *  phone; default false here too). */
+  floorTick?: FastLoopDeps["floorTick"];
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
@@ -325,6 +329,9 @@ export interface ReplayResult {
    *  Nothing escalates on these — they are here so the report can show what
    *  the acoustic tier WOULD have said next to what loudness actually did. */
   heat: HeatWindow[];
+  /** Mid-turn floor cues (FastLoopDeps.floorTick), with the virtual clock
+   *  at which the loop delivered each. Empty when the flag is off. */
+  floorCues: (FloorFire & { atMs: number })[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
   stt: { emitted: number; finals: number };
@@ -413,6 +420,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const positives: PositiveEmission[] = [];
   const nudgeLog: NudgeEmission[] = [];
   const heat: HeatWindow[] = [];
+  const floorCues: (FloorFire & { atMs: number })[] = [];
 
   const loop: FastLoop = new FastLoop({
     vad,
@@ -452,6 +460,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     now: () => clock.now(),
     sleep: (ms) => clock.sleep(ms),
     instantHeat: opts.instantHeat,
+    ...(opts.floorTick ? { floorTick: opts.floorTick, onFloorCue: (f: FloorFire) => floorCues.push({ ...f, atMs: clock.now() }) } : {}),
     sttGraceMs: opts.sttGraceMs,
     speakHoldMaxMs: opts.speakHoldMaxMs,
     speakQuietMs: opts.speakQuietMs,
@@ -525,6 +534,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     calm: loop.positiveSummary(scene.pcm.length / 16000).calm,
     nudgeLog,
     heat,
+    floorCues,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,
     stt: { emitted: recognizer?.emitted.length ?? 0, finals: recognizer?.emitted.filter((e) => e.isFinal).length ?? 0 },
