@@ -6,7 +6,6 @@ Deepgram call is exercised only through its cache."""
 from __future__ import annotations
 
 import json
-import shutil
 import wave
 
 import numpy as np

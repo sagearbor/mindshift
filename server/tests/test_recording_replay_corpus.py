@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from recreplay import annotation as ann
 from recreplay import fixture, pipeline

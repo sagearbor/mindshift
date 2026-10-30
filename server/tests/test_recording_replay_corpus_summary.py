@@ -4,7 +4,6 @@ apart, the defect detectors, and the HTML page. Synthetic bundles only."""
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
