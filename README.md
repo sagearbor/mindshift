@@ -4,6 +4,8 @@ MindShift is an AI-powered empathy coach that helps people understand how their 
 
 ## 🧩 Architecture
 
+**Ecosystem map** — what runs on the watch, phone and cloud, with timings and hover explanations: [docs/architecture.html](docs/architecture.html) (live: https://sagearbor.github.io/mindshift/architecture.html). Update it when a feature moves.
+
 - **Frontend:** Expo SDK 57 (React Native + Web) — the active app is **`apps/mobile`** (it serves iOS, Android, and Web). Zustand for state. Live mic streaming works on iOS/Android (including Expo Go) via `expo-audio`; web mic capture is not yet available (the UI shows an error banner rather than pretending).
 - **Backend:** FastAPI (Python) + SQLite, with a model-agnostic `LLMClient` (Claude/OpenAI/Gemini/Mistral).
 - **Tests:** Pytest (backend), Jest via jest-expo (frontend).

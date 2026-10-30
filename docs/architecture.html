@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MindShift Ecosystem Map</title>
+<!--
+  HOW TO EDIT: this page is the living map of where MindShift runs.
+  Each table cell is <td class="ROLE"> with ROLE = main | check | backup | weak | none.
+  Hover text lives in data-tip="..." on any element with class "tip".
+  Keep numbers sourced: put the source (file / report / date) in the tip.
+  Served by GitHub Pages from main:/docs → https://sagearbor.github.io/mindshift/architecture.html
+-->
+<style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#6b6560;--card:#fff;--line:#e7e5e4;
+--main:#16a34a;--main-bg:#dcfce7;--check:#2563eb;--check-bg:#dbeafe;--backup:#d97706;--backup-bg:#fef3c7;--weak:#9333ea;--weak-bg:#f3e8ff;--none:#a8a29e}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1917;--fg:#f5f5f4;--mut:#a8a29e;--card:#292524;--line:#44403c;
+--main-bg:#14532d;--check-bg:#1e3a8a;--backup-bg:#78350f;--weak-bg:#581c87}}
+:root[data-theme="dark"]{--bg:#1c1917;--fg:#f5f5f4;--mut:#a8a29e;--card:#292524;--line:#44403c;--main-bg:#14532d;--check-bg:#1e3a8a;--backup-bg:#78350f;--weak-bg:#581c87}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,sans-serif;padding:16px;max-width:980px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:26px 0 10px}
+p.sub{color:var(--mut);margin:0 0 12px;font-size:13px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:13px;margin:8px 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border-radius:4px;display:inline-block}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}
+th,td{padding:8px 9px;vertical-align:top;border-bottom:1px solid var(--line);text-align:left}
+th{font-size:13px;color:var(--mut);font-weight:600;background:var(--card);position:sticky;top:0}
+th.dev{font-size:14px;color:var(--fg)}
+td.job{font-weight:600;width:19%}
+td.job small{display:block;font-weight:400;color:var(--mut)}
+td.main{background:var(--main-bg);box-shadow:inset 4px 0 0 var(--main)}
+td.check{background:var(--check-bg);box-shadow:inset 4px 0 0 var(--check)}
+td.backup{background:var(--backup-bg);box-shadow:inset 4px 0 0 var(--backup)}
+td.weak{background:var(--weak-bg);box-shadow:inset 4px 0 0 var(--weak)}
+td.none{color:var(--none)}
+td .q{display:block;color:var(--mut);font-size:12px;margin-top:3px}
+.tip{border-bottom:1px dotted currentColor;cursor:help;position:relative;outline:none}
+.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;left:0;top:100%;margin-top:6px;z-index:10;
+width:max-content;max-width:min(300px,80vw);background:#1c1917;color:#f5f5f4;padding:8px 10px;border-radius:8px;font-size:12.5px;font-weight:400;line-height:1.4;white-space:normal;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+:root[data-theme="dark"] .tip:hover::after{background:#f5f5f4;color:#1c1917}
+.flow{width:100%;height:auto;display:block;max-width:760px;margin:0 auto}
+.flow text{fill:var(--fg);font:13px system-ui,sans-serif}.flow .s{fill:var(--mut);font-size:11.5px}
+.flow rect{fill:var(--card);stroke:var(--line);stroke-width:1.5}
+.flow path{stroke:var(--mut);stroke-width:1.5;fill:none}
+.tl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.tlrow{display:grid;grid-template-columns:150px 1fr;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.track{position:relative;height:20px;background:var(--bg);border-radius:4px}
+.bar{position:absolute;top:2px;height:16px;border-radius:3px}
+.axis{display:grid;grid-template-columns:150px 1fr;gap:8px;font-size:11px;color:var(--mut)}
+.axis div:last-child{display:flex;justify-content:space-between}
+ul.notes{padding-left:18px;font-size:13.5px}ul.notes li{margin:4px 0}
+@media (max-width:560px){.tlrow,.axis{grid-template-columns:96px 1fr}}
+</style></head><body>
+<h1>MindShift ecosystem map</h1>
+<p class="sub">Where each job runs: watch, phone or cloud. Hover or tap any <span class="tip" tabindex="0" data-tip="Like this. Tap again elsewhere to close on a phone.">dotted word</span> for an explanation. Updated 30 Oct 2026 (main at PR #203). Edit this file: <code>docs/architecture.html</code>.</p>
+
+<h2>How the pieces talk</h2>
+<svg class="flow" viewBox="0 0 760 200" role="img" aria-label="Watch and phone each talk to the cloud server; the server sends cues back to both">
+  <rect x="10" y="60" width="170" height="80" rx="12"/>
+  <text x="95" y="92" text-anchor="middle" font-weight="600">⌚ Watch</text>
+  <text x="95" y="112" text-anchor="middle" class="s">mic · heart rate · buzz</text>
+  <text x="95" y="128" text-anchor="middle" class="s">Wear OS (Apple: buzz only)</text>
+  <rect x="295" y="60" width="170" height="80" rx="12"/>
+  <text x="380" y="92" text-anchor="middle" font-weight="600">☁️ Cloud server</text>
+  <text x="380" y="112" text-anchor="middle" class="s">Cloud Run, us-central1</text>
+  <text x="380" y="128" text-anchor="middle" class="s">AI coach · tone · library</text>
+  <rect x="580" y="60" width="170" height="80" rx="12"/>
+  <text x="665" y="92" text-anchor="middle" font-weight="600">📱 Phone</text>
+  <text x="665" y="112" text-anchor="middle" class="s">mic · words · voice ID</text>
+  <text x="665" y="128" text-anchor="middle" class="s">earbud voice · buzz</text>
+  <path d="M180 85 H295"/><path d="M287 80 l8 5 -8 5"/>
+  <text x="237" y="76" text-anchor="middle" class="s">audio, heart rate</text>
+  <path d="M295 118 H180"/><path d="M188 113 l-8 5 8 5"/>
+  <text x="237" y="136" text-anchor="middle" class="s">buzz cues</text>
+  <path d="M580 85 H465"/><path d="M473 80 l-8 5 8 5"/>
+  <text x="522" y="76" text-anchor="middle" class="s">audio, words, triggers</text>
+  <path d="M465 118 H580"/><path d="M572 113 l8 5 -8 5"/>
+  <text x="522" y="136" text-anchor="middle" class="s">coach lines, cards</text>
+  <path d="M95 140 V175 H665 V140" stroke-dasharray="4 4"/>
+  <text x="380" y="192" text-anchor="middle" class="s">Companion mode: the phone listens and the server relays its cues to the watch as buzzes (the watch talks to the server directly, never to the phone)</text>
+</svg>
+
+<h2>Who does what</h2>
+<div class="legend">
+  <span><i class="sw" style="background:var(--main)"></i>Main: does the job</span>
+  <span><i class="sw" style="background:var(--check)"></i>Double-checks the main one</span>
+  <span><i class="sw" style="background:var(--backup)"></i>Backup / special cases</span>
+  <span><i class="sw" style="background:var(--weak)"></i>Present but weak</span>
+  <span style="color:var(--none)">— not done here</span>
+</div>
+<div class="wrap"><table>
+<tr><th>Job</th><th class="dev">⌚ Watch</th><th class="dev">📱 Phone</th><th class="dev">☁️ Cloud</th></tr>
+
+<tr><td class="job">Listen<small>microphone</small></td>
+<td class="main"><span class="tip" tabindex="0" data-tip="Standard and Battery Saver: listen locally and stream only after 2 loud seconds. Session: stream all the time. Companion: the mic is off and the phone listens.">Yes, in 3 of 4 modes</span></td>
+<td class="main">Yes, always in Live Coach</td>
+<td class="none">—</td></tr>
+
+<tr><td class="job">Words<small>speech-to-text</small></td>
+<td class="none">—</td>
+<td class="main"><span class="tip" tabindex="0" data-tip="The recognizer built into Android (Google) or iOS (Apple), running on the phone. Free and private. Accuracy not yet measured for our use.">Built-in phone speech-to-text</span><span class="q">free · used first</span></td>
+<td class="backup"><span class="tip" tabindex="0" data-tip="Deepgram nova-3: a paid cloud speech-to-text service that also separates speakers. About $0.25–0.45 per listening hour, our biggest cost. Live, it takes over only when the phone's speech-to-text stops working.">Deepgram</span> when the phone's fails · <span class="tip" tabindex="0" data-tip="Whisper (faster-whisper, base): a free open-source speech-to-text model run on our server. Used for uploaded recordings and watch clips. Can't tell speakers apart; about 13× slower than Deepgram on our CPU.">Whisper</span> for uploads and watch clips<span class="q">paid · fallback</span></td></tr>
+
+<tr><td class="job">Who's speaking<small>is it you?</small></td>
+<td class="none">—</td>
+<td class="main"><span class="tip" tabindex="0" data-tip="ECAPA: a voice-fingerprint model (80 MB, downloaded once). It compares each turn to your enrolled voice in about 40 ms and makes the first call: you or not you.">ECAPA voice ID</span>, first guess<span class="q">~40 ms per turn</span></td>
+<td class="check">Same model re-checks against your saved voice and corrects the phone<span class="q"><span class="tip" tabindex="0" data-tip="Measured 10 Oct on real recordings: catches 63% of your speaking time and 90% of your turns over 10 s, and mistakes someone else for you about 1% of the time. Short turns are skipped, not guessed.">63% of your talk time</span></span></td></tr>
+
+<tr><td class="job">Tone of voice<small>how it's said</small></td>
+<td class="weak"><span class="tip" tabindex="0" data-tip="Buzzes when you get 6, 10 or 14 dB louder than your baseline, or your heart rate jumps 15, 25 or 35 bpm. Crude: also fires on 44% of happy, excited clips.">Loudness and heart-rate jumps</span></td>
+<td class="main"><span class="tip" tabindex="0" data-tip="'Instant tier': 16 hand-made pitch and loudness measures, no neural net, about 10 ms. Tells angry from happy 80% of the time on test clips. The buzz you feel comes from a 'louder than your own baseline' check (about 71%).">Fast pitch and loudness check</span><span class="q">~10 ms · free</span></td>
+<td class="check"><span class="tip" tabindex="0" data-tip="odyssey_dim: a 1.3 GB AI model (WavLM-large) that scores energy, negativity and forcefulness per turn. Best accuracy we've measured (0.79–0.82 on a 0–1 scale where 0.5 is chance). It confirms or vetoes heat buzzes; it is NOT fed to the AI coach. Licence: grey (trained on research-only data).">odyssey model</span> confirms or vetoes heat buzzes<span class="q">~0.3 s · on</span></td></tr>
+
+<tr><td class="job">When to speak up<small>quiet-coach triggers (1.20)</small></td>
+<td class="none">—</td>
+<td class="main"><span class="tip" tabindex="0" data-tip="Heated words: a word list, instant, caught 10 of 10 fights with no false alarms in calm talk. Talking 45 s+: fires within about 1 s of the mark, once per stretch. A real question aimed at you.">Heated words, 45 s+ talking, questions to you</span></td>
+<td class="check">Re-checks the same, plus <span class="tip" tabindex="0" data-tip="A phrase that matches one of your selected Coach library files. If nothing triggers, the AI coach is not called at all: 97% fewer AI calls.">library matches</span>; no trigger means no AI call</td></tr>
+
+<tr><td class="job">Write a suggestion<small>the line you hear</small></td>
+<td class="none">—</td>
+<td class="weak"><span class="tip" tabindex="0" data-tip="The phone's own small AI: Gemini Nano on Android or Apple's on-device model. Free, but on the Pixel 10 it timed out on every turn, so in practice the cloud line wins. Note: Gemini Nano conflicts with the no-Gemini rule.">Phone's built-in small AI</span><span class="q">free · times out on Pixel</span></td>
+<td class="main"><span class="tip" tabindex="0" data-tip="Claude Haiku 4.5. About 1.1 s and $0.001 per call. With the quiet coach it runs about 11 times an hour instead of about 400.">Claude Haiku</span><span class="q">~1.1 s · only when triggered</span></td></tr>
+
+<tr><td class="job">Coach library &amp; Room mode</td>
+<td class="none">—</td>
+<td class="check">Pick files, show cards, speak answers</td>
+<td class="main"><span class="tip" tabindex="0" data-tip="Files are stored in Google Cloud Storage and indexed with Vertex AI so the right passage can be found. Room mode: 'MindShift, …' gets one AI answer; fact cards need no AI. Keeping files on the phone instead is designed but not built (~3–4 weeks).">Stores, searches, answers</span></td></tr>
+
+<tr><td class="job">Deliver the cue</td>
+<td class="main">Buzz patterns, watch tile<span class="q">Companion: buzzes relayed from the phone</span></td>
+<td class="main"><span class="tip" tabindex="0" data-tip="The phone's own text-to-speech in your earbud. Free, never talks over anyone, and in Earpiece mode only through headphones. Also a vibration and an on-screen card.">Earbud voice</span>, buzz, screen</td>
+<td class="backup"><span class="tip" tabindex="0" data-tip="Deepgram Aura: cloud-made voice audio. Only old app versions use it; the current app speaks on the phone.">Cloud voice</span> for old apps only</td></tr>
+
+<tr><td class="job">Body signals</td>
+<td class="main">Heart rate (sent to cloud) and motion (stays on watch)</td>
+<td class="none">—</td>
+<td class="check">Heart-rate spikes feed the buzz rules</td></tr>
+
+<tr><td class="job">After the session</td>
+<td class="backup">Uploads recent clips</td>
+<td class="check">Summary screens</td>
+<td class="main">Saves recordings, re-transcribes, writes summaries</td></tr>
+</table></div>
+
+<h2>One sentence, speech ends → cue heard</h2>
+<div class="tl">
+<div class="axis"><div></div><div><span>0 s</span><span>0.5</span><span>1.0</span><span>1.5</span><span>2.0</span><span>2.5 s</span></div></div>
+<div class="tlrow"><span>📱 Buzz if you got loud</span><div class="track"><div class="bar" style="left:0;width:17%;background:var(--main)"></div></div></div>
+<div class="tlrow"><span>📱 Detect speech ended</span><div class="track"><div class="bar" style="left:0;width:15%;background:var(--check)"></div></div></div>
+<div class="tlrow"><span>📱 Words + voice ID</span><div class="track"><div class="bar" style="left:12%;width:6%;background:var(--check)"></div></div></div>
+<div class="tlrow"><span class="tip" tabindex="0" data-tip="1.19: 0.8 s, because the phone first waits for its own small AI. 1.20 (early send): about 0.45 s.">📱→☁️ Sent to cloud</span><div class="track"><div class="bar" style="left:17%;width:2%;background:var(--backup)"></div></div></div>
+<div class="tlrow"><span>☁️ Trigger check</span><div class="track"><div class="bar" style="left:19%;width:1%;background:var(--main)"></div></div></div>
+<div class="tlrow"><span>☁️ Claude writes line</span><div class="track"><div class="bar" style="left:20%;width:42%;background:var(--main)"></div></div></div>
+<div class="tlrow"><span class="tip" tabindex="0" data-tip="Replay median: 2.0 s in 1.19, about 1.6 s estimated in 1.20. Target is under 2 s. Not yet measured on a real phone.">🎧 You hear it</span><div class="track"><div class="bar" style="left:62%;width:3%;background:var(--fg)"></div></div></div>
+<div class="tlrow"><span class="tip" tabindex="0" data-tip="The cloud's heat check looks at about 0.13 s windows smoothed over 3 s. Planned budget from speech to wrist: about 2.5 s. Not yet measured end to end.">⌚ Watch buzz</span><div class="track"><div class="bar" style="left:20%;width:80%;background:var(--weak);opacity:.55"></div></div></div>
+<p class="sub" style="margin:8px 0 0">The bars show the 1.20 estimates from replays on a Mac. Real-phone timing is the next measurement.</p>
+</div>
+
+<h2>Notes</h2>
+<ul class="notes">
+<li><b>Watch modes:</b> Standard and Battery Saver listen locally and stream only on loud moments. Session streams everything. Companion has no mic and buzzes on the phone's cues. If offline, the watch falls back to its own loudness buzzes.</li>
+<li><b>Apple Watch:</b> Companion mode buzzes only. Its own mic sessions are not built.</li>
+<li><b>Cost drivers:</b> cloud speech-to-text (when the phone's fails), Claude calls (only when triggered), and the always-on server holding the 1.3 GB tone model.</li>
+<li><b>Open questions:</b> the Gemini Nano step versus the no-Gemini rule; whether a grey licence is OK for odyssey; files on the phone instead of the cloud.</li>
+</ul>
+</body></html>
