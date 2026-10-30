@@ -14,7 +14,7 @@ export const LIVE_MODE_OPTIONS: readonly {
   {
     mode: "earpiece",
     label: "Earpiece",
-    hint: "Phone to your ear or on a call — the coach whispers to you privately.",
+    hint: "Earbuds in — the coach whispers to you privately. For phone or Teams calls, put the call on another device's speaker.",
   },
   {
     mode: "speaker",

@@ -483,7 +483,7 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
           }
           testID="session-mode-hint"
         >
-          Phone to your ear or on a call — the coach whispers to you privately.
+          Earbuds in — the coach whispers to you privately. For phone or Teams calls, put the call on another device's speaker.
         </Text>
       </View>
       <View
@@ -1457,7 +1457,7 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
           }
           testID="session-mode-hint"
         >
-          Phone to your ear or on a call — the coach whispers to you privately.
+          Earbuds in — the coach whispers to you privately. For phone or Teams calls, put the call on another device's speaker.
         </Text>
       </View>
       <View
@@ -3406,7 +3406,7 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           }
           testID="session-mode-hint"
         >
-          Phone to your ear or on a call — the coach whispers to you privately.
+          Earbuds in — the coach whispers to you privately. For phone or Teams calls, put the call on another device's speaker.
         </Text>
       </View>
       <View
