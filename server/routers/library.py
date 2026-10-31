@@ -14,6 +14,17 @@ it. The logic lives in ``server/library/``; this file is the HTTP shape.
 * ``DELETE /library/items/{id}``  removes the GCS blobs, the Firestore doc
   and every chunk/vector
 
+Projects (folders, nestable to 10 levels; no project_id = top level):
+
+* ``POST   /library/projects``        ``{name, parent_id?}`` -> 201 project
+* ``PATCH  /library/projects/{id}``   ``{name?, parent_id?}`` rename / move
+  (``parent_id: null`` = top level; cycles and >10 levels -> 422)
+* ``DELETE /library/projects/{id}``   a non-empty project is REFUSED (409);
+  ``?contents=move_to_parent`` moves its files and sub-projects up one level
+  first. Files are never deleted with a project.
+* ``PATCH /library/items/{id}`` ``{project_id}`` moves a file (null = top level);
+  uploads/notes accept an optional ``project_id``.
+
 Strictly per-user: the uid comes from the verified token only, and another
 user's id is a 404 (no existence oracle). Limits answer 413 (10 MB file,
 2 MB extracted text) or 422 (50 items, unsupported/unreadable/empty input);
@@ -31,7 +42,7 @@ from pydantic import BaseModel, Field, ValidationError
 import library
 from auth import get_current_uid
 from library import models
-from library.service import LibraryError, NotFound
+from library.service import _UNSET, LibraryError, NotFound
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -58,6 +69,7 @@ class LibraryItem(BaseModel):
     created_at: str
     updated_at: str
     indexed: bool = Field(description="Chunks + vectors exist (retrieval can use this item).")
+    project_id: Optional[str] = None
 
 
 class LibraryItemDetail(LibraryItem):
@@ -78,8 +90,27 @@ class LibraryLimits(BaseModel):
     max_items: int
 
 
+class LibraryProject(BaseModel):
+    id: str
+    name: str
+    parent_id: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    parent_id: Optional[str] = None
+
+
+class ProjectPatch(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[str] = None
+
+
 class LibraryList(BaseModel):
     items: list[LibraryItem]
+    projects: list[LibraryProject] = []
     retrieval_available: bool
     limits: LibraryLimits
 
@@ -88,11 +119,13 @@ class NoteCreate(BaseModel):
     kind: Literal["note"]
     title: str
     text: str
+    project_id: Optional[str] = None
 
 
 class ItemPatch(BaseModel):
     title: Optional[str] = None
     text: Optional[str] = None
+    project_id: Optional[str] = None  # explicit null = move to top level
 
 
 class Deleted(BaseModel):
@@ -104,7 +137,14 @@ def _item(rec) -> LibraryItem:
     return LibraryItem(
         id=rec.id, title=rec.title, kind=rec.kind, chars=rec.chars, status=rec.status,
         error=rec.error, created_at=rec.created_at, updated_at=rec.updated_at,
-        indexed=rec.indexed,
+        indexed=rec.indexed, project_id=rec.project_id,
+    )
+
+
+def _project(rec) -> LibraryProject:
+    return LibraryProject(
+        id=rec.id, name=rec.name, parent_id=rec.parent_id,
+        created_at=rec.created_at, updated_at=rec.updated_at,
     )
 
 
@@ -112,9 +152,9 @@ def _raise(exc: LibraryError):
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
-def _check_id(item_id: str) -> None:
+def _check_id(item_id: str, detail: str = "item not found") -> None:
     if not _ID.match(item_id):
-        raise HTTPException(status_code=404, detail="item not found")
+        raise HTTPException(status_code=404, detail=detail)
 
 
 @router.post("/items", status_code=201, response_model=LibraryItem)
@@ -139,9 +179,13 @@ async def create_item(
                 raise HTTPException(status_code=422, detail="multipart upload needs a 'file' field")
             data = await upload.read(models.MAX_FILE_BYTES + 1)
             title = form.get("title")
+            project_id = form.get("project_id")
+            if isinstance(project_id, str) and project_id.strip():
+                _check_id(project_id.strip(), "project not found")
             rec = await svc.create_document(
                 uid, upload.filename, upload.content_type, data,
                 title=title if isinstance(title, str) and title.strip() else None,
+                project_id=project_id.strip() if isinstance(project_id, str) and project_id.strip() else None,
             )
         else:
             try:
@@ -151,7 +195,9 @@ async def create_item(
                     status_code=422,
                     detail='expected JSON {"kind": "note", "title": ..., "text": ...} or a multipart file upload',
                 ) from exc
-            rec = await svc.create_note(uid, note.title, note.text)
+            if note.project_id:
+                _check_id(note.project_id, "project not found")
+            rec = await svc.create_note(uid, note.title, note.text, note.project_id)
     except LibraryError as exc:
         _raise(exc)
     return _item(rec)
@@ -162,6 +208,7 @@ async def list_items(uid: str = Depends(get_current_uid)) -> LibraryList:
     svc = library.get_service()
     return LibraryList(
         items=[_item(r) for r in await svc.list_items(uid)],
+        projects=[_project(p) for p in await svc.list_projects(uid)],
         retrieval_available=svc.retrieval_available,
         limits=LibraryLimits(
             max_file_bytes=models.MAX_FILE_BYTES,
@@ -201,10 +248,16 @@ async def patch_item(
     _rl: None = Depends(_rate_limit),
 ) -> LibraryItem:
     _check_id(item_id)
-    if body.title is None and body.text is None:
-        raise HTTPException(status_code=422, detail="nothing to update: send title and/or text")
+    move = "project_id" in body.model_fields_set
+    if body.title is None and body.text is None and not move:
+        raise HTTPException(status_code=422, detail="nothing to update: send title, text and/or project_id")
+    if move and body.project_id:
+        _check_id(body.project_id, "project not found")
     try:
-        rec = await library.get_service().update_item(uid, item_id, title=body.title, text=body.text)
+        rec = await library.get_service().update_item(
+            uid, item_id, title=body.title, text=body.text,
+            project_id=body.project_id if move else _UNSET,
+        )
     except LibraryError as exc:
         _raise(exc)
     return _item(rec)
@@ -216,3 +269,56 @@ async def delete_item(item_id: str, uid: str = Depends(get_current_uid)) -> Dele
     if not await library.get_service().delete_item(uid, item_id):
         raise HTTPException(status_code=404, detail="item not found")
     return Deleted(deleted=True, id=item_id)
+
+
+# -- projects (folders) -------------------------------------------------------
+
+@router.post("/projects", status_code=201, response_model=LibraryProject)
+async def create_project(
+    body: ProjectCreate,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+) -> LibraryProject:
+    if body.parent_id:
+        _check_id(body.parent_id, "parent project not found")
+    try:
+        return _project(await library.get_service().create_project(uid, body.name, body.parent_id))
+    except LibraryError as exc:
+        _raise(exc)
+
+
+@router.patch("/projects/{project_id}", response_model=LibraryProject)
+async def patch_project(
+    project_id: str, body: ProjectPatch,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+) -> LibraryProject:
+    _check_id(project_id, "project not found")
+    move = "parent_id" in body.model_fields_set
+    if body.name is None and not move:
+        raise HTTPException(status_code=422, detail="nothing to update: send name and/or parent_id")
+    if move and body.parent_id:
+        _check_id(body.parent_id, "parent project not found")
+    try:
+        rec = await library.get_service().update_project(
+            uid, project_id, name=body.name,
+            parent_id=body.parent_id if move else _UNSET,
+        )
+    except LibraryError as exc:
+        _raise(exc)
+    return _project(rec)
+
+
+@router.delete("/projects/{project_id}", response_model=Deleted)
+async def delete_project(
+    project_id: str, contents: Optional[str] = None,
+    uid: str = Depends(get_current_uid),
+) -> Deleted:
+    _check_id(project_id, "project not found")
+    try:
+        ok = await library.get_service().delete_project(uid, project_id, contents=contents)
+    except LibraryError as exc:
+        _raise(exc)
+    if not ok:
+        raise HTTPException(status_code=404, detail="project not found")
+    return Deleted(deleted=True, id=project_id)

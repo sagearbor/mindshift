@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -11,7 +11,10 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import {
   createLibraryNote,
+  createLibraryProject,
   deleteLibraryItem,
+  deleteLibraryProject,
+  updateLibraryProject,
   getLibraryItem,
   listLibrary,
   RETRIEVAL_UNAVAILABLE_TEXT,
@@ -20,6 +23,7 @@ import {
   type LibraryItem,
   type LibraryList,
 } from "../api/library";
+import { buildTree, moveTargets, nodeItems, type ProjectNode } from "../live/libraryTree";
 import { showAlert } from "../utils/showAlert";
 
 const PRIMARY = "#4A90D9";
@@ -74,6 +78,14 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
   const [editDraft, setEditDraft] = useState("");
   const [editBlocked, setEditBlocked] = useState<string | null>(null);
 
+  // Projects (folders): collapsed ids, the new-project form (parent id or
+  // null for top level), a project being renamed, and the open "Move to…".
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [projectForm, setProjectForm] = useState<{ parentId: string | null } | null>(null);
+  const [projectName, setProjectName] = useState("");
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [moving, setMoving] = useState<{ kind: "item" | "project"; id: string } | null>(null);
+
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -97,6 +109,8 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const tree = useMemo(() => buildTree(data?.projects ?? [], data?.items ?? []), [data]);
 
   const processing = data?.items.some((i) => i.status === "processing") ?? false;
   useEffect(() => {
@@ -191,6 +205,78 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
     [editDraft, run],
   );
 
+  const saveProject = useCallback(async () => {
+    const name = projectName.trim();
+    if (!name || !projectForm) return;
+    const parentId = projectForm.parentId;
+    const ok = await run("project", () => createLibraryProject(name, parentId));
+    if (ok && mounted.current) {
+      setProjectForm(null);
+      setProjectName("");
+    }
+  }, [projectName, projectForm, run]);
+
+  const saveProjectRename = useCallback(
+    async (id: string) => {
+      const name = projectName.trim();
+      if (!name) return;
+      const ok = await run(`pr-${id}`, () => updateLibraryProject(id, { name }));
+      if (ok && mounted.current) {
+        setRenamingProject(null);
+        setProjectName("");
+      }
+    },
+    [projectName, run],
+  );
+
+  const moveTo = useCallback(
+    async (targetId: string | null) => {
+      if (!moving) return;
+      const m = moving;
+      setMoving(null);
+      await run(`move-${m.id}`, () =>
+        m.kind === "item"
+          ? updateLibraryItem(m.id, { project_id: targetId })
+          : updateLibraryProject(m.id, { parent_id: targetId }),
+      );
+    },
+    [moving, run],
+  );
+
+  // Safe delete: an empty project goes after a plain confirm; a non-empty one
+  // is only deleted if the user explicitly chooses to move its contents up one
+  // level (files are never deleted along with a project).
+  const confirmDeleteProject = useCallback(
+    (node: ProjectNode) => {
+      const nonEmpty = node.items.length > 0 || node.children.length > 0;
+      if (nonEmpty) {
+        showAlert(
+          "Delete project?",
+          `"${node.project.name}" still holds ${node.items.length} file(s) and ${node.children.length} sub-project(s). They are not deleted: they move up one level.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Move contents up & delete",
+              style: "destructive",
+              onPress: () =>
+                void run(`pd-${node.project.id}`, () => deleteLibraryProject(node.project.id, "move_to_parent")),
+            },
+          ],
+        );
+      } else {
+        showAlert("Delete project?", `"${node.project.name}" is empty and will be removed.`, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => void run(`pd-${node.project.id}`, () => deleteLibraryProject(node.project.id, undefined)),
+          },
+        ]);
+      }
+    },
+    [run],
+  );
+
   const confirmDelete = useCallback(
     (item: LibraryItem) => {
       showAlert(
@@ -205,106 +291,31 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
     [run],
   );
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} testID="library-screen">
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} accessibilityRole="button" testID="library-back">
-          <Text style={styles.back}>‹ Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Coach library</Text>
-      </View>
-      <Text style={styles.intro}>
-        Notes and documents the coach can draw on. Pick which ones to use on the Live Coach screen.
-      </Text>
-
-      {data && !data.retrieval_available ? (
-        <Text style={styles.notice} testID="library-retrieval-unavailable">
-          {RETRIEVAL_UNAVAILABLE_TEXT}
-        </Text>
-      ) : null}
-
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => setNoteOpen((v) => !v)}
-          accessibilityRole="button"
-          testID="library-add-note"
-        >
-          <Text style={styles.buttonText}>Add note</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => void upload()}
-          disabled={busy === "upload"}
-          accessibilityRole="button"
-          testID="library-upload"
-        >
-          <Text style={styles.buttonText}>{busy === "upload" ? "Uploading…" : "Upload file"}</Text>
-        </TouchableOpacity>
-      </View>
-      <Text style={styles.hint}>PDF, Word, text, Markdown, CSV or Excel, up to 10 MB.</Text>
-
-      {noteOpen ? (
-        <View style={styles.card} testID="library-note-form">
-          <TextInput
-            testID="library-note-title"
-            style={styles.input}
-            value={noteTitle}
-            onChangeText={setNoteTitle}
-            placeholder="Title"
-            placeholderTextColor="#9CA3AF"
-            maxLength={200}
-          />
-          <TextInput
-            testID="library-note-text"
-            style={[styles.input, styles.multiline]}
-            value={noteText}
-            onChangeText={setNoteText}
-            placeholder="What should the coach know?"
-            placeholderTextColor="#9CA3AF"
-            multiline
-          />
-          <View style={styles.rowActions}>
-            <TouchableOpacity
-              testID="library-note-save"
-              onPress={() => void saveNote()}
-              disabled={busy === "note" || !noteTitle.trim() || !noteText.trim()}
-              accessibilityRole="button"
-            >
-              <Text style={styles.link}>{busy === "note" ? "Saving…" : "Save"}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity testID="library-note-cancel" onPress={() => setNoteOpen(false)} accessibilityRole="button">
-              <Text style={styles.linkMuted}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : null}
-
-      {actionError ? (
-        <Text style={styles.error} testID="library-action-error">
-          {actionError}
-        </Text>
-      ) : null}
-
-      {loadError && !data ? (
-        <View testID="library-load-error">
-          <Text style={styles.error}>{loadError}</Text>
-          <TouchableOpacity onPress={() => void refresh()} accessibilityRole="button">
-            <Text style={styles.link}>Try again</Text>
+  const renderMovePicker = (kind: "item" | "project", id: string) => {
+    if (!moving || moving.kind !== kind || moving.id !== id) return null;
+    return (
+      <View style={styles.movePicker} testID="library-move-picker">
+        <Text style={styles.itemSub}>Move to…</Text>
+        {moveTargets(tree, kind === "project" ? id : undefined).map((t) => (
+          <TouchableOpacity
+            key={t.id ?? "root"}
+            testID={`library-move-target-${t.id ?? "root"}`}
+            style={{ paddingVertical: 6, paddingLeft: t.depth * 14 }}
+            onPress={() => void moveTo(t.id)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.link}>{t.id === null ? "Top level" : `📁 ${t.label}`}</Text>
           </TouchableOpacity>
-        </View>
-      ) : null}
+        ))}
+        <TouchableOpacity onPress={() => setMoving(null)} accessibilityRole="button">
+          <Text style={styles.linkMuted}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
-      {!data && !loadError ? <ActivityIndicator style={styles.spinner} /> : null}
-
-      {data && data.items.length === 0 ? (
-        <Text style={styles.empty} testID="library-empty">
-          Nothing saved yet. Add a note or upload a file.
-        </Text>
-      ) : null}
-
-      {data?.items.map((item) => (
-        <View key={item.id} style={styles.card} testID={`library-item-${item.id}`}>
+  const renderItem = (item: LibraryItem, depth: number) => (
+        <View key={item.id} style={[styles.card, { marginLeft: depth * 16 }]} testID={`library-item-${item.id}`}>
           {renaming === item.id ? (
             <View>
               <TextInput
@@ -388,6 +399,13 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
                 </TouchableOpacity>
               ) : null}
               <TouchableOpacity
+                testID={`library-move-${item.id}`}
+                onPress={() => setMoving({ kind: "item", id: item.id })}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>Move to…</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 testID={`library-delete-${item.id}`}
                 onPress={() => confirmDelete(item)}
                 accessibilityRole="button"
@@ -396,8 +414,239 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
               </TouchableOpacity>
             </View>
           ) : null}
+        {renderMovePicker("item", item.id)}
         </View>
-      ))}
+  );
+
+  const renderNode = (node: ProjectNode): React.ReactNode => {
+    const id = node.project.id;
+    const isCollapsed = !!collapsed[id];
+    const total = nodeItems(node).length;
+    return (
+      <View key={id}>
+        <View style={[styles.projectCard, { marginLeft: node.depth * 16 }]} testID={`library-project-${id}`}>
+          <TouchableOpacity
+            testID={`library-project-toggle-${id}`}
+            onPress={() => setCollapsed((c) => ({ ...c, [id]: !c[id] }))}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: !isCollapsed }}
+          >
+            <Text style={styles.itemTitle}>
+              {isCollapsed ? "▸" : "▾"} 📁 {node.project.name}{" "}
+              <Text style={styles.itemSub}>({total})</Text>
+            </Text>
+          </TouchableOpacity>
+          {renamingProject === id ? (
+            <View>
+              <TextInput
+                testID={`library-project-rename-input-${id}`}
+                style={styles.input}
+                value={projectName}
+                onChangeText={setProjectName}
+                maxLength={100}
+              />
+              <View style={styles.rowActions}>
+                <TouchableOpacity
+                  testID={`library-project-rename-save-${id}`}
+                  onPress={() => void saveProjectRename(id)}
+                  disabled={!projectName.trim()}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.link}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setRenamingProject(null)} accessibilityRole="button">
+                  <Text style={styles.linkMuted}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.rowActions}>
+              <TouchableOpacity
+                testID={`library-project-add-${id}`}
+                onPress={() => {
+                  setProjectForm({ parentId: id });
+                  setProjectName("");
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>New sub-project</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID={`library-project-rename-${id}`}
+                onPress={() => {
+                  setRenamingProject(id);
+                  setProjectName(node.project.name);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>Rename</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID={`library-project-move-${id}`}
+                onPress={() => setMoving({ kind: "project", id })}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>Move to…</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID={`library-project-delete-${id}`}
+                onPress={() => confirmDeleteProject(node)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.danger}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {renderMovePicker("project", id)}
+        </View>
+        {isCollapsed ? null : (
+          <View>
+            {node.children.map(renderNode)}
+            {node.items.map((it) => renderItem(it, node.depth + 1))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} testID="library-screen">
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onBack} accessibilityRole="button" testID="library-back">
+          <Text style={styles.back}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Coach library</Text>
+      </View>
+      <Text style={styles.intro}>
+        Notes and documents the coach can draw on. Pick which ones to use on the Live Coach screen.
+      </Text>
+
+      {data && !data.retrieval_available ? (
+        <Text style={styles.notice} testID="library-retrieval-unavailable">
+          {RETRIEVAL_UNAVAILABLE_TEXT}
+        </Text>
+      ) : null}
+
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => setNoteOpen((v) => !v)}
+          accessibilityRole="button"
+          testID="library-add-note"
+        >
+          <Text style={styles.buttonText}>Add note</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => void upload()}
+          disabled={busy === "upload"}
+          accessibilityRole="button"
+          testID="library-upload"
+        >
+          <Text style={styles.buttonText}>{busy === "upload" ? "Uploading…" : "Upload file"}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => {
+            setProjectForm({ parentId: null });
+            setProjectName("");
+          }}
+          accessibilityRole="button"
+          testID="library-new-project"
+        >
+          <Text style={styles.buttonText}>New project</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.hint}>PDF, Word, text, Markdown, CSV or Excel, up to 10 MB.</Text>
+
+      {noteOpen ? (
+        <View style={styles.card} testID="library-note-form">
+          <TextInput
+            testID="library-note-title"
+            style={styles.input}
+            value={noteTitle}
+            onChangeText={setNoteTitle}
+            placeholder="Title"
+            placeholderTextColor="#9CA3AF"
+            maxLength={200}
+          />
+          <TextInput
+            testID="library-note-text"
+            style={[styles.input, styles.multiline]}
+            value={noteText}
+            onChangeText={setNoteText}
+            placeholder="What should the coach know?"
+            placeholderTextColor="#9CA3AF"
+            multiline
+          />
+          <View style={styles.rowActions}>
+            <TouchableOpacity
+              testID="library-note-save"
+              onPress={() => void saveNote()}
+              disabled={busy === "note" || !noteTitle.trim() || !noteText.trim()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.link}>{busy === "note" ? "Saving…" : "Save"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity testID="library-note-cancel" onPress={() => setNoteOpen(false)} accessibilityRole="button">
+              <Text style={styles.linkMuted}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      {projectForm ? (
+        <View style={styles.card} testID="library-project-form">
+          <TextInput
+            testID="library-project-name-input"
+            style={styles.input}
+            value={projectName}
+            onChangeText={setProjectName}
+            placeholder={projectForm.parentId ? "Sub-project name" : "Project name"}
+            placeholderTextColor="#9CA3AF"
+            maxLength={100}
+          />
+          <View style={styles.rowActions}>
+            <TouchableOpacity
+              testID="library-project-name-save"
+              onPress={() => void saveProject()}
+              disabled={busy === "project" || !projectName.trim()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.link}>{busy === "project" ? "Saving…" : "Create"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setProjectForm(null)} accessibilityRole="button">
+              <Text style={styles.linkMuted}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      {actionError ? (
+        <Text style={styles.error} testID="library-action-error">
+          {actionError}
+        </Text>
+      ) : null}
+
+      {loadError && !data ? (
+        <View testID="library-load-error">
+          <Text style={styles.error}>{loadError}</Text>
+          <TouchableOpacity onPress={() => void refresh()} accessibilityRole="button">
+            <Text style={styles.link}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {!data && !loadError ? <ActivityIndicator style={styles.spinner} /> : null}
+
+      {data && data.items.length === 0 && (data.projects?.length ?? 0) === 0 ? (
+        <Text style={styles.empty} testID="library-empty">
+          Nothing saved yet. Add a note or upload a file.
+        </Text>
+      ) : null}
+
+      {data ? tree.roots.map(renderNode) : null}
+      {data ? tree.rootItems.map((it) => renderItem(it, 0)) : null}
     </ScrollView>
   );
 }
@@ -420,6 +669,15 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 10 },
   button: { backgroundColor: PRIMARY, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16 },
   buttonText: { color: "#FFFFFF", fontWeight: "600", fontSize: 14 },
+  projectCard: {
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  movePicker: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#E5E7EB" },
   hint: { fontSize: 12, color: MUTED, marginTop: 6, marginBottom: 12 },
   card: {
     borderWidth: 1,

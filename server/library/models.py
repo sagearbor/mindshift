@@ -14,6 +14,9 @@ MAX_TEXT_CHARS = 2 * 1024 * 1024         # 2 MB of extracted text per item
 MAX_ITEMS_PER_USER = 50
 MAX_TITLE_CHARS = 200
 PREVIEW_CHARS = 2000
+MAX_PROJECT_DEPTH = 10          # top-level project = depth 1
+MAX_PROJECTS_PER_USER = 200
+MAX_PROJECT_NAME_CHARS = 100
 
 
 @dataclass
@@ -39,12 +42,35 @@ class ItemRecord:
     indexed: bool = False
     chunk_count: int = 0
     embedding_model: str | None = None
+    project_id: str | None = None  # containing project; None = top level (also legacy docs)
 
     def to_doc(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_doc(cls, doc: dict) -> "ItemRecord":
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in doc.items() if k in known})
+
+
+@dataclass
+class ProjectRecord:
+    """A folder (Firestore ``library_projects/{id}``). ``parent_id`` None =
+    top level. Nesting is unlimited in the model; the service caps depth at
+    MAX_PROJECT_DEPTH."""
+
+    id: str
+    uid: str
+    name: str
+    parent_id: str | None
+    created_at: str
+    updated_at: str
+
+    def to_doc(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_doc(cls, doc: dict) -> "ProjectRecord":
         known = {f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in doc.items() if k in known})
 

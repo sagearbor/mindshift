@@ -743,16 +743,19 @@ describe("AppChrome integration (Task N3)", () => {
     act(() => comp.unmount());
   });
 
-  it("pushed screens (e.g. Settings) render without the chrome", async () => {
+  it("pushed screens (e.g. Settings) have no top chrome but DO keep the bottom tab bar", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
     });
     await signIn(comp);
+    act(() => {
+      useLayoutStore.getState().setTabSlots(["coach", "recordings"]);
+    });
 
     await openSettings(comp);
     expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
-    expect(queryId(comp, "chrome-tab-bar")).toBeNull();
+    expect(queryId(comp, "chrome-tab-bar")).toBeTruthy();
     act(() => comp.unmount());
   });
 });
