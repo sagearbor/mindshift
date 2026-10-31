@@ -23,6 +23,13 @@ export interface PlanSummary {
   redeem_available: boolean;
   /** Free: lifetime cap; Pro: monthly cap (seconds of cloud transcription). */
   windows?: Record<string, { cap: number; used: number }>;
+  /** The BINDING listening allowance right now (null = nothing capped). */
+  listening?: {
+    remaining_seconds: number;
+    period: "lifetime" | "month" | "day";
+    limit: string;
+    allowance_seconds: number;
+  } | null;
   /** Personal share code; null for guests / when plans are unavailable. */
   referral?: {
     code: string;

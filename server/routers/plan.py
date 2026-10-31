@@ -77,6 +77,7 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
         "limits": {k: plans.limit_for(level, k) for k in plans.LIMIT_KEYS},
         "daily": daily,
         "windows": windows,
+        "listening": plans.listening_left(uid, level),
         "referral": referral,
         "library": lib,
         "flags": {k: bool(plans.limit_for(level, k)) for k in plans.FLAG_KEYS},

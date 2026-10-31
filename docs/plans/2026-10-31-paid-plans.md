@@ -56,70 +56,86 @@ Behaviour, in short:
   code and referral record (`plan_records` in the deletion counts).
 - Known gap: the per-uid redeem failure limiter is per process.
 
-### Cost caps and worst case (owner decision 2026-10-31)
+### Levels, listening hours and cost (owner decision 2026-10-31)
 
-Counters live on `ms_plans/{uid}` (`lifetime`, `monthly`), are persisted by the
-usage flusher, survive restarts and day rollover, and are never touched by a
-redeem. Over a limit the live session keeps the on-device transcript and
-coaching, one friendly notice names the limit, nothing is deleted. Plans must be
-configured (Firestore project set) for the lifetime/monthly windows to apply.
-All numbers are constants at the top of `server/plans.py` (env override
-`MINDSHIFT_PLAN_<LEVEL>_<KEY>`).
+Levels (ordered): `free`, `basic`, `pro`, `max`. The unit is **listening
+hours**. Worst case per hour: **$0.51** = cloud STT $0.45 + about 33k AI tokens
+at Claude Haiku 4.5 ($1/M in, $5/M out, blended $1.80/M) = $0.06. Token caps are
+derived from hours (`TOKENS_PER_HOUR` = 40k, i.e. 33k measured plus ~20%
+headroom). Everything is a constant at the top of `server/plans.py`
+(`ALLOWANCE_HOURS`, `PRICE_USD`, `LIBRARY`, env override
+`MINDSHIFT_PLAN_<LEVEL>_<KEY>`); adding a level is one entry in each. Daily STT
+and AI caps are abuse backstops at 25% of the monthly allowance.
 
-Assumptions: cloud STT $0.45/h (top of $0.25-0.45); Claude Haiku 4.5 about
-$1/M input and $5/M output, coaching is input-heavy, so a blended $1.80/M tokens
-(80/20). Pro price $12/mo (about $10.20 net after a 15% store cut). Worst case =
-the user spends the whole allowance.
+| Level | Price/mo | Allowance (hours, library) | Max cost to us, all cloud | Max cost, STT on-device | Margin after 15% store fee (cloud / on-device) |
+|---|---|---|---|---|---|
+| Free | $0 | 1 h once; 5 items | $0.51 once | $0.06 once | n/a |
+| Free + referral max | $0 | 2 h once (1 h + 1 h bonus); 5 items | $1.02 once | $0.12 once | n/a |
+| Basic | $5 | 6 h / month; 25 items | $3.06 | $0.36 | +$1.19 / +$3.89 |
+| Pro | $12 | 20 h / month; 200 items | $10.20 | $1.19 | $0.00 / +$9.01 |
+| Max | $25 | 40 h / month; 1000 items | $20.40 | $2.38 | +$0.85 / +$18.87 |
 
-| Limit | Free | Free + max referral | Pro |
+If 1,000 free users each use their whole allowance: **$510 once** all-cloud
+($60 if all on-device STT); **$1,020** if every one also earned the referral
+bonus. That is a one-time total, not per month. Pro breaks even only in the
+all-cloud worst case; a typical user uses a fraction of the allowance. Token
+headroom adds at most $0.013 per allowance hour.
+
+**What a session consumes** (the allowance meters only what costs us):
+
+| Session type | `stt.seconds` (cloud STT) | AI tokens (`llm.*`) | `live.minutes` |
 |---|---|---|---|
-| Cloud STT | 2 h lifetime | 12 h lifetime (+2 h per referral, max +10 h) | 40 h / month |
-| AI tokens | 1.0M lifetime, 150k / day | same | 2.0M / month, 300k / day |
-| Live listening | 4 h lifetime | 14 h lifetime (bonus adds the same time) | 12 h / day |
-| Library | 5 items, 200k chars | same | 200 items, 20M chars |
-| **Worst-case cost** | **$2.70 once** (STT $0.90 + AI $1.80) | **$7.20 once** (STT $5.40 + AI $1.80) | **$21.60 / month** (STT $18 + AI $3.60) |
+| All-cloud (phone streams audio to Deepgram) | consumed | consumed | recorded, NOT part of the allowance |
+| Phone-only STT (local-first; the server skips vendor audio, `ctx.local_first` in `audio_pipeline.py`) | **none** | consumed | recorded, NOT part of the allowance |
 
-If 1,000 free users each use their whole allowance: **$2,700 total, one time**
-(not per month); $7,200 if every one of them also earned the full referral bonus.
-Daily caps slow the burn rate but do not change the total. Unbounded abuse
-needs fresh accounts (each new signed-in account can cost up to $2.70; guests
-have their own much smaller session quota). Pro's worst case ($21.60) exceeds
-its price, so Pro is not abuse-proof at 40 h; a typical Pro user (15 h, 0.5M
-tokens) costs about $7.65. Lower `PRO_STT_MONTHLY_SECONDS` to 25 h (worst case
-$14.85) if usage data shows heavy users.
+So the binding listening time is the smaller of remaining STT seconds and
+remaining AI tokens converted at 40k tokens per hour. Wall-clock live minutes
+only have a generous daily backstop (8 h free, 12 h paid), because on-device
+listening costs us nothing. Counters live on `ms_plans/{uid}` (`lifetime`,
+`monthly`), survive restarts and day rollover, and are never touched by a
+redeem. Plans must be configured (Firestore project set) for the windows to apply.
 
-### Referrals (built): bonus free hours, not Pro days
+**Countdown.** `GET /plan` returns `listening` = `{remaining_seconds, period
+(lifetime|month|day), limit, allowance_seconds}` for the binding limit. Live
+Coach shows a pill ("Free time left: 42 min", or "6.5 h left this month" for
+paid), ticking locally and re-syncing every 3 minutes, amber at 10 min, red at 5,
+with one gentle banner at 10 / 5 / 1 min. At zero the server pauses cloud
+coaching/transcription (the socket and on-device features keep running, one
+`quota_notice` is sent) and the app opens the out-of-time sheet (Redeem a code,
+Upgrade: coming soon). Nothing is deleted. Known limit: cloud transcription
+stops at the cap check on the next audio frame, not at the end of the current
+sentence.
+
+### Referrals (built): bonus free listening hours, not paid days
 
 Every signed-in (non-guest) user has a personal share code (8 chars, e.g.
-`ABCD-2345`; shown in Settings > Plan with a Share button, created lazily on
-`GET /plan`). A new user types it into the same "Have a code?" box. Copy in the
-card: "Invite a friend: you both get 2 more free hours."
+`ABCD-2345`; Settings > Plan, with a Share button; created lazily on
+`GET /plan`). A new user types it into the "Have a code?" box. Card copy:
+"Invite a friend: you both get 1 more free hour."
 
-- The new user gets **+2 h** of free cloud transcription immediately (2 h -> 4 h).
-- The referrer gets **+2 h** only after the new user has done >= 10 minutes of
-  real live listening (counted by the usage flusher: server-side evidence).
-  Credited exactly once per new account.
-- Bonus also extends the free live-listening cap by the same time. Total bonus
-  per account is capped at **+10 h**.
-- Rewards are hours, never Pro days and never percent discounts. Admin and mint
-  codes still grant Pro days. A store subscriber redeeming a code is "covered"
-  (no use spent, store expiry untouched), so phase 2 needs no credit-days logic.
+- The new user gets **+1 h** immediately (1 h -> 2 h of free listening; the
+  bonus raises the STT and AI-token lifetime caps together).
+- The referrer gets **+1 h** only after the new user has done >= 10 minutes of
+  real live listening (counted by the usage flusher: server-side evidence),
+  once per new account.
+- Total bonus per account is capped at **+1 h** (so a free account tops out at
+  2 h). Rewards are never paid days nor percent discounts. Admin/mint codes can
+  grant any level (`mint_code.py mint --plan basic|pro|max --days N`); a store
+  subscriber redeeming one is "covered" (no use spent, store expiry untouched).
 - Records: `ms_referrals/{new_uid}` = `{referrer, status: pending|rewarded|capped,
   created_at, closed_at}`; `ms_referral_codes/{CODE}` = `{uid}`. Opaque uids
   only, no email or device data; all removed by `DELETE /me`.
 
-Abuse rules: guests cannot redeem; one referral per account, ever
-(`referred_by` plus the `ms_referrals/{uid}` doc, transactional); own code
+Abuse rules: guests cannot redeem; one referral per account, ever; own code
 refused; the 10-minute listening gate means a fake account must really listen
-(and each is itself capped at the free allowance); referrer bonus hard-capped at
-+10 h (then `capped`); per-IP and 8 failures/hour/uid redeem limits apply.
+(each is itself capped at the free allowance); referrer bonus hard-capped (then
+`capped`); per-IP and 8 failures/hour/uid redeem limits apply.
 
 ## Phase 2 (plan): RevenueCat + store subscriptions
 
 ### Pricing proposal
 
-Pro at **$12/month and $99/year** (store tiers; inside the owner's $10-15
-band, annual about 31% off). Reasoning:
+Basic $5, Pro $12, Max $25 per month (store tiers). Reasoning:
 
 - Variable cost is STT $0.25-0.45 per listening hour plus coach LLM tokens
   (about 40k tokens per measured 30-minute coached call). A user who listens
@@ -137,13 +153,16 @@ band, annual about 31% off). Reasoning:
 
 | Product id | Period | Price |
 |---|---|---|
+| `mindshift_basic_monthly` | 1 month | $5 |
 | `mindshift_pro_monthly` | 1 month | $12 |
-| `mindshift_pro_annual` | 1 year | $99 |
+| `mindshift_max_monthly` | 1 month | $25 |
 
-Entitlement id `pro`. Level resolution is by entitlement or product-id prefix
+(Annual products, about 2 months free, can be added later as `_annual`.)
+All three share one subscription group ranked max > pro > basic.
+
+Entitlement ids `basic`, `pro`, `max`. Level resolution is by entitlement or product-id prefix
 (`mindshift_<level>_...`), highest wins, same as `eventPlanLevel` in
-`revenuecat.ts`. Adding a level later = new products + new entitlement + a row
-in `plans.LIMITS`.
+`revenuecat.ts`. Adding a level later = new products + new entitlement + entries in `plans.LEVELS` / `ALLOWANCE_HOURS`.
 
 ### Server design
 
@@ -187,14 +206,14 @@ release scripts (`ship-mobile-app` skill), Android and iOS together.
 
 1. **App Store Connect**: Agreements, Tax, and Banking -> sign the Paid Apps
    Agreement, add bank + tax forms (status Active). App -> Monetization ->
-   Subscriptions -> create group `MindShift Pro`; create `mindshift_pro_monthly`
-   ($12) and `mindshift_pro_annual` ($99), localized name/description, review
+   Subscriptions -> create group `MindShift`; create `mindshift_basic_monthly` ($5),
+   `mindshift_pro_monthly` ($12) and `mindshift_max_monthly` ($25), localized name/description, review
    screenshot of the paywall, all countries. Users and Access -> Integrations ->
    In-App Purchase -> generate a key (.p8). Update App Privacy for Purchases.
    First IAPs ship with the next app version.
 2. **Google Play Console**: Settings -> Payments profile (merchant account).
-   App -> Monetize -> Subscriptions -> create `mindshift_pro_monthly` (base plan
-   `monthly`) and `mindshift_pro_annual` (base plan `annual`), activate. Create a
+   App -> Monetize -> Subscriptions -> create the same three product ids (base plan
+   `monthly`), activate. Create a
    Cloud service account for RevenueCat with "View financial data" and "Manage
    orders and subscriptions"; download its JSON. Enable real-time developer
    notifications with the Pub/Sub topic RevenueCat gives. License testing: add

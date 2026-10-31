@@ -206,7 +206,7 @@ async def test_pro_user_gets_pro_caps_and_notice_carries_plan(plan_env, monkeypa
     ex = m.check("u-free", "batch_analysis")
     assert ex is not None
     n = ex.notice()
-    assert n["plan"] == "free" and n["upgrade_plan"] == "pro"
+    assert n["plan"] == "free" and n["upgrade_plan"] == "basic"
 
 
 # -- library gate -------------------------------------------------------------
@@ -235,7 +235,7 @@ async def test_library_gate_blocks_new_never_deletes(monkeypatch):
     d = ei.value.detail
     assert ei.value.status_code == 429
     assert d["type"] == "plan_limit" and d["limit"] == "library_items"
-    assert d["upgrade_plan"] == "pro"
+    assert d["upgrade_plan"] == "basic"
     _Svc.store.items = [_Item(10)]
     await plans.check_library_create("u-free", _Svc)  # under the cap: fine
 

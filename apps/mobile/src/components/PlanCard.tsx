@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Share } from "react-native";
-import { getPlan, redeemCode, type PlanSummary } from "../api/plan";
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Share } from "react-native";
+import { getPlan, type PlanSummary } from "../api/plan";
+import RedeemBox from "./RedeemBox";
+import { useListeningStore } from "../store/listeningStore";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
@@ -42,9 +44,6 @@ export function perks(p: PlanSummary): string[] {
 export default function PlanCard() {
   const [plan, setPlan] = useState<PlanSummary | null>(null);
   const [failed, setFailed] = useState(false);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -57,30 +56,6 @@ export default function PlanCard() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const onRedeem = async () => {
-    if (!code.trim() || busy) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const r = await redeemCode(code.trim());
-      setPlan(r.plan);
-      setCode("");
-      setMsg({
-        ok: true,
-        text:
-          r.status === "granted"
-            ? `Code redeemed. You're on ${r.plan.label}.`
-            : r.status === "already_redeemed"
-              ? "You've already redeemed that code."
-              : `You already have ${r.plan.label} — nothing to add.`,
-      });
-    } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't redeem that code." });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <View style={styles.card} testID="plan-card">
@@ -113,27 +88,12 @@ export default function PlanCard() {
       </TouchableOpacity>
 
       {plan?.redeem_available ? (
-        <View style={styles.redeem}>
-          <TextInput
-            testID="plan-code-input"
-            style={styles.input}
-            placeholder="Have a code? (promo or friend's)"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            value={code}
-            onChangeText={setCode}
-            onSubmitEditing={onRedeem}
-          />
-          <TouchableOpacity
-            testID="plan-redeem-button"
-            accessibilityRole="button"
-            style={styles.redeemBtn}
-            onPress={onRedeem}
-            disabled={busy || !code.trim()}
-          >
-            <Text style={styles.buyText}>{busy ? "…" : "Redeem"}</Text>
-          </TouchableOpacity>
-        </View>
+        <RedeemBox
+          onDone={(p) => {
+            setPlan(p);
+            useListeningStore.getState().setFromPlan(p);
+          }}
+        />
       ) : plan?.is_guest ? (
         <Text style={styles.sub}>Create an account to redeem a code.</Text>
       ) : null}
@@ -159,11 +119,6 @@ export default function PlanCard() {
             <Text style={styles.buyText}>Share</Text>
           </TouchableOpacity>
         </View>
-      ) : null}
-      {msg ? (
-        <Text style={[styles.sub, { color: msg.ok ? "#15803d" : "#b91c1c" }]} testID="plan-redeem-msg">
-          {msg.text}
-        </Text>
       ) : null}
     </View>
   );

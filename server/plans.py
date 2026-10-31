@@ -40,25 +40,36 @@ logger = logging.getLogger(__name__)
 # Levels and the limits table  (tune HERE)
 # ---------------------------------------------------------------------------
 
-LEVELS: tuple[str, ...] = ("free", "pro")  # ordered low -> high
-LABELS: dict[str, str] = {"free": "Free", "pro": "Pro"}
+LEVELS: tuple[str, ...] = ("free", "basic", "pro", "max")  # ordered low -> high
+LABELS: dict[str, str] = {"free": "Free", "basic": "Basic", "pro": "Pro", "max": "Max"}
 
 # Daily caps (names match usage_meter.LIMITS); 0 = no cap. ``None`` in the free
-# row = defer to usage_meter's constants (today's numbers).
+# row = defer to usage_meter's constants.
 DAILY_KEYS = ("llm_tokens", "stt_seconds", "live_minutes", "model_downloads", "calls")
 LIBRARY_KEYS = ("library_items", "library_chars")
 FLAG_KEYS = ("room_mode", "heads_up_cues")
-# Allowances that are NOT per day: a LIFETIME total (free) or a calendar-MONTH
-# total (pro), for cloud speech-to-text, AI coaching tokens and live listening.
-# 0 = no such cap. The free numbers are the constants right below; every value
-# in LIMITS can also be overridden with MINDSHIFT_PLAN_<LEVEL>_<KEY>.
-FREE_STT_LIFETIME_SECONDS = 2 * 3600       # "your 2 free hours"
-FREE_LLM_LIFETIME_TOKENS = 1_000_000
-FREE_LIVE_LIFETIME_MINUTES = 4 * 60
-PRO_STT_MONTHLY_SECONDS = 40 * 3600
-PRO_LLM_MONTHLY_TOKENS = 2_000_000
-PRO_LLM_DAILY_TOKENS = 300_000
-PRO_LIVE_DAILY_MINUTES = 12 * 60
+
+# ---- The unit is LISTENING HOURS (tune HERE) --------------------------------
+# What costs us money, and so what the allowance meters:
+#   * cloud speech-to-text seconds (stt.seconds): ~$0.45 per hour. A session
+#     whose STT runs ON THE PHONE (local-first) sends no audio and burns none.
+#   * AI coaching tokens (llm.*): ~33k tokens per listening hour, ~$0.06/hour.
+#     Charged on every session, on-device STT or not.
+# Live wall-clock minutes are NOT metered against the allowance (on-device
+# listening is free for us); only a generous daily abuse backstop remains.
+# Worst case per listening hour = $0.51 (0.45 + 33k tokens at $1.80/M).
+TOKENS_PER_HOUR = 40_000   # cap per hour = ~33k measured/hour plus ~20% headroom
+BACKSTOP_FRACTION = 0.25   # daily STT/AI backstop = 25% of the monthly allowance
+
+# level -> (hours, "lifetime" for free / "month" for paid, price USD/mo)
+ALLOWANCE_HOURS = {"free": 1, "basic": 6, "pro": 20, "max": 40}
+PRICE_USD = {"free": 0, "basic": 5, "pro": 12, "max": 25}
+# level -> (library items, library chars)
+LIBRARY = {
+    "free": (5, 200_000), "basic": (25, 1_000_000),
+    "pro": (200, 8_000_000), "max": (1000, 40_000_000),
+}
+CALLS_MODELS = {"basic": (30, 75), "pro": (50, 150), "max": (100, 300)}
 
 WINDOW_KEYS = (
     "stt_lifetime_seconds", "stt_monthly_seconds",
@@ -66,7 +77,7 @@ WINDOW_KEYS = (
 )
 LIMIT_KEYS = DAILY_KEYS + WINDOW_KEYS + LIBRARY_KEYS + FLAG_KEYS
 
-# window name -> (table key, "lifetime"|"month", counter key, human noun, unit divisor/label)
+# window name -> (table key, "lifetime"|"month", counter key)
 WINDOW_RULES = {
     "stt_lifetime": ("stt_lifetime_seconds", "lifetime", "stt_seconds"),
     "stt_monthly": ("stt_monthly_seconds", "month", "stt_seconds"),
@@ -75,32 +86,32 @@ WINDOW_RULES = {
     "live_lifetime": ("live_lifetime_minutes", "lifetime", "live_minutes"),
 }
 
-LIMITS: dict[str, dict[str, Any]] = {
-    "free": {
-        # Daily caps: None = usage_meter's constants (free LLM default 150k/day,
-        # env MINDSHIFT_DAILY_LLM_TOKENS).
-        "llm_tokens": None, "stt_seconds": None, "live_minutes": None,
-        "model_downloads": None, "calls": None,
-        "stt_lifetime_seconds": FREE_STT_LIFETIME_SECONDS, "stt_monthly_seconds": 0,
-        "llm_lifetime_tokens": FREE_LLM_LIFETIME_TOKENS, "llm_monthly_tokens": 0,
-        "live_lifetime_minutes": FREE_LIVE_LIFETIME_MINUTES,
-        # A trial-sized library; existing larger libraries are never trimmed.
-        "library_items": 5, "library_chars": 200_000,
-        # Both stay on for free so nothing regresses; flip here to make them
-        # Pro perks (enforcement is the caller's job, see /plan "flags").
+
+def _row(level: str) -> dict[str, Any]:
+    hours = ALLOWANCE_HOURS[level]
+    secs, toks = hours * 3600, hours * TOKENS_PER_HOUR
+    items, chars = LIBRARY[level]
+    paid = level != "free"
+    models, calls = CALLS_MODELS.get(level, (None, None))
+    return {
+        # free daily caps defer to usage_meter (MINDSHIFT_DAILY_* env)
+        "llm_tokens": int(toks * BACKSTOP_FRACTION) if paid else None,
+        "stt_seconds": int(secs * BACKSTOP_FRACTION) if paid else None,
+        "live_minutes": 12 * 60 if paid else None,
+        "model_downloads": models, "calls": calls,
+        "stt_lifetime_seconds": 0 if paid else secs,
+        "stt_monthly_seconds": secs if paid else 0,
+        "llm_lifetime_tokens": 0 if paid else toks,
+        "llm_monthly_tokens": toks if paid else 0,
+        "live_lifetime_minutes": 0,  # not metered: on-device listening is free
+        "library_items": items, "library_chars": chars,
+        # Both stay on everywhere so nothing regresses; flip here to make them
+        # perks (enforcement is the caller's job, see /plan "flags").
         "room_mode": True, "heads_up_cues": True,
-    },
-    "pro": {
-        "llm_tokens": PRO_LLM_DAILY_TOKENS, "stt_seconds": 0,
-        "live_minutes": PRO_LIVE_DAILY_MINUTES,
-        "model_downloads": 50, "calls": 150,
-        "stt_lifetime_seconds": 0, "stt_monthly_seconds": PRO_STT_MONTHLY_SECONDS,
-        "llm_lifetime_tokens": 0, "llm_monthly_tokens": PRO_LLM_MONTHLY_TOKENS,
-        "live_lifetime_minutes": 0,
-        "library_items": 200, "library_chars": 20_000_000,
-        "room_mode": True, "heads_up_cues": True,
-    },
-}
+    }
+
+
+LIMITS: dict[str, dict[str, Any]] = {lv: _row(lv) for lv in LEVELS}
 
 PRICE_TEXT = None  # phase 2: the app shows the store's localized price instead
 
@@ -296,11 +307,11 @@ def window_used(doc: Optional[dict], key: str, window: str, now: datetime) -> fl
 
 
 # ---------------------------------------------------------------------------
-# Referrals: personal share code, +2 free STT hours for BOTH sides (no Pro days)
+# Referrals: personal share code, +1 free listening hour for BOTH sides
 # ---------------------------------------------------------------------------
 
-REFERRAL_BONUS_SECONDS = 2 * 3600       # each side's reward
-REFERRAL_MAX_BONUS_SECONDS = 10 * 3600  # total bonus any one account can hold
+REFERRAL_BONUS_SECONDS = 1 * 3600       # each side's reward
+REFERRAL_MAX_BONUS_SECONDS = 1 * 3600   # total bonus any one account can hold
 REFERRAL_MIN_LIVE_MINUTES = 10          # the new user must really use the app first
 REFERRAL_CODE_LEN = 8                   # admin codes are 12: length tells them apart
 REFERRALS = "ms_referrals"              # {referee_uid} -> status doc, no PII
@@ -878,39 +889,79 @@ def bonus_seconds(uid: str) -> float:
 
 
 def window_cap(uid: str, level: str, name: str) -> float:
-    """Cap for one window rule, including a user's referral STT bonus."""
+    """Cap for one window rule. A free user's referral bonus adds listening
+    hours to BOTH the STT and the AI-token lifetime caps (they stay in step)."""
     table_key = WINDOW_RULES[name][0]
     cap = float(limit_for(level, table_key) or 0)
     if cap > 0 and name == "stt_lifetime":
         cap += bonus_seconds(uid)
-    elif cap > 0 and name == "live_lifetime":
-        cap += bonus_seconds(uid) / 60  # bonus listening needs bonus live time too
+    elif cap > 0 and name == "llm_lifetime":
+        cap += bonus_seconds(uid) / 3600 * TOKENS_PER_HOUR
     return cap
 
 
-def _amount(unit: str, cap: float) -> str:
-    if unit == "stt_seconds":
-        h = cap / 3600
-        return f"{int(h) if h == int(h) else round(h, 1)} hours of transcription"
-    if unit == "live_minutes":
-        h = cap / 60
-        return f"{int(h) if h == int(h) else round(h, 1)} hours of live listening"
-    return f"{int(cap):,} AI coaching tokens"
+def window_hours(name: str, cap: float) -> float:
+    """A window cap expressed in listening hours."""
+    counter = WINDOW_RULES[name][2]
+    if counter == "stt_seconds":
+        return cap / 3600
+    if counter == "llm_tokens":
+        return cap / TOKENS_PER_HOUR
+    return cap / 60
+
+
+def _hrs(h: float) -> str:
+    h = round(h, 1)
+    n = int(h) if h == int(h) else h
+    return f"{n} hour" if n == 1 else f"{n} hours"
 
 
 def window_message(name: str, cap: float) -> str:
     """The friendly sentence for an exhausted window (shown verbatim in the app)."""
-    _, kind, counter = WINDOW_RULES[name]
-    what = _amount(counter, cap)
+    kind = WINDOW_RULES[name][1]
+    hrs = _hrs(window_hours(name, cap))
     if kind == "lifetime":
-        if counter == "stt_seconds":
-            h = cap / 3600
-            hrs = int(h) if h == int(h) else round(h, 1)
-            return (f"You've used your {hrs} free hours of transcription. Upgrade to Pro to "
-                    "keep going, or invite a friend for more. Your recordings and notes stay safe.")
-        return (f"You've used your free allowance ({what}). Upgrade to Pro to keep going. "
-                "Your recordings and notes stay safe.")
-    return (f"You've used this month's {what}. It refreshes at the start of next month.")
+        return (f"You're out of free time: you've used your {hrs} of free listening. "
+                "Redeem a code or upgrade to keep coaching. Your recordings and "
+                "notes stay safe.")
+    return (f"You've used this month's {hrs} of listening. It refreshes at the "
+            "start of next month; you can also upgrade for more.")
+
+
+def listening_left(uid: str, level: str) -> Optional[dict]:
+    """The BINDING listening allowance for ``uid`` right now, in seconds: the
+    smallest of every window / daily cap that applies, with AI tokens converted
+    at TOKENS_PER_HOUR. None when nothing is capped. Used by GET /plan so the
+    app can show 'time left'."""
+    best = None
+
+    def consider(remaining_s: float, period: str, name: str, cap_s: float):
+        nonlocal best
+        if best is None or remaining_s < best["remaining_seconds"]:
+            best = {"remaining_seconds": max(0, int(remaining_s)), "period": period,
+                    "limit": name, "allowance_seconds": int(cap_s)}
+
+    for name, (_, kind, counter) in WINDOW_RULES.items():
+        if counter == "live_minutes":
+            continue
+        cap = window_cap(uid, level, name)
+        if cap <= 0:
+            continue
+        used = window_used_now(uid, counter, kind)
+        scale = 1.0 if counter == "stt_seconds" else 3600.0 / TOKENS_PER_HOUR
+        consider((cap - used) * scale, kind, name, cap * scale)
+    try:
+        import usage_meter
+
+        snap = usage_meter.meter().totals(uid)
+        for lim, scale in (("stt_seconds", 1.0), ("llm_tokens", 3600.0 / TOKENS_PER_HOUR)):
+            cap = float(limit_for(level, lim) or 0)
+            if cap > 0:
+                used = usage_meter.meter()._used_from(snap, lim)  # noqa: SLF001
+                consider((cap - used) * scale, "day", lim, cap * scale)
+    except Exception:  # noqa: BLE001 - the allowance still renders without it
+        logger.debug("daily listening view failed", exc_info=True)
+    return best
 
 
 def cap_for(uid: Optional[str], key: str) -> float:
