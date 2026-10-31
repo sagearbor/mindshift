@@ -21,6 +21,8 @@ jest.mock("../src/api/therapist", () => ({
 const mockLoadLiveMode = jest.fn();
 const mockSaveLiveMode = jest.fn();
 jest.mock("../src/live/modePrefs", () => ({
+  loadHeadsUpCues: () => Promise.resolve(false),
+  saveHeadsUpCues: () => Promise.resolve(),
   loadLiveMode: (uid: string | null) => mockLoadLiveMode(uid),
   saveLiveMode: (uid: string | null, mode: string) => mockSaveLiveMode(uid, mode),
 }));
