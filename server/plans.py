@@ -48,18 +48,42 @@ LABELS: dict[str, str] = {"free": "Free", "pro": "Pro"}
 DAILY_KEYS = ("llm_tokens", "stt_seconds", "live_minutes", "model_downloads", "calls")
 LIBRARY_KEYS = ("library_items", "library_chars")
 FLAG_KEYS = ("room_mode", "heads_up_cues")
-# Cloud speech-to-text allowance that is NOT per day: a LIFETIME total (free)
-# or a calendar-MONTH total (pro). 0 = no such cap. The free number is the one
-# constant to tune: FREE_STT_LIFETIME_SECONDS.
-WINDOW_KEYS = ("stt_lifetime_seconds", "stt_monthly_seconds")
+# Allowances that are NOT per day: a LIFETIME total (free) or a calendar-MONTH
+# total (pro), for cloud speech-to-text, AI coaching tokens and live listening.
+# 0 = no such cap. The free numbers are the constants right below; every value
+# in LIMITS can also be overridden with MINDSHIFT_PLAN_<LEVEL>_<KEY>.
+FREE_STT_LIFETIME_SECONDS = 2 * 3600       # "your 2 free hours"
+FREE_LLM_LIFETIME_TOKENS = 1_000_000
+FREE_LIVE_LIFETIME_MINUTES = 4 * 60
+PRO_STT_MONTHLY_SECONDS = 40 * 3600
+PRO_LLM_MONTHLY_TOKENS = 2_000_000
+PRO_LLM_DAILY_TOKENS = 300_000
+PRO_LIVE_DAILY_MINUTES = 12 * 60
+
+WINDOW_KEYS = (
+    "stt_lifetime_seconds", "stt_monthly_seconds",
+    "llm_lifetime_tokens", "llm_monthly_tokens", "live_lifetime_minutes",
+)
 LIMIT_KEYS = DAILY_KEYS + WINDOW_KEYS + LIBRARY_KEYS + FLAG_KEYS
-FREE_STT_LIFETIME_SECONDS = 2 * 3600  # "your 2 free hours"
+
+# window name -> (table key, "lifetime"|"month", counter key, human noun, unit divisor/label)
+WINDOW_RULES = {
+    "stt_lifetime": ("stt_lifetime_seconds", "lifetime", "stt_seconds"),
+    "stt_monthly": ("stt_monthly_seconds", "month", "stt_seconds"),
+    "llm_lifetime": ("llm_lifetime_tokens", "lifetime", "llm_tokens"),
+    "llm_monthly": ("llm_monthly_tokens", "month", "llm_tokens"),
+    "live_lifetime": ("live_lifetime_minutes", "lifetime", "live_minutes"),
+}
 
 LIMITS: dict[str, dict[str, Any]] = {
     "free": {
+        # Daily caps: None = usage_meter's constants (free LLM default 150k/day,
+        # env MINDSHIFT_DAILY_LLM_TOKENS).
         "llm_tokens": None, "stt_seconds": None, "live_minutes": None,
         "model_downloads": None, "calls": None,
         "stt_lifetime_seconds": FREE_STT_LIFETIME_SECONDS, "stt_monthly_seconds": 0,
+        "llm_lifetime_tokens": FREE_LLM_LIFETIME_TOKENS, "llm_monthly_tokens": 0,
+        "live_lifetime_minutes": FREE_LIVE_LIFETIME_MINUTES,
         # A trial-sized library; existing larger libraries are never trimmed.
         "library_items": 5, "library_chars": 200_000,
         # Both stay on for free so nothing regresses; flip here to make them
@@ -67,9 +91,12 @@ LIMITS: dict[str, dict[str, Any]] = {
         "room_mode": True, "heads_up_cues": True,
     },
     "pro": {
-        "llm_tokens": 4_000_000, "stt_seconds": 12 * 3600, "live_minutes": 16 * 60,
+        "llm_tokens": PRO_LLM_DAILY_TOKENS, "stt_seconds": 0,
+        "live_minutes": PRO_LIVE_DAILY_MINUTES,
         "model_downloads": 50, "calls": 150,
-        "stt_lifetime_seconds": 0, "stt_monthly_seconds": 60 * 3600,
+        "stt_lifetime_seconds": 0, "stt_monthly_seconds": PRO_STT_MONTHLY_SECONDS,
+        "llm_lifetime_tokens": 0, "llm_monthly_tokens": PRO_LLM_MONTHLY_TOKENS,
+        "live_lifetime_minutes": 0,
         "library_items": 200, "library_chars": 20_000_000,
         "room_mode": True, "heads_up_cues": True,
     },
@@ -213,16 +240,13 @@ def grant_days(user: Optional[dict], level: str, days: int, now: datetime):
     """Pure: how ``days`` of ``level`` land on ``user``.
 
     -> ("granted", fields)  extends a same-level grant (never shortens);
-       ("banked", fields)   user pays via a store subscription: the days are
-                            banked in ``credit_days`` to apply after it ends
-                            (phase 2 applies them; phase 1 has no such users);
-       ("covered", {})      already has this level (or higher) with no expiry.
+       ("covered", {})      already has this level (or higher) with no expiry,
+                            or pays through a store subscription (a promo never
+                            overwrites the store's expiry).
     """
     cur = effective(user, now)
-    if cur.source == "revenuecat" and level_rank(cur.level) >= level_rank(level):
-        return "banked", {"credit_days": int((user or {}).get("credit_days") or 0) + days}
     if level_rank(cur.level) > level_rank(level) or (
-        cur.level == level and cur.expires_at is None
+        cur.level == level and (cur.expires_at is None or cur.source == "revenuecat")
     ):
         return "covered", {}
     start = cur.expires_at if (cur.level == level and cur.expires_at) else now
@@ -272,15 +296,21 @@ def window_used(doc: Optional[dict], key: str, window: str, now: datetime) -> fl
 
 
 # ---------------------------------------------------------------------------
-# Referrals: personal share code, +7 days Pro for BOTH sides
+# Referrals: personal share code, +2 free STT hours for BOTH sides (no Pro days)
 # ---------------------------------------------------------------------------
 
-REFERRAL_DAYS = 7
-REFERRAL_MIN_LIVE_MINUTES = 10   # the new user must really use the app first
-REFERRAL_MAX_REWARDS = 10        # per referrer: 10 referrals = 70 days
-REFERRAL_CODE_LEN = 8            # admin codes are 12: length tells them apart
-REFERRALS = "ms_referrals"       # {referee_uid} -> status doc, no PII
-REFERRAL_CODES = "ms_referral_codes"  # {CODE} -> {uid}
+REFERRAL_BONUS_SECONDS = 2 * 3600       # each side's reward
+REFERRAL_MAX_BONUS_SECONDS = 10 * 3600  # total bonus any one account can hold
+REFERRAL_MIN_LIVE_MINUTES = 10          # the new user must really use the app first
+REFERRAL_CODE_LEN = 8                   # admin codes are 12: length tells them apart
+REFERRALS = "ms_referrals"              # {referee_uid} -> status doc, no PII
+REFERRAL_CODES = "ms_referral_codes"    # {CODE} -> {uid}
+
+
+def add_bonus(doc: Optional[dict]) -> dict:
+    """Pure: the plan-doc fields after one referral bonus (capped)."""
+    have = float((doc or {}).get("stt_bonus_seconds") or 0)
+    return {"stt_bonus_seconds": min(REFERRAL_MAX_BONUS_SECONDS, have + REFERRAL_BONUS_SECONDS)}
 
 
 def generate_referral_code() -> str:
@@ -294,7 +324,7 @@ def is_referral_code(normalized: str) -> bool:
 
 @dataclass
 class ReferralRedeem:
-    kind: str  # granted | banked | covered | invalid | own_code | already_referred
+    kind: str  # granted | covered | invalid | own_code | already_referred
     referee_updates: dict = field(default_factory=dict)
     referral_doc: Optional[dict] = None
 
@@ -302,20 +332,20 @@ class ReferralRedeem:
 def decide_referral_redeem(referrer_uid: Optional[str], referee_uid: str,
                            referee: Optional[dict], existing: Optional[dict],
                            now: datetime) -> ReferralRedeem:
-    """New user B enters A's code. B gets +REFERRAL_DAYS Pro now; A's reward
-    waits (decide_referral_reward). One referral per account, ever."""
+    """New user B enters A's code. B gets +REFERRAL_BONUS_SECONDS of free
+    speech-to-text now; A's reward waits (decide_referral_reward). One referral
+    per account, ever."""
     if not referrer_uid:
         return ReferralRedeem("invalid")
     if referrer_uid == referee_uid:
         return ReferralRedeem("own_code")
     if existing is not None or (referee or {}).get("referred_by"):
         return ReferralRedeem("already_referred")
-    kind, updates = grant_days(referee, "pro", REFERRAL_DAYS, now)
-    updates = {**updates, "referred_by": referrer_uid}
     return ReferralRedeem(
-        kind, updates,
+        "granted",
+        {**add_bonus(referee), "referred_by": referrer_uid},
         {"referrer": referrer_uid, "created_at": now, "status": "pending",
-         "referee_days": REFERRAL_DAYS},
+         "bonus_seconds": REFERRAL_BONUS_SECONDS},
     )
 
 
@@ -329,20 +359,20 @@ class ReferralReward:
 def decide_referral_reward(referral: Optional[dict], referee: Optional[dict],
                            referrer: Optional[dict], now: datetime) -> ReferralReward:
     """Credit the referrer once the referee has >= REFERRAL_MIN_LIVE_MINUTES
-    of real live listening. Exactly once per referee; at most
-    REFERRAL_MAX_REWARDS per referrer."""
+    of real live listening. Exactly once per referee; the referrer's total
+    bonus is capped at REFERRAL_MAX_BONUS_SECONDS."""
     if not referral or referral.get("status") != "pending":
         return ReferralReward("none")
     if window_used(referee, "live_minutes", "lifetime", now) < REFERRAL_MIN_LIVE_MINUTES:
         return ReferralReward("not_ready")
-    earned = int((referrer or {}).get("referral_rewards") or 0)
-    if earned >= REFERRAL_MAX_REWARDS:
+    have = float((referrer or {}).get("stt_bonus_seconds") or 0)
+    if have >= REFERRAL_MAX_BONUS_SECONDS:
         return ReferralReward("capped", {"status": "capped", "closed_at": now})
-    _, updates = grant_days(referrer, "pro", REFERRAL_DAYS, now)
     return ReferralReward(
         "rewarded",
         {"status": "rewarded", "closed_at": now},
-        {**updates, "referral_rewards": earned + 1},
+        {**add_bonus(referrer),
+         "referral_rewards": int((referrer or {}).get("referral_rewards") or 0) + 1},
     )
 
 
@@ -444,7 +474,7 @@ class MemoryPlanStore:
             d = decide_referral_redeem(
                 self._ref_codes.get(code), referee, self._users.get(referee),
                 self._referrals.get(referee), now)
-            if d.kind in ("granted", "banked", "covered"):
+            if d.kind in ("granted", "covered"):
                 self._users.setdefault(referee, {}).update(d.referee_updates)
                 self._referrals[referee] = d.referral_doc
             eff = effective(self._users.get(referee), now)
@@ -606,7 +636,7 @@ class FirestorePlanStore:
             d = decide_referral_redeem(
                 (c.to_dict() or {}).get("uid") if c.exists else None, referee, udoc,
                 r.to_dict() if r.exists else None, now)
-            if d.kind in ("granted", "banked", "covered"):
+            if d.kind in ("granted", "covered"):
                 tx.set(user_ref, d.referee_updates, merge=True)
                 tx.set(ref_ref, d.referral_doc)
                 udoc = {**(udoc or {}), **d.referee_updates}
@@ -756,10 +786,25 @@ _TRACKED = {"stt.seconds": "stt_seconds", "live.minutes": "live_minutes"}
 _pending: dict[str, dict[str, float]] = {}
 
 
+_LLM_TOKEN_FIELDS = (
+    "input_tokens", "output_tokens", "cache_read_input_tokens",
+    "cache_creation_input_tokens", "hedge_extra_input_tokens",
+)
+
+
+def _tracked_key(name: str):
+    key = _TRACKED.get(name)
+    if key:
+        return key
+    if name.startswith("llm.") and name.rpartition(".")[2] in _LLM_TOKEN_FIELDS:
+        return "llm_tokens"
+    return None
+
+
 def note_usage(uid: str, counters) -> None:
     """Called from usage_meter.add (hot path: dict add under a lock)."""
     for name, value in counters.items():
-        key = _TRACKED.get(name)
+        key = _tracked_key(name)
         if key and isinstance(value, (int, float)) and value > 0:
             with _cache_lock:
                 p = _pending.setdefault(uid, {})
@@ -823,6 +868,49 @@ async def _maybe_reward_referrer(store, uid: str, now: datetime) -> None:
                 _cache.clear()  # the referrer's cached plan is now stale
     except Exception:  # noqa: BLE001
         logger.warning("referral reward failed uid=%s", uid, exc_info=True)
+
+
+def bonus_seconds(uid: str) -> float:
+    with _cache_lock:
+        hit = _cache.get(uid)
+    return min(REFERRAL_MAX_BONUS_SECONDS,
+               float(((hit[0] if hit else None) or {}).get("stt_bonus_seconds") or 0))
+
+
+def window_cap(uid: str, level: str, name: str) -> float:
+    """Cap for one window rule, including a user's referral STT bonus."""
+    table_key = WINDOW_RULES[name][0]
+    cap = float(limit_for(level, table_key) or 0)
+    if cap > 0 and name == "stt_lifetime":
+        cap += bonus_seconds(uid)
+    elif cap > 0 and name == "live_lifetime":
+        cap += bonus_seconds(uid) / 60  # bonus listening needs bonus live time too
+    return cap
+
+
+def _amount(unit: str, cap: float) -> str:
+    if unit == "stt_seconds":
+        h = cap / 3600
+        return f"{int(h) if h == int(h) else round(h, 1)} hours of transcription"
+    if unit == "live_minutes":
+        h = cap / 60
+        return f"{int(h) if h == int(h) else round(h, 1)} hours of live listening"
+    return f"{int(cap):,} AI coaching tokens"
+
+
+def window_message(name: str, cap: float) -> str:
+    """The friendly sentence for an exhausted window (shown verbatim in the app)."""
+    _, kind, counter = WINDOW_RULES[name]
+    what = _amount(counter, cap)
+    if kind == "lifetime":
+        if counter == "stt_seconds":
+            h = cap / 3600
+            hrs = int(h) if h == int(h) else round(h, 1)
+            return (f"You've used your {hrs} free hours of transcription. Upgrade to Pro to "
+                    "keep going, or invite a friend for more. Your recordings and notes stay safe.")
+        return (f"You've used your free allowance ({what}). Upgrade to Pro to keep going. "
+                "Your recordings and notes stay safe.")
+    return (f"You've used this month's {what}. It refreshes at the start of next month.")
 
 
 def cap_for(uid: Optional[str], key: str) -> float:

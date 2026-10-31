@@ -56,53 +56,63 @@ Behaviour, in short:
   code and referral record (`plan_records` in the deletion counts).
 - Known gap: the per-uid redeem failure limiter is per process.
 
-### Speech-to-text allowance (owner decision 2026-10-31)
+### Cost caps and worst case (owner decision 2026-10-31)
 
-Free gets **2 hours of cloud transcription as a LIFETIME total per account**
-(one constant: `plans.FREE_STT_LIFETIME_SECONDS`), not per day. Pro gets a
-calendar-month allowance (`stt_monthly_seconds`, 60 h by default). The counters
-live on `ms_plans/{uid}` (`lifetime`, `monthly`), are persisted by the usage
-flusher, survive restarts and day rollover, and are never touched by a redeem
-or grant. Over the limit: the live session keeps the on-device transcript and
-coaching, one notice says "You've used your 2 free hours of transcription",
-nothing is deleted. Other metrics keep their daily caps. Like the library caps,
-the windows are enforced only when plans are configured (Firestore project set).
-Worst-case free cost is now a one-time ~$0.50-0.90 per account.
+Counters live on `ms_plans/{uid}` (`lifetime`, `monthly`), are persisted by the
+usage flusher, survive restarts and day rollover, and are never touched by a
+redeem. Over a limit the live session keeps the on-device transcript and
+coaching, one friendly notice names the limit, nothing is deleted. Plans must be
+configured (Firestore project set) for the lifetime/monthly windows to apply.
+All numbers are constants at the top of `server/plans.py` (env override
+`MINDSHIFT_PLAN_<LEVEL>_<KEY>`).
 
-### Referrals (built)
+Assumptions: cloud STT $0.45/h (top of $0.25-0.45); Claude Haiku 4.5 about
+$1/M input and $5/M output, coaching is input-heavy, so a blended $1.80/M tokens
+(80/20). Pro price $12/mo (about $10.20 net after a 15% store cut). Worst case =
+the user spends the whole allowance.
+
+| Limit | Free | Free + max referral | Pro |
+|---|---|---|---|
+| Cloud STT | 2 h lifetime | 12 h lifetime (+2 h per referral, max +10 h) | 40 h / month |
+| AI tokens | 1.0M lifetime, 150k / day | same | 2.0M / month, 300k / day |
+| Live listening | 4 h lifetime | 14 h lifetime (bonus adds the same time) | 12 h / day |
+| Library | 5 items, 200k chars | same | 200 items, 20M chars |
+| **Worst-case cost** | **$2.70 once** (STT $0.90 + AI $1.80) | **$7.20 once** (STT $5.40 + AI $1.80) | **$21.60 / month** (STT $18 + AI $3.60) |
+
+If 1,000 free users each use their whole allowance: **$2,700 total, one time**
+(not per month); $7,200 if every one of them also earned the full referral bonus.
+Daily caps slow the burn rate but do not change the total. Unbounded abuse
+needs fresh accounts (each new signed-in account can cost up to $2.70; guests
+have their own much smaller session quota). Pro's worst case ($21.60) exceeds
+its price, so Pro is not abuse-proof at 40 h; a typical Pro user (15 h, 0.5M
+tokens) costs about $7.65. Lower `PRO_STT_MONTHLY_SECONDS` to 25 h (worst case
+$14.85) if usage data shows heavy users.
+
+### Referrals (built): bonus free hours, not Pro days
 
 Every signed-in (non-guest) user has a personal share code (8 chars, e.g.
 `ABCD-2345`; shown in Settings > Plan with a Share button, created lazily on
-`GET /plan`). A new user types it into the same "Have a code?" box.
+`GET /plan`). A new user types it into the same "Have a code?" box. Copy in the
+card: "Invite a friend: you both get 2 more free hours."
 
-- The new user gets **+7 days Pro immediately**.
-- The referrer gets **+7 days Pro only after the new user has done >= 10 minutes
-  of real live listening** (counted by the same usage flusher, so it is server-side
-  evidence, not a client claim). Credited exactly once per new account.
-- Rewards are Pro **days**, never percent discounts (store subscriptions cannot
-  take a dynamic % off).
+- The new user gets **+2 h** of free cloud transcription immediately (2 h -> 4 h).
+- The referrer gets **+2 h** only after the new user has done >= 10 minutes of
+  real live listening (counted by the usage flusher: server-side evidence).
+  Credited exactly once per new account.
+- Bonus also extends the free live-listening cap by the same time. Total bonus
+  per account is capped at **+10 h**.
+- Rewards are hours, never Pro days and never percent discounts. Admin and mint
+  codes still grant Pro days. A store subscriber redeeming a code is "covered"
+  (no use spent, store expiry untouched), so phase 2 needs no credit-days logic.
 - Records: `ms_referrals/{new_uid}` = `{referrer, status: pending|rewarded|capped,
-  created_at, closed_at}`; `ms_referral_codes/{CODE}` = `{uid}`. Opaque uids only,
-  no email, name or device data. All removed by `DELETE /me` for that user's own
-  records.
+  created_at, closed_at}`; `ms_referral_codes/{CODE}` = `{uid}`. Opaque uids
+  only, no email or device data; all removed by `DELETE /me`.
 
-Abuse rules: guests cannot redeem (disposable uids); one referral per account,
-ever (`referred_by` + the `ms_referrals/{uid}` doc, written in a transaction); own
-code refused; the 10-minute listening gate makes throwaway-account farming cost
-real time (and each fake account still hits the 2-hour lifetime STT cap); at most
-**10 rewards per referrer (70 days)**, further ones are logged as `capped`; the
-usual per-IP and 8 failures/hour/uid redeem limits apply. Known limit: a person
-can make a second real account and listen 10 minutes; that is accepted, it costs
-us about $0.05 of STT.
-
-Users already on a paid store subscription: `plans.grant_days` returns `banked`
-and adds the days to `credit_days` on their plan doc instead of changing
-`plan_expires_at` (a promo must not overwrite the store's expiry). **Phase 2 must
-apply `credit_days`**: when RevenueCat sends EXPIRATION (or the subscription is
-cancelled and lapses), if `credit_days > 0`, set `plan=pro`, `plan_source=promo`,
-`plan_expires_at=now + credit_days`, and zero the field. Same rule for admin
-codes if you ever want them to bank. In phase 1 nobody has a store subscription,
-so banking is unit-tested but not yet exercised.
+Abuse rules: guests cannot redeem; one referral per account, ever
+(`referred_by` plus the `ms_referrals/{uid}` doc, transactional); own code
+refused; the 10-minute listening gate means a fake account must really listen
+(and each is itself capped at the free allowance); referrer bonus hard-capped at
++10 h (then `capped`); per-IP and 8 failures/hour/uid redeem limits apply.
 
 ## Phase 2 (plan): RevenueCat + store subscriptions
 
@@ -114,9 +124,8 @@ band, annual about 31% off). Reasoning:
 - Variable cost is STT $0.25-0.45 per listening hour plus coach LLM tokens
   (about 40k tokens per measured 30-minute coached call). A user who listens
   1 h/day costs $7.50-13.50/month in STT alone. A $12 price only works if
-  Pro's STT cap is bounded, so the shipped Pro row (12 h/day) is a *ceiling*
-  for abuse, not the expected use. Recommend setting Pro STT to about 2 h/day
-  (60 h/month) before launch: worst case ~$27/month, typical (20 h) ~$5-9.
+  Pro's STT cap is bounded: Pro is capped at 40 h/month (worst case $21.60
+  incl. AI tokens, see the table above; typical 15 h is about $7.65).
 - Apple/Google take 15% (small business program / subscriptions after year 1)
   to 30%, so $12 nets about $10.2 (15%) to $8.4 (30%).
 - $10 would leave almost nothing for heavy users; $15 fits the market for

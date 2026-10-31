@@ -21,7 +21,7 @@ const BASE = {
   flags: {},
   upgrade_plan: "pro",
   redeem_available: true,
-  referral: { code: "ABCD-2345", rewards_earned: 1, max_rewards: 10, days_each: 7, already_referred: false },
+  referral: { code: "ABCD-2345", rewards_earned: 1, bonus_hours_each: 2, bonus_hours: 2, max_bonus_hours: 10, already_referred: false },
   purchase: { available: false },
 };
 
@@ -41,6 +41,8 @@ test("shows plan, free hours left, share code and a disabled upgrade", async () 
   expect(text(t)).toContain("Free");
   expect(text(t)).toContain("1.0 of 2 free transcription hours left");
   expect(t.root.findByProps({ testID: "plan-referral-code" }).props.children).toBe("ABCD-2345");
+  expect(text(t)).toContain("Invite a friend: you both get");
+  expect(text(t)).toContain("more free hours");
   expect(t.root.findByProps({ testID: "plan-upgrade" }).props.disabled).toBe(true);
 });
 

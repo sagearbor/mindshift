@@ -27,14 +27,15 @@ export interface PlanSummary {
   referral?: {
     code: string;
     rewards_earned: number;
-    max_rewards: number;
-    days_each: number;
+    bonus_hours_each: number;
+    bonus_hours: number;
+    max_bonus_hours: number;
     already_referred: boolean;
   } | null;
   purchase: { available: boolean; message?: string };
 }
 
-export type RedeemStatus = "granted" | "already_redeemed" | "covered" | "banked";
+export type RedeemStatus = "granted" | "already_redeemed" | "covered";
 
 export type PlanApiError = Error & { status?: number; reason?: string };
 

@@ -73,8 +73,6 @@ export default function PlanCard() {
             ? `Code redeemed. You're on ${r.plan.label}.`
             : r.status === "already_redeemed"
               ? "You've already redeemed that code."
-              : r.status === "banked"
-              ? "Added. Your 7 days start after your current subscription ends."
               : `You already have ${r.plan.label} — nothing to add.`,
       });
     } catch (e) {
@@ -143,9 +141,9 @@ export default function PlanCard() {
         <View style={styles.redeem} testID="plan-referral">
           <Text style={[styles.sub, { flex: 1 }]}>
             Your share code: <Text style={styles.code} selectable testID="plan-referral-code">{plan.referral.code}</Text>
-            {"\n"}You and a friend each get {plan.referral.days_each} days of Pro when they join and use the app.
-            {plan.referral.rewards_earned > 0
-              ? ` Earned so far: ${plan.referral.rewards_earned}/${plan.referral.max_rewards}.`
+            {"\n"}Invite a friend: you both get {plan.referral.bonus_hours_each} more free hours.
+            {plan.referral.bonus_hours > 0
+              ? ` Bonus earned: ${plan.referral.bonus_hours} of ${plan.referral.max_bonus_hours} h.`
               : ""}
           </Text>
           <TouchableOpacity
@@ -154,7 +152,7 @@ export default function PlanCard() {
             style={styles.redeemBtn}
             onPress={() =>
               void Share.share({
-                message: `Try MindShift. Enter my code ${plan.referral!.code} in Settings > Plan and we both get ${plan.referral!.days_each} days of Pro.`,
+                message: `Try MindShift. Enter my code ${plan.referral!.code} in Settings > Plan and we both get ${plan.referral!.bonus_hours_each} more free hours.`,
               })
             }
           >

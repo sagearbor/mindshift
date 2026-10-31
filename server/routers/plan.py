@@ -48,11 +48,8 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
     lib = await _library_usage(uid)
     store = plans.get_store()
     windows = {}
-    for name, key, window, counter in (
-        ("stt_lifetime", "stt_lifetime_seconds", "lifetime", "stt_seconds"),
-        ("stt_monthly", "stt_monthly_seconds", "month", "stt_seconds"),
-    ):
-        cap = plans.limit_for(level, key)
+    for name, (_, window, counter) in plans.WINDOW_RULES.items():
+        cap = plans.window_cap(uid, level, name)
         if cap:
             windows[name] = {"cap": cap, "used": round(plans.window_used_now(uid, counter, window), 1)}
     referral = None
@@ -63,8 +60,9 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
             referral = {
                 "code": f"{code[:4]}-{code[4:]}",
                 "rewards_earned": int(doc.get("referral_rewards") or 0),
-                "max_rewards": plans.REFERRAL_MAX_REWARDS,
-                "days_each": plans.REFERRAL_DAYS,
+                "bonus_hours_each": plans.REFERRAL_BONUS_SECONDS / 3600,
+                "bonus_hours": float(doc.get("stt_bonus_seconds") or 0) / 3600,
+                "max_bonus_hours": plans.REFERRAL_MAX_BONUS_SECONDS / 3600,
                 "already_referred": bool(doc.get("referred_by")),
             }
         except Exception:  # noqa: BLE001 - the card renders without it

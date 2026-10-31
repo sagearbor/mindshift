@@ -147,10 +147,10 @@ def _cap(name: str, default: int) -> int:
     return max(0, value)
 
 
-# ~1.5M tokens/day. A measured 30-minute coached call is ~40k tokens
-# (docs/plans/2026-08-25-cost-model.md), so this is a full working day of
-# back-to-back sessions before anything degrades.
-DAILY_LLM_TOKEN_CAP = _cap("MINDSHIFT_DAILY_LLM_TOKENS", 1_500_000)
+# FREE daily cap: 150k tokens (about three measured 30-minute coached calls,
+# ~40k tokens each, docs/plans/2026-08-25-cost-model.md). Pro's daily cap is a
+# separate number in server/plans.py. Free is also bounded by a lifetime total.
+DAILY_LLM_TOKEN_CAP = _cap("MINDSHIFT_DAILY_LLM_TOKENS", 150_000)
 # 6 hours of cloud speech-to-text per account per day.
 DAILY_STT_SECONDS_CAP = _cap("MINDSHIFT_DAILY_STT_SECONDS", 6 * 3600)
 # 8 hours of live socket per account per day.
@@ -177,23 +177,21 @@ LIMITS: dict[str, tuple[str, tuple[str, ...], str]] = {
     "calls": ("DAILY_CALLS_CAP", (KEY_CALLS_STARTED,), "calls"),
 }
 
-# Plan-window limits: limit name -> (plans table key, window, counter key)
-PLAN_WINDOW_LIMITS = {
-    "stt_lifetime": ("stt_lifetime_seconds", "lifetime", "stt_seconds"),
-    "stt_monthly": ("stt_monthly_seconds", "month", "stt_seconds"),
-}
-
 # What each feature spends, and therefore which caps gate it. A feature is
 # blocked when ANY of its limits is exhausted.
 FEATURE_LIMITS: dict[str, tuple[str, ...]] = {
     # The live loop's cloud half. Stopping it leaves transcription and the
     # phone's on-device coaching untouched — that is the whole point.
-    "cloud_suggestions": ("llm_tokens", "live_minutes"),
+    "cloud_suggestions": (
+        "llm_lifetime", "llm_monthly", "live_lifetime", "llm_tokens", "live_minutes",
+    ),
     # Cloud speech-to-text for a live session (the phone's local STT is free).
     # stt_lifetime / stt_monthly are plan windows (server/plans.py): free has a
     # LIFETIME total, pro a monthly one; neither resets at midnight.
-    "cloud_transcription": ("stt_lifetime", "stt_monthly", "stt_seconds", "live_minutes"),
-    "batch_analysis": ("llm_tokens",),
+    "cloud_transcription": (
+        "stt_lifetime", "stt_monthly", "live_lifetime", "stt_seconds", "live_minutes",
+    ),
+    "batch_analysis": ("llm_lifetime", "llm_monthly", "llm_tokens"),
     "model_download": ("model_downloads",),
     "call_create": ("calls",),
 }
@@ -438,7 +436,7 @@ class UsageMeter:
         snapshot = self.totals(uid)
         level = plans.effective_cached(uid).level
         for limit in limits:
-            if limit in PLAN_WINDOW_LIMITS:
+            if limit in plans.WINDOW_RULES:
                 hit = self._check_window(uid, feature, limit, level)
                 if hit is not None:
                     return hit
@@ -465,27 +463,20 @@ class UsageMeter:
         configured (a store exists), so an unconfigured deploy fails open."""
         if plans.get_store() is None:
             return None
-        table_key, window, counter = PLAN_WINDOW_LIMITS[limit]
-        cap = float(plans.limit_for(level, table_key) or 0)
+        _, window, counter = plans.WINDOW_RULES[limit]
+        cap = plans.window_cap(uid, level, limit)
         if cap <= 0:
             return None
         used = plans.window_used_now(uid, counter, window)
         if used < cap:
             return None
-        hours = round(cap / 3600, 1)
-        hours = int(hours) if hours == int(hours) else hours
-        if window == "lifetime":
-            text = (f"You've used your {hours} free hours of transcription. "
-                    "Upgrade to Pro to keep going; your recordings and notes stay safe.")
-            resets = ""
-        else:
-            text = (f"You've used this month's {hours} hours of transcription. "
-                    "It refreshes at the start of next month.")
-            resets = next_month_iso()
         return Exceeded(
-            feature=feature, limit=limit, used=used, cap=cap, unit="seconds",
-            resets_at=resets, plan=level, upgrade_plan=plans.upgrade_level(level),
-            friendly=text,
+            feature=feature, limit=limit, used=used, cap=cap,
+            unit={"stt_seconds": "seconds", "llm_tokens": "tokens",
+                  "live_minutes": "minutes"}[counter],
+            resets_at=next_month_iso() if window == "month" else "",
+            plan=level, upgrade_plan=plans.upgrade_level(level),
+            friendly=plans.window_message(limit, cap),
         )
 
     # -- persistence (best-effort, always off the hot path) -----------------
