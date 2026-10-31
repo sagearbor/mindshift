@@ -180,6 +180,11 @@ describe("LiveCoachScreen — Room mode", () => {
 
   it("live: consent banner, the answer and the card in the big layout, Stop", async () => {
     mockLibrarySaved = ["item-acme"];
+    // The picker now loads on mount and prunes ids the library doesn't have.
+    (require("../src/api/library").listLibrary as jest.Mock).mockResolvedValue({
+      items: [{ id: "item-acme", title: "Acme", kind: "note", chars: 1, status: "ready", created_at: "", updated_at: "", indexed: false }],
+      retrieval_available: true,
+    });
     mockUseAudioStream.mockReturnValue({
       ...baseHook,
       sessionActive: true,

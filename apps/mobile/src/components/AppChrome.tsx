@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
 import type { Screen } from "../../App";
 import { getDestination, type DestScreen } from "../nav/destinations";
-import { useLayoutStore } from "../store/layoutStore";
-import { getIcon, CHROME_ICONS } from "./icons";
+import { CHROME_ICONS } from "./icons";
+import ChromeTabBar from "./ChromeTabBar";
 import Avatar, { type AvatarUser } from "./Avatar";
 import DestinationCatalog from "./DestinationCatalog";
 import AccountMenu from "./AccountMenu";
@@ -72,7 +72,6 @@ const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
   ) {
     const [catalogOpen, setCatalogOpen] = useState(false);
     const [accountOpen, setAccountOpen] = useState(false);
-    const tabSlots = useLayoutStore((s) => s.tabSlots);
     const overlayOpen = catalogOpen || accountOpen;
 
     useImperativeHandle(
@@ -150,39 +149,11 @@ const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
           {children}
         </View>
 
-        {tabSlots.length > 0 ? (
-          <View
-            style={styles.tabBar}
-            testID="chrome-tab-bar"
-            importantForAccessibility={backgroundA11y}
-          >
-            {tabSlots.map((id) => {
-              const dest = getDestination(id);
-              if (!dest) return null; // stale persisted id — drop it silently
-              const Icon = getIcon(dest.iconId);
-              const active = dest.screen.name === screenName;
-              return (
-                <TouchableOpacity
-                  key={id}
-                  testID={`chrome-tab-${id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={dest.title}
-                  accessibilityState={{ selected: active }}
-                  style={styles.tab}
-                  onPress={() => navigate(dest.screen)}
-                >
-                  <Icon size={22} color={active ? "#4A90D9" : "#6B7280"} />
-                  <Text
-                    style={[styles.tabLabel, active && styles.tabLabelActive]}
-                    numberOfLines={1}
-                  >
-                    {dest.title}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : null}
+        <ChromeTabBar
+          screenName={screenName}
+          onNavigate={navigate}
+          importantForAccessibility={backgroundA11y}
+        />
 
         {catalogOpen ? (
           <DestinationCatalog
@@ -234,29 +205,5 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  tabBar: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-    paddingTop: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 8,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 4,
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  tabLabelActive: {
-    color: "#4A90D9",
   },
 });

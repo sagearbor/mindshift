@@ -31,6 +31,9 @@ from library.embeddings import EmbeddingUnavailable
 from library.extract import CONTENT_TYPES, ExtractionError, UnsupportedType, extract_text
 from library.models import (
     MAX_FILE_BYTES,
+    MAX_PROJECT_DEPTH,
+    MAX_PROJECT_NAME_CHARS,
+    MAX_PROJECTS_PER_USER,
     MAX_ITEMS_PER_USER,
     MAX_TEXT_CHARS,
     MAX_TITLE_CHARS,
@@ -38,6 +41,7 @@ from library.models import (
     ItemRecord,
     LibraryContext,
     LibraryFacts,
+    ProjectRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +81,13 @@ class LimitReached(LibraryError):
 
 class NotFound(LibraryError):
     status_code = 404
+
+
+class Conflict(LibraryError):
+    status_code = 409
+
+
+_UNSET = object()
 
 
 def _now() -> str:
@@ -135,19 +146,22 @@ class LibraryService:
             text_key=blobs_mod.item_prefix(uid, item_id) + "text.txt", **extra,
         )
 
-    async def create_note(self, uid: str, title: str, text: str) -> ItemRecord:
+    async def create_note(
+        self, uid: str, title: str, text: str, project_id: str | None = None,
+    ) -> ItemRecord:
         title = _clean_title(title)
         text = (text or "").strip()
         if not text:
             raise Invalid("note text must not be empty")
         _check_text_size(text)
         await self._check_capacity(uid)
-        rec = self._new_record(uid, title, "note", text)
+        await self._require_project(uid, project_id)
+        rec = self._new_record(uid, title, "note", text, project_id=project_id or None)
         return await self._save_and_index(rec, text)
 
     async def create_document(
         self, uid: str, filename: str | None, content_type: str | None,
-        data: bytes, title: str | None = None,
+        data: bytes, title: str | None = None, project_id: str | None = None,
     ) -> ItemRecord:
         if len(data) > MAX_FILE_BYTES:
             raise TooLarge(
@@ -161,11 +175,13 @@ class LibraryService:
             raise Invalid(str(exc)) from exc
         _check_text_size(extracted.text)
         await self._check_capacity(uid)
+        await self._require_project(uid, project_id)
         stem = (filename or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
         title = _clean_title(title or stem or "Untitled")
         rec = self._new_record(
             uid, title, extracted.kind, extracted.text,
             filename=(filename or None), content_type=CONTENT_TYPES.get(extracted.ext),
+            project_id=project_id or None,
         )
         rec.original_key = blobs_mod.item_prefix(uid, rec.id) + "original" + extracted.ext
         await self.blobs.put(rec.original_key, data, rec.content_type or "application/octet-stream")
@@ -278,14 +294,154 @@ class LibraryService:
         self._cache_text(rec, text)
         return text
 
+    # -- projects (folders) ---------------------------------------------------------
+
+    async def _require_project(self, uid: str, project_id: str | None) -> ProjectRecord | None:
+        if not project_id:
+            return None
+        proj = await self.store.get_project(uid, project_id)
+        if proj is None:
+            raise NotFound("project not found")
+        return proj
+
+    @staticmethod
+    def _depth(by_id: dict[str, ProjectRecord], project_id: str | None) -> int:
+        """Depth of ``project_id`` (top level = 1; None = 0). Tolerates a
+        corrupt parent loop by stopping at the cap."""
+        depth, cur = 0, project_id
+        while cur is not None and depth <= MAX_PROJECT_DEPTH + 1:
+            rec = by_id.get(cur)
+            if rec is None:
+                break
+            depth += 1
+            cur = rec.parent_id
+        return depth
+
+    @staticmethod
+    def _height(children: dict[str | None, list[str]], project_id: str) -> int:
+        """Levels in the subtree rooted at ``project_id`` (a leaf = 1)."""
+        best, stack, seen = 1, [(project_id, 1)], {project_id}
+        while stack:
+            pid, h = stack.pop()
+            best = max(best, h)
+            for c in children.get(pid, []):
+                if c not in seen:
+                    seen.add(c)
+                    stack.append((c, h + 1))
+        return best
+
+    @staticmethod
+    def _clean_project_name(name: str | None) -> str:
+        n = " ".join((name or "").split())
+        if not n:
+            raise Invalid("project name must not be empty")
+        if len(n) > MAX_PROJECT_NAME_CHARS:
+            raise Invalid(f"project name is longer than {MAX_PROJECT_NAME_CHARS} characters")
+        return n
+
+    async def list_projects(self, uid: str) -> list[ProjectRecord]:
+        projects = await self.store.list_projects(uid)
+        projects.sort(key=lambda p: (p.created_at, p.id))
+        return projects
+
+    async def create_project(
+        self, uid: str, name: str, parent_id: str | None = None,
+    ) -> ProjectRecord:
+        name = self._clean_project_name(name)
+        projects = await self.store.list_projects(uid)
+        if len(projects) >= MAX_PROJECTS_PER_USER:
+            raise LimitReached(f"you have {MAX_PROJECTS_PER_USER} projects; delete one to add another")
+        by_id = {p.id: p for p in projects}
+        if parent_id and parent_id not in by_id:
+            raise NotFound("parent project not found")
+        if self._depth(by_id, parent_id) + 1 > MAX_PROJECT_DEPTH:
+            raise Invalid(f"projects can be nested at most {MAX_PROJECT_DEPTH} levels deep")
+        now = _now()
+        rec = ProjectRecord(
+            id=str(uuid.uuid4()), uid=uid, name=name, parent_id=parent_id or None,
+            created_at=now, updated_at=now,
+        )
+        await self.store.put_project(rec)
+        return rec
+
+    async def update_project(
+        self, uid: str, project_id: str, *, name: str | None = None, parent_id=_UNSET,
+    ) -> ProjectRecord:
+        projects = await self.store.list_projects(uid)
+        by_id = {p.id: p for p in projects}
+        rec = by_id.get(project_id)
+        if rec is None:
+            raise NotFound("project not found")
+        if name is not None:
+            rec.name = self._clean_project_name(name)
+        if parent_id is not _UNSET:
+            new_parent = parent_id or None
+            if new_parent is not None and new_parent not in by_id:
+                raise NotFound("parent project not found")
+            # Cycle: the new parent is this project or anywhere beneath it.
+            cur, hops = new_parent, 0
+            while cur is not None and hops <= MAX_PROJECT_DEPTH + len(by_id):
+                if cur == project_id:
+                    raise Invalid(
+                        "cannot move a project into itself or one of its own sub-projects (cycle)"
+                    )
+                cur = by_id[cur].parent_id if cur in by_id else None
+                hops += 1
+            children: dict[str | None, list[str]] = {}
+            for p in projects:
+                children.setdefault(p.parent_id, []).append(p.id)
+            if self._depth(by_id, new_parent) + self._height(children, project_id) > MAX_PROJECT_DEPTH:
+                raise Invalid(
+                    f"moving it there would nest projects deeper than {MAX_PROJECT_DEPTH} levels"
+                )
+            rec.parent_id = new_parent
+        rec.updated_at = _now()
+        await self.store.put_project(rec)
+        return rec
+
+    async def delete_project(
+        self, uid: str, project_id: str, *, contents: str | None = None,
+    ) -> bool:
+        """Delete a project. SAFE by default: a project that still holds files
+        or sub-projects is refused (409). Pass ``contents="move_to_parent"``
+        to move them up one level (to top level when this project is top
+        level) and then delete it. Files are never deleted along with a
+        project."""
+        if contents not in (None, "move_to_parent"):
+            raise Invalid("contents must be 'move_to_parent' or omitted")
+        projects = await self.store.list_projects(uid)
+        rec = next((p for p in projects if p.id == project_id), None)
+        if rec is None:
+            return False
+        subs = [p for p in projects if p.parent_id == project_id]
+        items = [i for i in await self.store.list_items(uid) if i.project_id == project_id]
+        if (subs or items) and contents != "move_to_parent":
+            raise Conflict(
+                f"project is not empty ({len(items)} files, {len(subs)} sub-projects); "
+                "retry with contents=move_to_parent to move them up one level"
+            )
+        now = _now()
+        for p in subs:
+            p.parent_id, p.updated_at = rec.parent_id, now
+            await self.store.put_project(p)
+        for i in items:
+            i.project_id, i.updated_at = rec.parent_id, now
+            await self.store.put_item(i)
+        await self.store.delete_project(uid, project_id)
+        return True
+
     # -- update / delete -------------------------------------------------------------
 
     async def update_item(
         self, uid: str, item_id: str, *, title: str | None = None, text: str | None = None,
+        project_id=_UNSET,
     ) -> ItemRecord:
         rec = await self.store.get_item(uid, item_id)
         if rec is None:
             raise NotFound("item not found")
+        if project_id is not _UNSET:
+            await self._require_project(uid, project_id)
+            rec.project_id = project_id or None
         if title is not None:
             rec.title = _clean_title(title)
         if text is not None:
@@ -333,6 +489,8 @@ class LibraryService:
         items = await self.store.list_items(uid)
         for rec in items:
             await self.delete_item(uid, rec.id)
+        for proj in await self.store.list_projects(uid):
+            await self.store.delete_project(uid, proj.id)
         await self.blobs.delete_prefix(blobs_mod.user_prefix(uid))
         await self.store.delete_all_chunks(uid)
         return len(items)

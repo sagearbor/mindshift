@@ -4,6 +4,7 @@ keyless dev/CI (same ``MINDSHIFT_FIRESTORE_PROJECT`` switch as watch/store.py).
 Firestore layout (top-level collections, every doc carries ``uid``)::
 
     library_items/{item_id}              ItemRecord fields
+    library_projects/{project_id}        ProjectRecord fields (uid, name, parent_id)
     library_chunks/{item_id}_{ord:05d}   uid, item_id, ord, text,
                                          embedding (Vector, 768-d)
 
@@ -36,10 +37,11 @@ import math
 import os
 from typing import Protocol
 
-from library.models import ChunkRecord, ItemRecord
+from library.models import ChunkRecord, ItemRecord, ProjectRecord
 
 ITEMS = "library_items"
 CHUNKS = "library_chunks"
+PROJECTS = "library_projects"
 _BATCH_LIMIT = 400      # under Firestore's 500-writes-per-batch cap
 
 
@@ -48,6 +50,10 @@ class LibraryStore(Protocol):
     async def get_item(self, uid: str, item_id: str) -> ItemRecord | None: ...
     async def list_items(self, uid: str) -> list[ItemRecord]: ...
     async def delete_item(self, uid: str, item_id: str) -> bool: ...
+    async def put_project(self, rec: ProjectRecord) -> None: ...
+    async def get_project(self, uid: str, project_id: str) -> ProjectRecord | None: ...
+    async def list_projects(self, uid: str) -> list[ProjectRecord]: ...
+    async def delete_project(self, uid: str, project_id: str) -> bool: ...
     async def put_chunks(self, chunks: list[ChunkRecord]) -> None: ...
     async def delete_chunks(self, uid: str, item_id: str) -> int: ...
     async def delete_all_chunks(self, uid: str) -> int: ...
@@ -67,6 +73,7 @@ class MemoryLibraryStore:
     def __init__(self) -> None:
         self._items: dict[str, ItemRecord] = {}
         self._chunks: dict[str, ChunkRecord] = {}
+        self._projects: dict[str, ProjectRecord] = {}
 
     async def put_item(self, rec: ItemRecord) -> None:
         self._items[rec.id] = ItemRecord.from_doc(rec.to_doc())
@@ -85,6 +92,25 @@ class MemoryLibraryStore:
         if rec is None or rec.uid != uid:
             return False
         del self._items[item_id]
+        return True
+
+    async def put_project(self, rec: ProjectRecord) -> None:
+        self._projects[rec.id] = ProjectRecord.from_doc(rec.to_doc())
+
+    async def get_project(self, uid: str, project_id: str) -> ProjectRecord | None:
+        rec = self._projects.get(project_id)
+        if rec is None or rec.uid != uid:
+            return None
+        return ProjectRecord.from_doc(rec.to_doc())
+
+    async def list_projects(self, uid: str) -> list[ProjectRecord]:
+        return [ProjectRecord.from_doc(r.to_doc()) for r in self._projects.values() if r.uid == uid]
+
+    async def delete_project(self, uid: str, project_id: str) -> bool:
+        rec = self._projects.get(project_id)
+        if rec is None or rec.uid != uid:
+            return False
+        del self._projects[project_id]
         return True
 
     async def put_chunks(self, chunks: list[ChunkRecord]) -> None:
@@ -155,6 +181,46 @@ class FirestoreLibraryStore:
             return False
         ref.delete()
         return True
+
+    # -- projects (folders; equality-on-uid query = automatic index) ----------
+
+    def _put_project_sync(self, rec):
+        self._get_db().collection(PROJECTS).document(rec.id).set(rec.to_doc())
+
+    def _get_project_sync(self, uid, project_id):
+        doc = self._get_db().collection(PROJECTS).document(project_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict()
+        if data.get("uid") != uid:
+            return None
+        return ProjectRecord.from_doc(data)
+
+    def _list_projects_sync(self, uid):
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        q = self._get_db().collection(PROJECTS).where(filter=FieldFilter("uid", "==", uid))
+        return [ProjectRecord.from_doc(d.to_dict()) for d in q.stream()]
+
+    def _delete_project_sync(self, uid, project_id):
+        ref = self._get_db().collection(PROJECTS).document(project_id)
+        doc = ref.get()
+        if not doc.exists or doc.to_dict().get("uid") != uid:
+            return False
+        ref.delete()
+        return True
+
+    async def put_project(self, rec):
+        await asyncio.to_thread(self._put_project_sync, rec)
+
+    async def get_project(self, uid, project_id):
+        return await asyncio.to_thread(self._get_project_sync, uid, project_id)
+
+    async def list_projects(self, uid):
+        return await asyncio.to_thread(self._list_projects_sync, uid)
+
+    async def delete_project(self, uid, project_id):
+        return await asyncio.to_thread(self._delete_project_sync, uid, project_id)
 
     async def put_item(self, rec):
         await asyncio.to_thread(self._put_item_sync, rec)
