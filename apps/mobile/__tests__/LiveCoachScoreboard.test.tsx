@@ -19,6 +19,8 @@ jest.mock("../src/api/therapist", () => ({
   getTherapistLink: () => mockGetTherapistLink(),
 }));
 jest.mock("../src/live/modePrefs", () => ({
+  loadHeadsUpCues: () => Promise.resolve(false),
+  saveHeadsUpCues: () => Promise.resolve(),
   loadLiveMode: jest.fn(() => Promise.resolve("earpiece")),
   saveLiveMode: jest.fn(() => Promise.resolve()),
 }));

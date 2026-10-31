@@ -1686,6 +1686,9 @@ class SessionContext:
     # library info cards) instead of the coach, and `room` holds its state.
     mode: str | None = None
     room: "room_mode.RoomState | None" = None
+    # Config `heads_up_cues` (bool, default off): room mode's opt-in proactive
+    # library cues + contradiction check (room_heads_up.py).
+    heads_up_cues: bool = False
     # Config `debug_capture` (bool, default False): the phone's owner-only
     # "Debug session capture" switch. Only then is this session's transcript
     # registered for the debug save (and only while the env kill switch
@@ -2034,12 +2037,20 @@ async def _apply_config(
     # a coaching mode or null switches back. Unknown values are ignored
     # (validated-or-ignored, like relationship). The ack echoes the mode in
     # force whenever the frame carried the key.
+    # Opt-in "Heads-up cues" (room mode): bool, default off. Remembered on the
+    # context so it applies whichever order the keys arrive in.
+    if isinstance(payload.get("heads_up_cues"), bool):
+        ctx.heads_up_cues = payload["heads_up_cues"]
+        if ctx.room is not None:
+            ctx.room.heads_up = ctx.heads_up_cues
+        if ack is not None:
+            ack["heads_up_cues"] = ctx.heads_up_cues
     if "mode" in payload:
         mode_val = payload["mode"]
         if mode_val == room_mode.MODE_ROOM:
             ctx.mode = mode_val
             if ctx.room is None:
-                ctx.room = room_mode.RoomState()
+                ctx.room = room_mode.RoomState(heads_up=ctx.heads_up_cues)
         elif mode_val is None or mode_val in _COACHING_MODES:
             ctx.mode = mode_val
             ctx.room = None
