@@ -1,9 +1,9 @@
 {
   "_comment": "Written by `node scripts/nativeFingerprint.js --update` after a native change AND an expo.version bump. Both platforms must be built from this version. See scripts/nativeFingerprint.js.",
-  "hash": "4ddd9e3a83dce1b3aa05b4eb7976b4835ac6f9f168f927b052db7244298f1b91",
-  "version": "1.19.0",
-  "recordedAt": "2026-10-08T01:00:33.466Z",
-  "note": "native audio-route module (LE Audio / A2DP earpiece detection)",
+  "hash": "59676c342f60116977c7c48f1119f8a1b578bfa01db3b2a4535a41ec7c2972a1",
+  "version": "1.20.0",
+  "recordedAt": "2026-10-31T21:42:56.545Z",
+  "note": "RevenueCat in-app purchases (react-native-purchases) + BILLING permission",
   "nativeDependencies": [
     "@bacons/apple-targets@5.0.0",
     "@config-plugins/react-native-webrtc@15.0.2",
@@ -31,6 +31,7 @@
     "expo-video@57.0.0",
     "expo-web-browser@57.0.0",
     "onnxruntime-react-native@1.24.3",
+    "react-native-purchases@11.0.0",
     "react-native-safe-area-context@5.7.0",
     "react-native-svg@15.15.4",
     "react-native-webrtc@124.0.8"

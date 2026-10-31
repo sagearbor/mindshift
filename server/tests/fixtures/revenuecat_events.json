@@ -1,0 +1,326 @@
+{
+ "INITIAL_PURCHASE": {
+  "api_version": "1.0",
+  "event": {
+   "type": "INITIAL_PURCHASE",
+   "id": "evt-initial_purchase",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "RENEWAL": {
+  "api_version": "1.0",
+  "event": {
+   "type": "RENEWAL",
+   "id": "evt-renewal",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "UNCANCELLATION": {
+  "api_version": "1.0",
+  "event": {
+   "type": "UNCANCELLATION",
+   "id": "evt-uncancellation",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "NON_RENEWING_PURCHASE": {
+  "api_version": "1.0",
+  "event": {
+   "type": "NON_RENEWING_PURCHASE",
+   "id": "evt-non_renewing_purchase",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "SUBSCRIPTION_EXTENDED": {
+  "api_version": "1.0",
+  "event": {
+   "type": "SUBSCRIPTION_EXTENDED",
+   "id": "evt-subscription_extended",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "TEMPORARY_ENTITLEMENT_GRANT": {
+  "api_version": "1.0",
+  "event": {
+   "type": "TEMPORARY_ENTITLEMENT_GRANT",
+   "id": "evt-temporary_entitlement_grant",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "REFUND_REVERSED": {
+  "api_version": "1.0",
+  "event": {
+   "type": "REFUND_REVERSED",
+   "id": "evt-refund_reversed",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "CANCELLATION": {
+  "api_version": "1.0",
+  "event": {
+   "type": "CANCELLATION",
+   "id": "evt-cancellation",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "SUBSCRIPTION_PAUSED": {
+  "api_version": "1.0",
+  "event": {
+   "type": "SUBSCRIPTION_PAUSED",
+   "id": "evt-subscription_paused",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "BILLING_ISSUE": {
+  "api_version": "1.0",
+  "event": {
+   "type": "BILLING_ISSUE",
+   "id": "evt-billing_issue",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000,
+   "grace_period_expiration_at_ms": 1803024000000
+  }
+ },
+ "EXPIRATION": {
+  "api_version": "1.0",
+  "event": {
+   "type": "EXPIRATION",
+   "id": "evt-expiration",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1800000000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "TRANSFER": {
+  "api_version": "1.0",
+  "event": {
+   "type": "TRANSFER",
+   "id": "evt-transfer",
+   "transferred_from": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "transferred_to": [
+    "uid-beta22"
+   ],
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "TEST": {
+  "api_version": "1.0",
+  "event": {
+   "type": "TEST",
+   "id": "evt-test",
+   "app_user_id": "uid-alpha1",
+   "event_timestamp_ms": 1800000000000
+  }
+ },
+ "PRODUCT_CHANGE": {
+  "api_version": "1.0",
+  "event": {
+   "type": "PRODUCT_CHANGE",
+   "id": "evt-product_change",
+   "app_user_id": "uid-alpha1",
+   "original_app_user_id": "uid-alpha1",
+   "aliases": [
+    "uid-alpha1",
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000,
+   "new_product_id": "mindshift_max_monthly"
+  }
+ },
+ "ANONYMOUS": {
+  "api_version": "1.0",
+  "event": {
+   "type": "INITIAL_PURCHASE",
+   "id": "evt-initial_purchase",
+   "app_user_id": "$RCAnonymousID:abc",
+   "original_app_user_id": "$RCAnonymousID:abc",
+   "aliases": [
+    "$RCAnonymousID:abc"
+   ],
+   "product_id": "mindshift_pro_monthly",
+   "entitlement_ids": [
+    "pro"
+   ],
+   "store": "APP_STORE",
+   "environment": "SANDBOX",
+   "period_type": "NORMAL",
+   "purchased_at_ms": 1800000000000,
+   "expiration_at_ms": 1802592000000,
+   "event_timestamp_ms": 1800000000000
+  }
+ }
+}

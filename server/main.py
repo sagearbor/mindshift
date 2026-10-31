@@ -1260,6 +1260,10 @@ from routers import plan as _plan_router  # noqa: E402 — plans + redeem codes 
 
 app.include_router(_plan_router.router)
 
+from routers import billing as _billing_router  # noqa: E402 — RevenueCat webhook (server/revenuecat.py)
+
+app.include_router(_billing_router.router)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
