@@ -134,6 +134,8 @@ COUNT_KEYS: tuple[str, ...] = (
     "library_items",
     "text_sessions",
     "relationships",
+    # Plan record + redemptions + referral records (server/plans.py).
+    "plan_records",
 )
 
 
@@ -397,6 +399,20 @@ async def delete_library_tier(library, uid: str, summary: DeletionSummary) -> No
     summary.add("library_items", await library.delete_all_for_user(uid))
 
 
+async def delete_plan_tier(uid: str, summary: DeletionSummary) -> None:
+    """Delete ms_plans/{uid} (plan, usage windows, redemptions, referral code
+    and referral record). A no-op when plans are not configured. BLOCKING."""
+    import plans
+
+    plans.drop_pending(uid)
+    store = plans.get_store()
+    if store is None:
+        return
+    summary.add("plan_records", await store.delete_user(uid))
+    plans.invalidate(uid)
+    plans.drop_pending(uid)
+
+
 # ---------------------------------------------------------------------------
 # Tier 3 — the relational (SQLite) rows
 # ---------------------------------------------------------------------------
@@ -492,6 +508,8 @@ async def delete_account_data(
     )
 
     await _run_tier(summary, "library", delete_library_tier(library, uid, summary))
+
+    await _run_tier(summary, "plans", delete_plan_tier(uid, summary))
 
     if db is not None:
         await _run_tier(summary, "sessions_db", delete_sqlite_tier(db, uid, summary))

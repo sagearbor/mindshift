@@ -30,6 +30,7 @@ import { getMe } from "../api/me";
 import { deleteAccount, DELETE_CONFIRMATION } from "../api/account";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
 import TherapistLinkCard from "../components/TherapistLinkCard";
+import PlanCard from "../components/PlanCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
@@ -522,6 +523,11 @@ export default function AdvancedScreen({
           and Growth.
         </Text>
       </TouchableOpacity>
+
+      <Text style={styles.sectionHeading} testID="section-plan">
+        Plan
+      </Text>
+      <PlanCard />
 
       <Text style={styles.sectionHeading} testID="section-therapist">
         Therapist

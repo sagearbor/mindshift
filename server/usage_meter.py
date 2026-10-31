@@ -69,6 +69,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Mapping
 
+import plans
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -145,10 +147,10 @@ def _cap(name: str, default: int) -> int:
     return max(0, value)
 
 
-# ~1.5M tokens/day. A measured 30-minute coached call is ~40k tokens
-# (docs/plans/2026-08-25-cost-model.md), so this is a full working day of
-# back-to-back sessions before anything degrades.
-DAILY_LLM_TOKEN_CAP = _cap("MINDSHIFT_DAILY_LLM_TOKENS", 1_500_000)
+# FREE daily cap: 150k tokens (about three measured 30-minute coached calls,
+# ~40k tokens each, docs/plans/2026-08-25-cost-model.md). Pro's daily cap is a
+# separate number in server/plans.py. Free is also bounded by a lifetime total.
+DAILY_LLM_TOKEN_CAP = _cap("MINDSHIFT_DAILY_LLM_TOKENS", 150_000)
 # 6 hours of cloud speech-to-text per account per day.
 DAILY_STT_SECONDS_CAP = _cap("MINDSHIFT_DAILY_STT_SECONDS", 6 * 3600)
 # 8 hours of live socket per account per day.
@@ -180,10 +182,16 @@ LIMITS: dict[str, tuple[str, tuple[str, ...], str]] = {
 FEATURE_LIMITS: dict[str, tuple[str, ...]] = {
     # The live loop's cloud half. Stopping it leaves transcription and the
     # phone's on-device coaching untouched — that is the whole point.
-    "cloud_suggestions": ("llm_tokens", "live_minutes"),
+    "cloud_suggestions": (
+        "llm_lifetime", "llm_monthly", "live_lifetime", "llm_tokens", "live_minutes",
+    ),
     # Cloud speech-to-text for a live session (the phone's local STT is free).
-    "cloud_transcription": ("stt_seconds", "live_minutes"),
-    "batch_analysis": ("llm_tokens",),
+    # stt_lifetime / stt_monthly are plan windows (server/plans.py): free has a
+    # LIFETIME total, pro a monthly one; neither resets at midnight.
+    "cloud_transcription": (
+        "stt_lifetime", "stt_monthly", "live_lifetime", "stt_seconds", "live_minutes",
+    ),
+    "batch_analysis": ("llm_lifetime", "llm_monthly", "llm_tokens"),
     "model_download": ("model_downloads",),
     "call_create": ("calls",),
 }
@@ -211,6 +219,10 @@ class Exceeded:
     cap: float
     unit: str
     resets_at: str
+    # Plan context (server/plans.py) so the app can offer an upgrade.
+    plan: str = "free"
+    upgrade_plan: "str | None" = None
+    friendly: "str | None" = None
 
     @property
     def stopped(self) -> tuple[str, ...]:
@@ -222,6 +234,8 @@ class Exceeded:
 
     @property
     def message(self) -> str:
+        if self.friendly:
+            return self.friendly
         working = ", ".join(self.still_working) or "nothing else on this path"
         return (
             f"Daily {self.limit} budget reached "
@@ -243,6 +257,8 @@ class Exceeded:
             "stopped": list(self.stopped),
             "still_working": list(self.still_working),
             "message": self.message,
+            "plan": self.plan,
+            "upgrade_plan": self.upgrade_plan,
         }
 
 
@@ -266,6 +282,12 @@ def next_reset_iso(when: "datetime | None" = None) -> str:
         hour=0, minute=0, second=0, microsecond=0,
     )
     return tomorrow.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def next_month_iso(when: "datetime | None" = None) -> str:
+    now = when or utc_now()
+    y, m = (now.year + 1, 1) if now.month == 12 else (now.year, now.month + 1)
+    return datetime(y, m, 1, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def days_since(since: str) -> list[str]:
@@ -356,6 +378,8 @@ class UsageMeter:
                     continue
                 bucket[name] = bucket.get(name, 0) + value
             self._dirty.add(key)
+        if key[0] != UNATTRIBUTED_UID:
+            plans.note_usage(key[0], counters)
 
     def add_llm(self, uid: "str | None", site: str, usage: Mapping[str, float]) -> None:
         """Record one LLM response's usage fields against ``site``."""
@@ -410,9 +434,18 @@ class UsageMeter:
         # runs per audio frame (~10/s per session), so a per-limit copy of the
         # counters under the lock would be the wrong shape at scale.
         snapshot = self.totals(uid)
+        level = plans.effective_cached(uid).level
         for limit in limits:
-            cap_attr, _, unit = LIMITS[limit]
-            cap = float(globals().get(cap_attr) or 0)
+            if limit in plans.WINDOW_RULES:
+                hit = self._check_window(uid, feature, limit, level)
+                if hit is not None:
+                    return hit
+                continue
+            _, _, unit = LIMITS[limit]
+            # The cap comes from the user's effective plan (server/plans.py);
+            # the free level reads this module's DAILY_* constants, so
+            # existing users and env overrides see exactly today's numbers.
+            cap = plans.cap_for(uid, limit)
             if cap <= 0:  # 0 / unset = no cap
                 continue
             used = self._used_from(snapshot, limit)
@@ -420,14 +453,39 @@ class UsageMeter:
                 return Exceeded(
                     feature=feature, limit=limit, used=used, cap=cap,
                     unit=unit, resets_at=next_reset_iso(),
+                    plan=level, upgrade_plan=plans.upgrade_level(level),
                 )
         return None
+
+    @staticmethod
+    def _check_window(uid, feature, limit, level) -> "Exceeded | None":
+        """Lifetime / monthly plan caps. Enforced only when plans are
+        configured (a store exists), so an unconfigured deploy fails open."""
+        if plans.get_store() is None:
+            return None
+        _, window, counter = plans.WINDOW_RULES[limit]
+        cap = plans.window_cap(uid, level, limit)
+        if cap <= 0:
+            return None
+        used = plans.window_used_now(uid, counter, window)
+        if used < cap:
+            return None
+        return Exceeded(
+            feature=feature, limit=limit, used=used, cap=cap,
+            unit={"stt_seconds": "seconds", "llm_tokens": "tokens",
+                  "live_minutes": "minutes"}[counter],
+            resets_at=next_month_iso() if window == "month" else "",
+            plan=level, upgrade_plan=plans.upgrade_level(level),
+            friendly=plans.window_message(limit, cap),
+        )
 
     # -- persistence (best-effort, always off the hot path) -----------------
     async def prime(self, uid: str) -> None:
         """Refresh this process's view of what OTHER instances recorded for
         ``uid`` today, at most once per :data:`SEED_TTL_S`. Called when a
         session opens and from the flusher; never on the per-utterance path."""
+        if uid and uid != UNATTRIBUTED_UID:
+            await plans.prime(uid)  # own TTL; never raises
         store = self._store
         if store is None or not uid or uid == UNATTRIBUTED_UID:
             return
@@ -450,6 +508,7 @@ class UsageMeter:
 
     async def flush(self) -> int:
         """Write every changed shard. Returns how many shards were written."""
+        await plans.flush_usage()  # lifetime/monthly windows + referral rewards
         store = self._store
         if store is None:
             with self._lock:
@@ -533,6 +592,7 @@ class UsageMeter:
             self._seed.clear()
             self._seeded_at.clear()
             self._dirty.clear()
+        plans.clear_pending()
 
 
 _meter = UsageMeter()

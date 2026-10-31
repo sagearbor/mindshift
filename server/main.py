@@ -1256,6 +1256,10 @@ from routers import library as _library_router  # noqa: E402 — coach knowledge
 
 app.include_router(_library_router.router)
 
+from routers import plan as _plan_router  # noqa: E402 — plans + redeem codes (server/plans.py)
+
+app.include_router(_plan_router.router)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):

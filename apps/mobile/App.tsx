@@ -29,6 +29,7 @@ import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
 import GuestBanner from "./src/components/GuestBanner";
+import PlanLimitSheet from "./src/components/PlanLimitSheet";
 import GuestSignOutConfirm from "./src/components/GuestSignOutConfirm";
 import AppChrome, { type AppChromeHandle } from "./src/components/AppChrome";
 import PushedScreenChrome from "./src/components/PushedScreenChrome";
@@ -874,6 +875,7 @@ export default function App({ initialUrl }: AppProps = {}) {
             Above the chrome on purpose — a guest must see it on EVERY screen,
             not only the ones that happen to be primary. */}
         <GuestBanner />
+        <PlanLimitSheet />
         {isPrimary(screen) ? (
           <AppChrome
             ref={chromeRef}

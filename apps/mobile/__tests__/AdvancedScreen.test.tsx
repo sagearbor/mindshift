@@ -30,6 +30,11 @@ jest.mock("../src/api/client", () => ({
   forgetVoice: jest.fn(),
 }));
 
+jest.mock("../src/api/plan", () => ({
+  getPlan: jest.fn(() => Promise.reject(new Error("offline"))),
+  redeemCode: jest.fn(),
+}));
+
 jest.mock("../src/api/me", () => ({
   getMe: jest.fn(),
 }));

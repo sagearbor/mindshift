@@ -1,3 +1,4 @@
+import { reportPlanLimit } from "../store/planLimitStore";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { AppState, Platform } from "react-native";
 import {
@@ -2669,6 +2670,12 @@ export function useAudioStream(
               );
               setSpeakerLabel((current) => (current === from ? to : current));
             }
+          } else if (data.type === "quota_notice") {
+            // Plan / daily budget reached (server/usage_meter.py): cloud
+            // coaching or transcription paused, the socket and the on-device
+            // loop keep running. Show the server's own friendly sentence once
+            // in the out-of-time sheet; nothing is deleted.
+            reportPlanLimit(data);
           } else if (data.type === "guest_limit") {
             // Guest mode: the server refused (or is ending) this session
             // because the anonymous account is over its quota — either the

@@ -1,3 +1,4 @@
+import ListeningPill from "../components/ListeningPill";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -733,6 +734,7 @@ export default function LiveCoachScreen({
         keyboardShouldPersistTaps="handled"
         testID="live-coach-scroll"
       >
+      <ListeningPill active={sessionActive} />
       {/* Header with connection status. The heading takes the flexible space
           and the status pins to the right at a fixed width, so a long status
           word ("disconnected") can never overlap the title (a real Pixel bug). */}
