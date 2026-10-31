@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 # Levels and the limits table  (tune HERE)
 # ---------------------------------------------------------------------------
 
-LEVELS: tuple[str, ...] = ("free", "basic", "pro", "max")  # ordered low -> high
-LABELS: dict[str, str] = {"free": "Free", "basic": "Basic", "pro": "Pro", "max": "Max"}
+LEVELS: tuple[str, ...] = ("free", "basic", "plus", "pro", "max")  # ordered low -> high
+LABELS: dict[str, str] = {"free": "Free", "basic": "Basic", "plus": "Plus", "pro": "Pro", "max": "Max"}
 
 # Daily caps (names match usage_meter.LIMITS); 0 = no cap. ``None`` in the free
 # row = defer to usage_meter's constants.
@@ -62,14 +62,14 @@ TOKENS_PER_HOUR = 40_000   # cap per hour = ~33k measured/hour plus ~20% headroo
 BACKSTOP_FRACTION = 0.25   # daily STT/AI backstop = 25% of the monthly allowance
 
 # level -> (hours, "lifetime" for free / "month" for paid, price USD/mo)
-ALLOWANCE_HOURS = {"free": 1, "basic": 8, "pro": 20, "max": 80}
-PRICE_USD = {"free": 0, "basic": 10, "pro": 25, "max": 100}
+ALLOWANCE_HOURS = {"free": 1, "basic": 4, "plus": 8, "pro": 20, "max": 80}
+PRICE_USD = {"free": 0, "basic": 5, "plus": 10, "pro": 25, "max": 100}
 # level -> (library items, library chars)
 LIBRARY = {
-    "free": (5, 200_000), "basic": (25, 1_000_000),
+    "free": (5, 200_000), "basic": (10, 500_000), "plus": (25, 1_000_000),
     "pro": (200, 8_000_000), "max": (1000, 40_000_000),
 }
-CALLS_MODELS = {"basic": (30, 75), "pro": (50, 150), "max": (100, 300)}
+CALLS_MODELS = {"basic": (20, 50), "plus": (30, 75), "pro": (50, 150), "max": (100, 300)}
 
 WINDOW_KEYS = (
     "stt_lifetime_seconds", "stt_monthly_seconds",
@@ -1042,3 +1042,14 @@ def redeem_blocked(uid: str) -> bool:
 
 def note_redeem_failure(uid: str) -> None:
     _failures.setdefault(uid, []).append(time.monotonic())
+
+
+def tier_catalog() -> list[dict]:
+    """The paid ladder for the app's plan cards (numbers come from the tables
+    above, so the UI never hard-codes them)."""
+    return [
+        {"level": lv, "label": LABELS[lv], "price_usd": PRICE_USD[lv],
+         "hours_per_month": ALLOWANCE_HOURS[lv], "library_items": LIBRARY[lv][0],
+         "popular": lv == "plus", "business": lv == "max"}
+        for lv in LEVELS if lv != "free"
+    ]

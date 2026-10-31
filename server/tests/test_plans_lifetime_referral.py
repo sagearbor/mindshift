@@ -171,16 +171,16 @@ def _tok(n):
 
 
 def test_levels_and_listening_hour_numbers():
-    assert plans.LEVELS == ("free", "basic", "pro", "max")
-    for lv, hours in (("free", 1), ("basic", 8), ("pro", 20), ("max", 80)):
+    assert plans.LEVELS == ("free", "basic", "plus", "pro", "max")
+    for lv, hours in (("free", 1), ("basic", 4), ("plus", 8), ("pro", 20), ("max", 80)):
         secs = plans.limit_for(lv, "stt_lifetime_seconds" if lv == "free" else "stt_monthly_seconds")
         toks = plans.limit_for(lv, "llm_lifetime_tokens" if lv == "free" else "llm_monthly_tokens")
         assert secs == hours * 3600 and toks == hours * plans.TOKENS_PER_HOUR
-    assert [plans.limit_for(lv, "library_items") for lv in plans.LEVELS] == [5, 25, 200, 1000]
+    assert [plans.limit_for(lv, "library_items") for lv in plans.LEVELS] == [5, 10, 25, 200, 1000]
     # daily backstop = 25% of the monthly allowance
     assert plans.limit_for("pro", "stt_seconds") == 20 * 3600 // 4
     assert plans.limit_for("pro", "llm_tokens") == 20 * plans.TOKENS_PER_HOUR // 4
-    assert plans.upgrade_level("max") is None and plans.upgrade_level("basic") == "pro"
+    assert plans.upgrade_level("max") is None and plans.upgrade_level("basic") == "plus"
     assert plans.limit_for("free", "live_lifetime_minutes") == 0  # wall-clock not metered
 
 
@@ -234,7 +234,16 @@ async def test_pro_monthly_llm_cap_message(plan_env):
 
 
 async def test_mint_codes_can_grant_any_level(plan_env):
-    for lv in ("basic", "pro", "max"):
+    for lv in ("basic", "plus", "pro", "max"):
         await plan_env.create_code(_code(code=f"CODE{lv.upper()}XX", plan=lv))
         r = await plan_env.redeem(f"u-{lv}", f"CODE{lv.upper()}XX", NOW)
         assert r.kind == "granted" and r.plan == lv
+
+
+def test_tier_catalog_for_the_plan_cards():
+    cat = plans.tier_catalog()
+    assert [t["level"] for t in cat] == ["basic", "plus", "pro", "max"]
+    assert [t["price_usd"] for t in cat] == [5, 10, 25, 100]
+    assert [t["hours_per_month"] for t in cat] == [4, 8, 20, 80]
+    assert [t["popular"] for t in cat] == [False, True, False, False]
+    assert [t["business"] for t in cat] == [False, False, False, True]

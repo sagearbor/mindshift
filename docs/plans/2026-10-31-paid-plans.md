@@ -58,7 +58,7 @@ Behaviour, in short:
 
 ### Levels, listening hours and cost (owner decision 2026-10-31)
 
-Levels (ordered): `free`, `basic`, `pro`, `max`. The unit is **listening
+Levels (ordered): `free` < `basic` < `plus` < `pro` < `max`. The unit is **listening
 hours**. Worst case per hour: **$0.51** = cloud STT $0.45 + about 33k AI tokens
 at Claude Haiku 4.5 ($1/M in, $5/M out, blended $1.80/M) = $0.06. Token caps are
 derived from hours (`TOKENS_PER_HOUR` = 40k, i.e. 33k measured plus ~20%
@@ -67,13 +67,17 @@ headroom). Everything is a constant at the top of `server/plans.py`
 `MINDSHIFT_PLAN_<LEVEL>_<KEY>`); adding a level is one entry in each. Daily STT
 and AI caps are abuse backstops at 25% of the monthly allowance.
 
-| Level | Price/mo | Allowance | Max cost to us (all cloud, $0.51/h) | Net after 15% store fee | Worst-case profit and margin | Profit if half used |
+| Level | Price/mo | Allowance | Max cost to us (all-cloud $0.51/h) | Net after 15% store fee | Worst-case profit and margin | Profit if half used |
 |---|---|---|---|---|---|---|
 | Free | $0 | 1 h once; 5 items | $0.51 once | n/a | -$0.51 once | n/a |
 | Free + referral max | $0 | 2 h once (1 h + 1 h bonus); 5 items | $1.02 once | n/a | -$1.02 once | n/a |
-| Basic | $10 ($100/yr) | 8 h / month; 25 items | $4.08 | $8.50 | $4.42 (52%) | $6.46 |
-| Pro | $25 ($250/yr) | 20 h / month; 200 items | $10.20 | $21.25 | $11.05 (52%) | $16.15 |
-| Max | $100 ($1,000/yr) | 80 h / month; 1000 items | $40.80 | $85.00 | $44.20 (52%) | $64.60 |
+| Basic | $5 | 4 h / month; 10 items | $2.04 | $4.25 | $2.21 (52%) | $3.23 |
+| Plus (most popular) | $10 | 8 h / month; 25 items | $4.08 | $8.50 | $4.42 (52%) | $6.46 |
+| Pro | $25 | 20 h / month; 200 items | $10.20 | $21.25 | $11.05 (52%) | $16.15 |
+| Max (for business) | $100 | 80 h / month; 1000 items | $40.80 | $85.00 | $44.20 (52%) | $64.60 |
+
+Launch is **monthly only**. Annual prices are later (10x monthly, two months
+free): Basic $50, Plus $100, Pro $250, Max $1,000 per year.
 
 With STT on-device the cost is only AI tokens ($0.06/h), so margins rise above
 90%. Annual prices are 10x monthly (two months free); net figures are per month.
@@ -138,11 +142,11 @@ refused; the 10-minute listening gate means a fake account must really listen
 
 ### Pricing proposal
 
-Basic $10, Pro $25, Max $100 per month (store tiers). Reasoning:
+Basic $5, Plus $10, Pro $25, Max $100 per month (store tiers). Reasoning:
 
 - Variable cost is $0.51 per listening hour worst case (cloud STT $0.45 plus
   about 33k AI tokens). Each paid tier is priced at the same hourly rate
-  ($1.25/h for Basic and Pro, $1.25/h for Max, before the store fee), so every
+  ($1.25/h of allowance on every paid tier, before the store fee), so every
   tier keeps about a 52% margin after a 15% store fee even if the whole
   allowance is used all-cloud, and more when STT is on-device or usage is partial.
 - Apple/Google take 15% (small business program / subscriptions after year 1)
@@ -154,15 +158,15 @@ Basic $10, Pro $25, Max $100 per month (store tiers). Reasoning:
 
 | Product id | Period | Price |
 |---|---|---|
-| `mindshift_basic_monthly` | 1 month | $10 |
-| `mindshift_basic_annual` | 1 year | $100 |
+| `mindshift_basic_monthly` | 1 month | $5 |
+| `mindshift_plus_monthly` | 1 month | $10 |
 | `mindshift_pro_monthly` | 1 month | $25 |
-| `mindshift_pro_annual` | 1 year | $250 |
 | `mindshift_max_monthly` | 1 month | $100 |
-| `mindshift_max_annual` | 1 year | $1,000 |
-All three share one subscription group ranked max > pro > basic.
 
-Entitlement ids `basic`, `pro`, `max`. Level resolution is by entitlement or product-id prefix
+Annual products (`_annual`: $50 / $100 / $250 / $1,000) come later.
+All four share one subscription group ranked max > pro > plus > basic. The app shows Basic, Plus (most popular) and Pro cards by default and Max under "For business".
+
+Entitlement ids `basic`, `plus`, `pro`, `max`. Level resolution is by entitlement or product-id prefix
 (`mindshift_<level>_...`), highest wins, same as `eventPlanLevel` in
 `revenuecat.ts`. Adding a level later = new products + new entitlement + entries in `plans.LEVELS` / `ALLOWANCE_HOURS`.
 
@@ -208,12 +212,12 @@ release scripts (`ship-mobile-app` skill), Android and iOS together.
 
 1. **App Store Connect**: Agreements, Tax, and Banking -> sign the Paid Apps
    Agreement, add bank + tax forms (status Active). App -> Monetization ->
-   Subscriptions -> create group `MindShift`; create the six product ids above (monthly $10/$25/$100, annual $100/$250/$1,000), localized name/description, review
+   Subscriptions -> create group `MindShift`; create the four monthly product ids above ($5 / $10 / $25 / $100), localized name/description, review
    screenshot of the paywall, all countries. Users and Access -> Integrations ->
    In-App Purchase -> generate a key (.p8). Update App Privacy for Purchases.
    First IAPs ship with the next app version.
 2. **Google Play Console**: Settings -> Payments profile (merchant account).
-   App -> Monetize -> Subscriptions -> create the same six product ids (base plans `monthly` and `annual`), activate. Create a
+   App -> Monetize -> Subscriptions -> create the same four product ids (base plan `monthly`), activate. Create a
    Cloud service account for RevenueCat with "View financial data" and "Manage
    orders and subscriptions"; download its JSON. Enable real-time developer
    notifications with the Pub/Sub topic RevenueCat gives. License testing: add
@@ -221,8 +225,8 @@ release scripts (`ship-mobile-app` skill), Android and iOS together.
    Wear OS has its own track; subscriptions are sold on the phone app.
 3. **RevenueCat**: new project MindShift; add the App Store app (bundle id +
    .p8 + key id + issuer id), the Play app (package + service-account JSON).
-   Entitlement `pro` with both products attached. Default offering with two
-   packages. Integrations -> Webhooks: URL
+   Entitlements `basic`, `plus`, `pro`, `max`, each with its monthly product
+   attached. Default offering with four packages. Integrations -> Webhooks: URL
    `https://<cloud-run-host>/webhooks/revenuecat`, Authorization value from
    `openssl rand -hex 32`. Copy the public SDK keys (`appl_`, `goog_`) and a
    secret API key (`sk_`). There is already `~/.config/revenuecat` on the owner

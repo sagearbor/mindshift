@@ -21,6 +21,12 @@ const BASE = {
   flags: {},
   upgrade_plan: "pro",
   redeem_available: true,
+  tiers: [
+    { level: "basic", label: "Basic", price_usd: 5, hours_per_month: 4, library_items: 10, popular: false, business: false },
+    { level: "plus", label: "Plus", price_usd: 10, hours_per_month: 8, library_items: 25, popular: true, business: false },
+    { level: "pro", label: "Pro", price_usd: 25, hours_per_month: 20, library_items: 200, popular: false, business: false },
+    { level: "max", label: "Max", price_usd: 100, hours_per_month: 80, library_items: 1000, popular: false, business: true },
+  ],
   referral: { code: "ABCD-2345", rewards_earned: 1, bonus_hours_each: 2, bonus_hours: 2, max_bonus_hours: 10, already_referred: false },
   purchase: { available: false },
 };
@@ -43,7 +49,7 @@ test("shows plan, free hours left, share code and a disabled upgrade", async () 
   expect(t.root.findByProps({ testID: "plan-referral-code" }).props.children).toBe("ABCD-2345");
   expect(text(t)).toContain("Invite a friend: you both get");
   expect(text(t)).toContain("more free hours");
-  expect(t.root.findByProps({ testID: "plan-upgrade" }).props.disabled).toBe(true);
+  expect(t.root.findByProps({ testID: "tier-basic-buy" }).props.disabled).toBe(true);
 });
 
 test("redeeming a friend's code updates the card", async () => {
@@ -67,4 +73,20 @@ test("guests are told to create an account", async () => {
   (getPlan as jest.Mock).mockResolvedValue({ ...BASE, is_guest: true, redeem_available: false, referral: null });
   const t = await render();
   expect(text(t)).toContain("Create an account to redeem a code.");
+});
+
+test("three tier cards by default, Plus most popular, Max behind For business", async () => {
+  (getPlan as jest.Mock).mockResolvedValue(BASE);
+  const t = await render();
+  expect(t.root.findAllByProps({ testID: "tier-basic" }).length).toBeGreaterThan(0);
+  expect(t.root.findAllByProps({ testID: "tier-plus" }).length).toBeGreaterThan(0);
+  expect(t.root.findAllByProps({ testID: "tier-pro" }).length).toBeGreaterThan(0);
+  expect(t.root.findAllByProps({ testID: "tier-max" })).toHaveLength(0);
+  expect(t.root.findAllByProps({ testID: "tier-popular" }).length).toBeGreaterThan(0);
+  expect(text(t)).toContain("$10/mo");
+  await act(async () => {
+    t.root.findByProps({ testID: "tier-business-link" }).props.onPress();
+  });
+  expect(t.root.findAllByProps({ testID: "tier-max" }).length).toBeGreaterThan(0);
+  expect(text(t)).toContain("$100/mo");
 });

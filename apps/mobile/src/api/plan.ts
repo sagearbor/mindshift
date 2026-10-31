@@ -23,6 +23,16 @@ export interface PlanSummary {
   redeem_available: boolean;
   /** Free: lifetime cap; Pro: monthly cap (seconds of cloud transcription). */
   windows?: Record<string, { cap: number; used: number }>;
+  /** The paid ladder (server/plans.py tier_catalog); the UI never hard-codes it. */
+  tiers?: {
+    level: string;
+    label: string;
+    price_usd: number;
+    hours_per_month: number;
+    library_items: number;
+    popular: boolean;
+    business: boolean;
+  }[];
   /** The BINDING listening allowance right now (null = nothing capped). */
   listening?: {
     remaining_seconds: number;

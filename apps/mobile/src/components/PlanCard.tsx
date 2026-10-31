@@ -36,6 +36,57 @@ export function perks(p: PlanSummary): string[] {
   return out;
 }
 
+type Tier = NonNullable<PlanSummary["tiers"]>[number];
+
+function TierCard({ t, current }: { t: Tier; current?: string }) {
+  return (
+    <View style={[styles.tier, t.popular && styles.tierPopular]} testID={`tier-${t.level}`}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.plan}>
+          {t.label}
+          {t.popular ? <Text style={styles.badge} testID="tier-popular">  Most popular</Text> : null}
+        </Text>
+        <Text style={styles.sub}>
+          {`$${t.price_usd}/mo · ${t.hours_per_month} h of listening a month · ${t.library_items} library items`}
+        </Text>
+      </View>
+      <TouchableOpacity
+        accessibilityRole="button"
+        disabled
+        style={[styles.buy, styles.disabled, styles.tierBtn]}
+        testID={`tier-${t.level}-buy`}
+      >
+        <Text style={styles.buyText}>{current === t.level ? "Current" : "Coming soon"}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/** Basic / Plus (most popular) / Pro by default; Max under "For business". */
+export function TierCards({ tiers, current }: { tiers: Tier[]; current?: string }) {
+  const [business, setBusiness] = useState(false);
+  const main = tiers.filter((t) => !t.business);
+  const biz = tiers.filter((t) => t.business);
+  if (!main.length) return null;
+  return (
+    <View testID="tier-cards">
+      {main.map((t) => (
+        <TierCard key={t.level} t={t} current={current} />
+      ))}
+      {biz.length ? (
+        business ? (
+          biz.map((t) => <TierCard key={t.level} t={t} current={current} />)
+        ) : (
+          <TouchableOpacity testID="tier-business-link" accessibilityRole="link" onPress={() => setBusiness(true)}>
+            <Text style={styles.link}>For business</Text>
+          </TouchableOpacity>
+        )
+      ) : null}
+      <Text style={styles.sub}>Paid plans are coming soon.</Text>
+    </View>
+  );
+}
+
 /**
  * Settings → Plan: current plan + expiry + what it includes, and a
  * "Redeem a code" box. The purchase button is a placeholder until paid plans
@@ -83,9 +134,7 @@ export default function PlanCard() {
         <ActivityIndicator />
       )}
 
-      <TouchableOpacity accessibilityRole="button" disabled style={[styles.buy, styles.disabled]} testID="plan-upgrade">
-        <Text style={styles.buyText}>Upgrade to Pro — coming soon</Text>
-      </TouchableOpacity>
+      <TierCards tiers={plan?.tiers ?? []} current={plan?.plan} />
 
       {plan?.redeem_available ? (
         <RedeemBox
@@ -133,6 +182,11 @@ const styles = StyleSheet.create({
   buyText: { color: "#fff", fontWeight: "700" },
   redeem: { flexDirection: "row", marginTop: 10, alignItems: "center" },
   input: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginRight: 8 },
+  tier: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#ddd", borderRadius: 10, padding: 10, marginTop: 8 },
+  tierPopular: { borderColor: "#4f46e5", borderWidth: 2 },
+  tierBtn: { marginTop: 0, paddingHorizontal: 12 },
+  badge: { color: "#4f46e5", fontSize: 12, fontWeight: "700" },
+  link: { color: "#4f46e5", marginTop: 8, fontWeight: "600" },
   code: { fontWeight: "700", letterSpacing: 1 },
   redeemBtn: { backgroundColor: "#4f46e5", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
 });
