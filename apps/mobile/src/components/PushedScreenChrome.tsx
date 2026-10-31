@@ -1,7 +1,10 @@
 import React from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
 
+import type { Screen } from "../../App";
+import type { DestScreen } from "../nav/destinations";
 import { CHROME_ICONS } from "./icons";
+import ChromeTabBar from "./ChromeTabBar";
 
 const HomeIcon = CHROME_ICONS.home;
 
@@ -11,6 +14,12 @@ interface PushedScreenChromeProps {
    *  reimplemented, so this affordance always lands wherever the wordmark
    *  tap does. */
   onGoHome: () => void;
+  /** Current pushed screen's name and the tab-navigation handler: the bottom
+   *  tab bar is part of this chrome (rule: every screen reachable from the
+   *  app keeps the bottom tabs). Required so a new pushed screen can't be
+   *  wrapped without them. */
+  screenName: Screen["name"];
+  onNavigate: (screen: DestScreen) => void;
   children: React.ReactNode;
 }
 
@@ -27,6 +36,8 @@ interface PushedScreenChromeProps {
  */
 export default function PushedScreenChrome({
   onGoHome,
+  screenName,
+  onNavigate,
   children,
 }: PushedScreenChromeProps) {
   return (
@@ -44,6 +55,7 @@ export default function PushedScreenChrome({
         </TouchableOpacity>
       </View>
       <View style={styles.content}>{children}</View>
+      <ChromeTabBar screenName={screenName} onNavigate={onNavigate} />
     </View>
   );
 }

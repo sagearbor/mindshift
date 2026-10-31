@@ -20,6 +20,8 @@ jest.mock("../src/api/therapist", () => ({
 jest.mock("../src/live/modePrefs", () => ({
   loadLiveMode: jest.fn().mockResolvedValue("room"),
   saveLiveMode: jest.fn().mockResolvedValue(undefined),
+  loadHeadsUpCues: jest.fn().mockResolvedValue(false),
+  saveHeadsUpCues: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("../src/api/client", () => ({
   postShare: jest.fn(),
@@ -178,6 +180,11 @@ describe("LiveCoachScreen — Room mode", () => {
 
   it("live: consent banner, the answer and the card in the big layout, Stop", async () => {
     mockLibrarySaved = ["item-acme"];
+    // The picker now loads on mount and prunes ids the library doesn't have.
+    (require("../src/api/library").listLibrary as jest.Mock).mockResolvedValue({
+      items: [{ id: "item-acme", title: "Acme", kind: "note", chars: 1, status: "ready", created_at: "", updated_at: "", indexed: false }],
+      retrieval_available: true,
+    });
     mockUseAudioStream.mockReturnValue({
       ...baseHook,
       sessionActive: true,

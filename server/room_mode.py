@@ -37,6 +37,7 @@ import html
 import json
 import logging
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
@@ -227,6 +228,16 @@ class RoomState:
     indexed_once: bool = False
     cards_sent: int = 0
     answers: int = 0
+    # Heads-up cues (opt-in; config `heads_up_cues`) -- see room_heads_up.py.
+    heads_up: bool = False
+    headsup_seen: dict = field(default_factory=dict)  # passage id -> t shown
+    last_headsup_t: float | None = None
+    last_check_t: float | None = None
+    check_times: deque = field(default_factory=deque)
+    checks_made: int = 0
+    checks_shown: set = field(default_factory=set)
+    _hu_key: str | None = None
+    _hu_index: object | None = None
     _index_key: str | None = None
     _indexed: list[_IndexedFact] = field(default_factory=list)
 
@@ -426,6 +437,14 @@ async def handle_room_turn(
 
     if get_library is None:
         return
+    if state.heads_up:
+        import room_heads_up  # opt-in feature; replaces the plain info cards
+
+        if room_heads_up.enabled():
+            await room_heads_up.heads_up_turn(
+                state, text=text, t=t, conversation=conversation,
+                get_library=get_library, llm=llm, send=send)
+            return
     if state.indexed_once and not state.likely_mention(text):
         return
     library_ctx = await get_library("\n".join(conversation[-6:] + [text]))

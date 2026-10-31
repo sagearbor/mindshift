@@ -33,6 +33,17 @@ export interface LibraryItem {
   updated_at: string;
   /** Chunks + vectors exist (retrieval can use this item). */
   indexed: boolean;
+  /** Containing project; null/absent = top level (older servers omit it). */
+  project_id?: string | null;
+}
+
+/** A folder. `parent_id` null = top level; nesting is capped server-side. */
+export interface LibraryProject {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface LibraryItemDetail extends LibraryItem {
@@ -55,6 +66,8 @@ export interface LibraryLimits {
 
 export interface LibraryList {
   items: LibraryItem[];
+  /** Folders (absent from older servers = none). */
+  projects?: LibraryProject[];
   /** False when the server cannot search inside documents (no embedding
    *  service): large selections can't be used yet, small ones still can. */
   retrieval_available: boolean;
@@ -130,12 +143,26 @@ export async function getLibraryItem(
   return call<LibraryItemDetail>(path, { method: "GET", headers: await headers(false) });
 }
 
-export async function createLibraryNote(title: string, text: string): Promise<LibraryItem> {
+export async function createLibraryNote(
+  title: string,
+  text: string,
+  projectId?: string | null,
+): Promise<LibraryItem> {
+  const body: Record<string, unknown> = { kind: "note", title, text };
+  if (projectId) body.project_id = projectId;
   return call<LibraryItem>("/library/items", {
     method: "POST",
     headers: await headers(true),
-    body: JSON.stringify({ kind: "note", title, text }),
+    body: JSON.stringify(body),
   });
+}
+
+/** "Brief.final.pdf" -> "Brief.final"; a name with no extension is kept. */
+export function titleFromFilename(name: string): string {
+  const base = (name || "").split(/[\\/]/).pop() || "";
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  return stem.trim();
 }
 
 /** Multipart upload of a picked file. No Content-Type header: fetch sets the
@@ -145,6 +172,7 @@ export async function createLibraryNote(title: string, text: string): Promise<Li
 export async function uploadLibraryFile(
   picked: PickedLibraryFile,
   title?: string,
+  projectId?: string | null,
 ): Promise<LibraryItem> {
   const form = new FormData();
   if (Platform.OS === "web" && picked.file) {
@@ -152,7 +180,12 @@ export async function uploadLibraryFile(
   } else {
     form.append("file", new FSFile(picked.uri) as unknown as Blob, picked.name);
   }
-  if (title && title.trim()) form.append("title", title.trim());
+  // Explicit title always: on Android the FormData filename arg is ignored
+  // for an expo File blob, so the server would title it from the cache-copy
+  // UUID. The server's filename stem stays as the fallback.
+  const finalTitle = (title && title.trim()) || titleFromFilename(picked.name);
+  if (finalTitle) form.append("title", finalTitle);
+  if (projectId) form.append("project_id", projectId);
   return call<LibraryItem>("/library/items", {
     method: "POST",
     headers: await headers(false),
@@ -163,7 +196,7 @@ export async function uploadLibraryFile(
 /** Rename (any item) and/or replace the text (notes only). */
 export async function updateLibraryItem(
   id: string,
-  patch: { title?: string; text?: string },
+  patch: { title?: string; text?: string; project_id?: string | null },
 ): Promise<LibraryItem> {
   return call<LibraryItem>(itemPath(id), {
     method: "PATCH",
@@ -174,4 +207,40 @@ export async function updateLibraryItem(
 
 export async function deleteLibraryItem(id: string): Promise<{ deleted: boolean; id: string }> {
   return call(itemPath(id), { method: "DELETE", headers: await headers(false) });
+}
+
+export async function createLibraryProject(
+  name: string,
+  parentId?: string | null,
+): Promise<LibraryProject> {
+  return call<LibraryProject>("/library/projects", {
+    method: "POST",
+    headers: await headers(true),
+    body: JSON.stringify({ name, parent_id: parentId ?? null }),
+  });
+}
+
+/** Rename and/or move (`parent_id: null` = top level). */
+export async function updateLibraryProject(
+  id: string,
+  patch: { name?: string; parent_id?: string | null },
+): Promise<LibraryProject> {
+  return call<LibraryProject>(`/library/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: await headers(true),
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Deleting a non-empty project is refused (409) unless `contents` is
+ *  "move_to_parent" (files and sub-projects move up one level). */
+export async function deleteLibraryProject(
+  id: string,
+  contents?: "move_to_parent",
+): Promise<{ deleted: boolean; id: string }> {
+  const q = contents ? `?contents=${contents}` : "";
+  return call(`/library/projects/${encodeURIComponent(id)}${q}`, {
+    method: "DELETE",
+    headers: await headers(false),
+  });
 }

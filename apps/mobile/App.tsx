@@ -894,7 +894,11 @@ export default function App({ initialUrl }: AppProps = {}) {
           // existing back button — not a replacement for it. Does not touch
           // isPrimary/PRIMARY_SCREEN_NAMES or any screen's own onBack/
           // backHandler.ts wiring.
-          <PushedScreenChrome onGoHome={goHome}>
+          <PushedScreenChrome
+            onGoHome={goHome}
+            screenName={screen.name}
+            onNavigate={handleNavigate}
+          >
             {renderScreen()}
           </PushedScreenChrome>
         )}

@@ -233,7 +233,8 @@ describe("LibraryPicker (Live Coach)", () => {
     const GONE = "33333333-3333-4333-8333-333333333333";
     const s = await render(<LibraryPicker selectedIds={[GONE]} onChange={onChange} onManage={onManage} />);
     expect(s.getByTestId("library-picker-toggle")).toBeTruthy();
-    expect(listLibrary).not.toHaveBeenCalled(); // collapsed: no fetch
+    await waitFor(() => expect(listLibrary).toHaveBeenCalled()); // loads on mount (collapsed warning)
+    expect(s.queryByTestId(`library-pick-${NOTE.id}`)).toBeNull(); // but stays collapsed
     await act(async () => {
       await fireEvent.press(s.getByTestId("library-picker-toggle"));
     });

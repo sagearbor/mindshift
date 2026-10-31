@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { View, Text, Switch, TouchableOpacity, StyleSheet, Platform } from "react-native";
-import { IDLE_ROOM_STATE, ROOM_WAKE_PHRASE, type RoomViewState } from "../live/roomMode";
+import {
+  displaySourceTitle,
+  IDLE_ROOM_STATE,
+  ROOM_WAKE_PHRASE,
+  type RoomCheck,
+  type RoomHeadsUp,
+  type RoomViewState,
+} from "../live/roomMode";
 
 /** The consent banner's words — exported so tests and the screen agree. */
 export const ROOM_BANNER_TITLE = "MindShift is listening to this room";
@@ -26,7 +33,79 @@ interface Props {
   speechAvailable?: boolean;
   /** How many library items are selected (cards and answers need some). */
   librarySelected: number;
+  /** Opt-in "Heads-up cues" (default off): proactive library passages when a
+   *  topic is mentioned, and a Check when a statement differs from the notes. */
+  headsUpCues?: boolean;
+  onHeadsUpCuesChange?: (on: boolean) => void;
 }
+
+/** A tappable cue: collapsed shows the snippet; tap shows the whole passage. */
+function CueCard({
+  testID,
+  kicker,
+  title,
+  body,
+  full,
+  source,
+  tone,
+}: {
+  testID: string;
+  kicker: string;
+  title: string;
+  body: string;
+  full: string;
+  source: string;
+  tone: "headsup" | "check";
+}) {
+  const [open, setOpen] = useState(false);
+  const canExpand = full.trim() !== body.trim();
+  return (
+    <TouchableOpacity
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityHint={canExpand ? "Tap to show the full passage" : undefined}
+      onPress={() => setOpen((v) => !v)}
+      style={[styles.card, tone === "check" ? styles.cardCheck : styles.cardHeadsUp]}
+    >
+      <Text style={[styles.cueKicker, tone === "check" && styles.cueKickerCheck]}>{kicker}</Text>
+      <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.cardFact} testID={`${testID}-body`}>
+        {open ? full : body}
+      </Text>
+      <Text style={styles.cardSource}>
+        From: {source}
+        {canExpand ? (open ? "  ·  tap to collapse" : "  ·  tap for the full passage") : ""}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+const asHeadsUp = (h: RoomHeadsUp) => (
+  <CueCard
+    key={h.id}
+    testID={`room-headsup-${h.id}`}
+    kicker={h.headline ? `${h.headline} — your notes:` : "From your notes:"}
+    title={h.title}
+    body={h.snippet}
+    full={h.passage}
+    source={displaySourceTitle(h.sourceTitle)}
+    tone="headsup"
+  />
+);
+
+const asCheck = (c: RoomCheck) => (
+  <CueCard
+    key={c.id}
+    testID={`room-check-${c.id}`}
+    kicker="Check — this differs from your notes"
+    title={c.title}
+    body={c.passage}
+    full={c.reason ? `${c.passage}\n\n${c.reason}` : c.passage}
+    source={displaySourceTitle(c.sourceTitle)}
+    tone="check"
+  />
+);
 
 const TRANSCRIPT_LINES = 6;
 
@@ -44,6 +123,8 @@ export default function RoomPanel({
   onSpeakAloudChange,
   speechAvailable = true,
   librarySelected,
+  headsUpCues = false,
+  onHeadsUpCuesChange,
 }: Props) {
   const room = state ?? IDLE_ROOM_STATE;
   const [showTranscript, setShowTranscript] = useState(false);
@@ -88,6 +169,23 @@ export default function RoomPanel({
         <Text style={styles.toggleLabel}>Speak answers aloud</Text>
         <Switch testID="room-speak-switch" value={speakAloud} onValueChange={onSpeakAloudChange} />
       </View>
+      {onHeadsUpCuesChange ? (
+        <View testID="room-headsup-row">
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Heads-up cues</Text>
+            <Switch
+              testID="room-headsup-switch"
+              value={headsUpCues}
+              onValueChange={onHeadsUpCuesChange}
+            />
+          </View>
+          <Text style={styles.warn} testID="room-headsup-hint">
+            Off by default. When on, mentioning a topic your library covers shows the matching
+            passage, and a statement that contradicts your notes shows a Check. Quiet: a few cards
+            at most, never spoken.
+          </Text>
+        </View>
+      ) : null}
       {!speechAvailable ? (
         <Text style={styles.warn} testID="room-speech-unavailable">
           Spoken answers aren&apos;t available on this platform — they show on screen only.
@@ -123,6 +221,17 @@ export default function RoomPanel({
         </Text>
       ) : null}
 
+      {headsUpCues && room.checks.length > 0 ? (
+        <View style={styles.cards} testID="room-checks">
+          {room.checks.map(asCheck)}
+        </View>
+      ) : null}
+      {headsUpCues && room.headsUps.length > 0 ? (
+        <View style={styles.cards} testID="room-headsups">
+          {room.headsUps.map(asHeadsUp)}
+        </View>
+      ) : null}
+
       {room.cards.length > 0 ? (
         <View style={styles.cards} testID="room-cards">
           {room.cards.map((card, i) => (
@@ -133,7 +242,7 @@ export default function RoomPanel({
             >
               {card.title ? <Text style={styles.cardTitle}>{card.title}</Text> : null}
               <Text style={styles.cardFact}>{card.fact}</Text>
-              <Text style={styles.cardSource}>From: {card.sourceTitle || "your library"}</Text>
+              <Text style={styles.cardSource}>From: {displaySourceTitle(card.sourceTitle)}</Text>
             </View>
           ))}
         </View>
@@ -223,6 +332,10 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
+  cardHeadsUp: { borderLeftWidth: 6, borderLeftColor: "#2563EB" },
+  cardCheck: { borderLeftWidth: 6, borderLeftColor: "#D97706", backgroundColor: "#FFFBEB" },
+  cueKicker: { fontSize: 15, fontWeight: "600", color: "#1D4ED8" },
+  cueKickerCheck: { color: "#B45309" },
   cardOlder: { opacity: 0.7 },
   cardTitle: { fontSize: 22, fontWeight: "700", color: "#111827" },
   cardFact: { fontSize: 24, lineHeight: 32, color: "#111827" },

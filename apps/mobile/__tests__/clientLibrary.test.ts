@@ -2,6 +2,9 @@
  *  (server/routers/library.py). Global-fetch style, like clientAccount. */
 import {
   createLibraryNote,
+  createLibraryProject,
+  deleteLibraryProject,
+  updateLibraryProject,
   deleteLibraryItem,
   getLibraryItem,
   listLibrary,
@@ -70,6 +73,54 @@ describe("library API client", () => {
     expect(init.body).toBeInstanceOf(FormData);
     expect(init.headers["Content-Type"]).toBeUndefined();
     expect(init.headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("always sends an explicit title (picked name minus extension) when none is given", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ ...ITEM, kind: "document" }, 201));
+    await uploadLibraryFile({ uri: "file:///cache/9f1c-uuid.pdf", name: "Q3 Brief.final.pdf" });
+    const form = mockFetch.mock.calls[0][1].body as FormData;
+    expect(form.get("title")).toBe("Q3 Brief.final");
+  });
+
+  it("an explicit title wins over the picked name; an extensionless name is kept whole", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ ...ITEM, kind: "document" }, 201));
+    await uploadLibraryFile({ uri: "file:///a", name: "x.pdf" }, "  Mine ");
+    expect((mockFetch.mock.calls[0][1].body as FormData).get("title")).toBe("Mine");
+    mockFetch.mockResolvedValueOnce(ok({ ...ITEM, kind: "document" }, 201));
+    await uploadLibraryFile({ uri: "file:///a", name: "README" });
+    expect((mockFetch.mock.calls[1][1].body as FormData).get("title")).toBe("README");
+  });
+
+  it("sends project_id on upload and note create when given", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ ...ITEM, kind: "document" }, 201));
+    await uploadLibraryFile({ uri: "file:///a", name: "x.pdf" }, undefined, "proj-1");
+    expect((mockFetch.mock.calls[0][1].body as FormData).get("project_id")).toBe("proj-1");
+    mockFetch.mockResolvedValueOnce(ok(ITEM, 201));
+    await createLibraryNote("T", "body", "proj-2");
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toMatchObject({ kind: "note", project_id: "proj-2" });
+  });
+
+  it("project calls hit /library/projects with the right verbs and bodies", async () => {
+    const P = { id: "p1", name: "A", parent_id: null, created_at: "t", updated_at: "t" };
+    mockFetch.mockResolvedValue(ok(P));
+    await createLibraryProject("A", null);
+    await updateLibraryProject("p1", { name: "B" });
+    await updateLibraryProject("p1", { parent_id: null });
+    await deleteLibraryProject("p1");
+    await deleteLibraryProject("p1", "move_to_parent");
+    await updateLibraryItem("i1", { project_id: "p1" });
+    const c = mockFetch.mock.calls;
+    expect(c[0][0]).toMatch(/\/library\/projects$/);
+    expect(c[0][1].method).toBe("POST");
+    expect(JSON.parse(c[0][1].body)).toEqual({ name: "A", parent_id: null });
+    expect(c[1][0]).toMatch(/\/library\/projects\/p1$/);
+    expect(c[1][1].method).toBe("PATCH");
+    expect(JSON.parse(c[1][1].body)).toEqual({ name: "B" });
+    expect(JSON.parse(c[2][1].body)).toEqual({ parent_id: null });
+    expect(c[3][0]).toMatch(/\/library\/projects\/p1$/);
+    expect(c[3][1].method).toBe("DELETE");
+    expect(c[4][0]).toMatch(/\/library\/projects\/p1\?contents=move_to_parent$/);
+    expect(JSON.parse(c[5][1].body)).toEqual({ project_id: "p1" });
   });
 
   it("renames, edits note text, gets detail and deletes by id", async () => {

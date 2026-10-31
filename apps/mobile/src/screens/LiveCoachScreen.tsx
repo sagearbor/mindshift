@@ -30,7 +30,7 @@ import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { useDevModeStore } from "../store/devModeStore";
 import { useMoodStore } from "../store/moodStore";
-import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
+import { loadHeadsUpCues, loadLiveMode, saveHeadsUpCues, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
 import type { LiveMode } from "../live/localLlm";
@@ -170,6 +170,7 @@ export default function LiveCoachScreen({
     setRelationship,
     setSessionContext,
     setLibraryItemIds,
+    setHeadsUpCues,
     libraryAck,
     liveStatus,
     nudgeFlash,
@@ -332,6 +333,29 @@ export default function LiveCoachScreen({
     if (journalAction === "start") setSessionMode?.("journal");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [journalAction]);
+
+  // Room mode's opt-in "Heads-up cues": default off, remembered per account.
+  const [headsUpCues, setHeadsUpCuesState] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void loadHeadsUpCues(userId).then((on) => {
+      if (cancelled) return;
+      setHeadsUpCuesState(on);
+      setHeadsUpCues?.(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+  const handleHeadsUpCuesChange = useCallback(
+    (on: boolean) => {
+      setHeadsUpCuesState(on);
+      setHeadsUpCues?.(on);
+      void saveHeadsUpCues(userId, on);
+    },
+    [setHeadsUpCues, userId],
+  );
 
   const handleModeChange = useCallback(
     (mode: LiveMode) => {
@@ -813,6 +837,8 @@ export default function LiveCoachScreen({
           onSpeakAloudChange={setSpeakAloud}
           speechAvailable={speechAvailable}
           librarySelected={libraryIds.length}
+          headsUpCues={headsUpCues}
+          onHeadsUpCuesChange={handleHeadsUpCuesChange}
         />
       ) : null}
 

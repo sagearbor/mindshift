@@ -16,7 +16,7 @@ describe("PushedScreenChrome", () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(
-        <PushedScreenChrome onGoHome={jest.fn()}>
+        <PushedScreenChrome onGoHome={jest.fn()} screenName="library" onNavigate={jest.fn()}>
           <Text testID="pushed-child">screen content</Text>
         </PushedScreenChrome>,
       );
@@ -31,7 +31,7 @@ describe("PushedScreenChrome", () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(
-        <PushedScreenChrome onGoHome={onGoHome}>
+        <PushedScreenChrome onGoHome={onGoHome} screenName="library" onNavigate={jest.fn()}>
           <Text>content</Text>
         </PushedScreenChrome>,
       );
@@ -45,7 +45,7 @@ describe("PushedScreenChrome", () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(
-        <PushedScreenChrome onGoHome={jest.fn()}>
+        <PushedScreenChrome onGoHome={jest.fn()} screenName="library" onNavigate={jest.fn()}>
           <Text>content</Text>
         </PushedScreenChrome>,
       );
@@ -63,7 +63,7 @@ describe("PushedScreenChrome", () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(
-        <PushedScreenChrome onGoHome={jest.fn()}>
+        <PushedScreenChrome onGoHome={jest.fn()} screenName="library" onNavigate={jest.fn()}>
           <Text>content</Text>
         </PushedScreenChrome>,
       );
@@ -75,6 +75,24 @@ describe("PushedScreenChrome", () => {
 
     const bar = queryId(comp, "pushed-chrome-bar")!;
     expect(StyleSheet.flatten(bar.props.style).paddingBottom).toBe(12);
+    act(() => comp.unmount());
+  });
+
+  it("keeps the bottom tab bar and navigates through onNavigate", () => {
+    const { useLayoutStore } = require("../src/store/layoutStore");
+    act(() => useLayoutStore.getState().setTabSlots(["coach", "recordings"]));
+    const onNavigate = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <PushedScreenChrome onGoHome={jest.fn()} screenName="library" onNavigate={onNavigate}>
+          <Text>content</Text>
+        </PushedScreenChrome>,
+      );
+    });
+    expect(queryId(comp, "chrome-tab-bar")).toBeTruthy();
+    act(() => queryId(comp, "chrome-tab-coach")!.props.onPress());
+    expect(onNavigate).toHaveBeenCalledWith({ name: "live-coach" });
     act(() => comp.unmount());
   });
 });
