@@ -1394,87 +1394,51 @@ store_listing:
     char_count: 75
     limit: 80
   full_description:
-    char_count: 3260
+    char_count: 3524
     limit: 4000
     value: |
-      MindShift is an empathy coach that listens while you talk and tells you,
-      in the moment, how what you just said is likely to land — and what you
-      could say instead.
+      MindShift is an empathy coach that listens while you talk and tells you, in the moment, how what you just said is likely to land — and what you could say instead.
 
-      Most communication advice arrives too late. You read the book, you agree
-      with it, and then Tuesday night happens and you say the thing anyway.
-      MindShift works in the ninety seconds where it matters: while the
-      conversation is still in front of you.
+      Most communication advice arrives too late. You read the book, you agree with it, and then Tuesday night happens and you say the thing anyway. MindShift works in the ninety seconds where it matters: while the conversation is still in front of you.
 
       HOW IT WORKS
 
-      Start a session, put one earbud in, and talk. MindShift transcribes the
-      conversation, tracks the tone on both sides, and offers short, specific
-      alternatives you can actually say out loud. An empathy slider decides the
-      stance — from "hold your boundary" at one end to "pure validation" at the
-      other — so the coaching matches what this conversation needs rather than a
-      generic script.
+      Start a session, put one earbud in, and talk. MindShift transcribes the conversation, tracks the tone on both sides, and offers short, specific alternatives you can actually say out loud. An empathy slider decides the stance — from "hold your boundary" at one end to "pure validation" at the other — so the coaching matches what this conversation needs rather than a generic script.
 
-      When the conversation is over, you get the part that is genuinely hard to
-      see from the inside: where it turned, who escalated first, and the two or
-      three moments where a different sentence would have changed the next ten
-      minutes.
+      When the conversation is over, you get the part that is genuinely hard to see from the inside: where it turned, who escalated first, and the two or three moments where a different sentence would have changed the next ten minutes.
 
       BUILT WITH THERAPISTS IN MIND
 
       MindShift began as a tool for couples therapy, and it still shows.
 
-      • Share a session with your therapist by email. They see the transcript,
-        the tone timeline, and the analysis — and can keep private notes on it.
-      • Progress you can point at. Warmth, defensiveness, escalation and repair
-        are tracked over weeks, so "we're doing better" stops being a feeling and
-        becomes a line on a chart.
-      • Homework that produces evidence. The between-sessions conversations are
-        where the work actually happens; this is a way to bring them into the room.
+      • Share a session with your therapist by email. They see the transcript, the tone timeline, and the analysis — and can keep private notes on it.
+      • Progress you can point at. Warmth, defensiveness, escalation and repair are tracked over weeks, so "we're doing better" stops being a feeling and becomes a line on a chart.
+      • Homework that produces evidence. The between-sessions conversations are where the work actually happens; this is a way to bring them into the room.
 
       IN-APP CALLS
 
-      Phone calls lock other apps out of the microphone, so MindShift hosts the
-      call itself. Two people can talk with each side coached separately and
-      privately — you never see the suggestions written for the other person — and
-      a therapist can sit in as a silent observer, seeing the shared transcript
-      and both sides' coaching. The audio goes peer-to-peer; MindShift's server
-      only introduces the two phones to each other.
+      Phone calls lock other apps out of the microphone, so MindShift hosts the call itself. Two people can talk with each side coached separately and privately — you never see the suggestions written for the other person — and a therapist can sit in as a silent observer, seeing the shared transcript and both sides' coaching. The audio goes peer-to-peer; MindShift's server only introduces the two phones to each other.
 
       RECORD OR UPLOAD
 
-      Not every conversation is a live one. Record audio or video in the app, or
-      upload something you already have, and get the same analysis: who spoke,
-      how it landed, and what a better version of the sticky part would have
-      sounded like.
+      Not every conversation is a live one. Record audio or video in the app, or upload something you already have, and get the same analysis: who spoke, how it landed, and what a better version of the sticky part would have sounded like.
 
       PRIVACY, PLAINLY
 
-      This app hears private conversations, so here is the short version, and the
-      full version is at https://arborfam-hub.web.app/privacy.
+      This app hears private conversations, so here is the short version, and the full version is at https://arborfam-hub.web.app/privacy.
 
-      • A live coaching session keeps its audio by default so you can replay
-        and re-analyze it — turn Keep audio off and it's transcribed as it
-        streams and thrown away. Nothing else is stored unless you ask for it.
+      • A live coaching session keeps its audio by default so you can replay and re-analyze it — turn Keep audio off and it's transcribed as it streams and thrown away. Nothing else is stored unless you ask for it.
       • Recordings are opt-in, one at a time, with a consent tick.
-      • Your voice signature is a set of numbers, not a recording, and one tap
-        in Settings deletes it.
-      • Sharing is something you do on purpose, to one therapist you name by
-        email, and you can revoke it.
-      • Delete your whole account, and everything in it, yourself: Settings →
-        Account → Delete my account. It happens immediately.
+      • Your voice signature is a set of numbers, not a recording, and one tap in Settings deletes it.
+      • Sharing is something you do on purpose, to one therapist you name by email, and you can revoke it.
+      • Delete your whole account, and everything in it, yourself: Settings → Account → Delete my account. It happens immediately.
       • No ads. No advertising SDKs. Nothing sold to anyone, ever.
 
       WHAT IT IS NOT
 
-      MindShift is a communication coach, not therapy, not counselling, and not a
-      medical or mental-health service. It does not diagnose or treat anything.
-      If you or someone else is in crisis, contact a qualified professional or
-      your local emergency services.
+      MindShift is a communication coach, not therapy, not counselling, and not a medical or mental-health service. It does not diagnose or treat anything. If you or someone else is in crisis, contact a qualified professional or your local emergency services.
 
-      Requires a microphone. No account needed to try it — tap "Continue as
-      guest"; create an account when you want your sessions kept. English only
-      for now.
+      Requires a microphone. No account needed to try it — tap "Continue as guest"; create an account when you want your sessions kept. English only for now.
   app_category:
     value: "Communication"
     alternative_if_rejected: "Lifestyle"
