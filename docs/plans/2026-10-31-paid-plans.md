@@ -67,17 +67,20 @@ headroom). Everything is a constant at the top of `server/plans.py`
 `MINDSHIFT_PLAN_<LEVEL>_<KEY>`); adding a level is one entry in each. Daily STT
 and AI caps are abuse backstops at 25% of the monthly allowance.
 
-| Level | Price/mo | Allowance (hours, library) | Max cost to us, all cloud | Max cost, STT on-device | Margin after 15% store fee (cloud / on-device) |
-|---|---|---|---|---|---|
-| Free | $0 | 1 h once; 5 items | $0.51 once | $0.06 once | n/a |
-| Free + referral max | $0 | 2 h once (1 h + 1 h bonus); 5 items | $1.02 once | $0.12 once | n/a |
-| Basic | $5 | 6 h / month; 25 items | $3.06 | $0.36 | +$1.19 / +$3.89 |
-| Pro | $12 | 20 h / month; 200 items | $10.20 | $1.19 | $0.00 / +$9.01 |
-| Max | $25 | 40 h / month; 1000 items | $20.40 | $2.38 | +$0.85 / +$18.87 |
+| Level | Price/mo | Allowance | Max cost to us (all cloud, $0.51/h) | Net after 15% store fee | Worst-case profit and margin | Profit if half used |
+|---|---|---|---|---|---|---|
+| Free | $0 | 1 h once; 5 items | $0.51 once | n/a | -$0.51 once | n/a |
+| Free + referral max | $0 | 2 h once (1 h + 1 h bonus); 5 items | $1.02 once | n/a | -$1.02 once | n/a |
+| Basic | $10 ($100/yr) | 8 h / month; 25 items | $4.08 | $8.50 | $4.42 (52%) | $6.46 |
+| Pro | $25 ($250/yr) | 20 h / month; 200 items | $10.20 | $21.25 | $11.05 (52%) | $16.15 |
+| Max | $100 ($1,000/yr) | 80 h / month; 1000 items | $40.80 | $85.00 | $44.20 (52%) | $64.60 |
+
+With STT on-device the cost is only AI tokens ($0.06/h), so margins rise above
+90%. Annual prices are 10x monthly (two months free); net figures are per month.
 
 If 1,000 free users each use their whole allowance: **$510 once** all-cloud
 ($60 if all on-device STT); **$1,020** if every one also earned the referral
-bonus. That is a one-time total, not per month. Pro breaks even only in the
+bonus. That is a one-time total, not per month. Every paid tier keeps about a 52% margin even in the
 all-cloud worst case; a typical user uses a fraction of the allowance. Token
 headroom adds at most $0.013 per allowance hour.
 
@@ -135,29 +138,28 @@ refused; the 10-minute listening gate means a fake account must really listen
 
 ### Pricing proposal
 
-Basic $5, Pro $12, Max $25 per month (store tiers). Reasoning:
+Basic $10, Pro $25, Max $100 per month (store tiers). Reasoning:
 
-- Variable cost is STT $0.25-0.45 per listening hour plus coach LLM tokens
-  (about 40k tokens per measured 30-minute coached call). A user who listens
-  1 h/day costs $7.50-13.50/month in STT alone. A $12 price only works if
-  Pro's STT cap is bounded: Pro is capped at 40 h/month (worst case $21.60
-  incl. AI tokens, see the table above; typical 15 h is about $7.65).
+- Variable cost is $0.51 per listening hour worst case (cloud STT $0.45 plus
+  about 33k AI tokens). Each paid tier is priced at the same hourly rate
+  ($1.25/h for Basic and Pro, $1.25/h for Max, before the store fee), so every
+  tier keeps about a 52% margin after a 15% store fee even if the whole
+  allowance is used all-cloud, and more when STT is on-device or usage is partial.
 - Apple/Google take 15% (small business program / subscriptions after year 1)
-  to 30%, so $12 nets about $10.2 (15%) to $8.4 (30%).
-- $10 would leave almost nothing for heavy users; $15 fits the market for
-  "AI meeting coach" but is a harder first price. Start at $12, revisit with
-  `scripts/usage_report.py` data. A cheaper tier later is a one-line table row
-  (`plus`), not a rewrite.
+  to 30%; at 30% the worst-case margin falls to about 40%.
+- Revisit prices and allowances with `scripts/usage_report.py` data. A new tier
+  is one entry each in `LEVELS`, `LABELS`, `ALLOWANCE_HOURS`, `PRICE_USD`, `LIBRARY`.
 
 ### Products (one subscription group, mirrors oral history)
 
 | Product id | Period | Price |
 |---|---|---|
-| `mindshift_basic_monthly` | 1 month | $5 |
-| `mindshift_pro_monthly` | 1 month | $12 |
-| `mindshift_max_monthly` | 1 month | $25 |
-
-(Annual products, about 2 months free, can be added later as `_annual`.)
+| `mindshift_basic_monthly` | 1 month | $10 |
+| `mindshift_basic_annual` | 1 year | $100 |
+| `mindshift_pro_monthly` | 1 month | $25 |
+| `mindshift_pro_annual` | 1 year | $250 |
+| `mindshift_max_monthly` | 1 month | $100 |
+| `mindshift_max_annual` | 1 year | $1,000 |
 All three share one subscription group ranked max > pro > basic.
 
 Entitlement ids `basic`, `pro`, `max`. Level resolution is by entitlement or product-id prefix
@@ -206,14 +208,12 @@ release scripts (`ship-mobile-app` skill), Android and iOS together.
 
 1. **App Store Connect**: Agreements, Tax, and Banking -> sign the Paid Apps
    Agreement, add bank + tax forms (status Active). App -> Monetization ->
-   Subscriptions -> create group `MindShift`; create `mindshift_basic_monthly` ($5),
-   `mindshift_pro_monthly` ($12) and `mindshift_max_monthly` ($25), localized name/description, review
+   Subscriptions -> create group `MindShift`; create the six product ids above (monthly $10/$25/$100, annual $100/$250/$1,000), localized name/description, review
    screenshot of the paywall, all countries. Users and Access -> Integrations ->
    In-App Purchase -> generate a key (.p8). Update App Privacy for Purchases.
    First IAPs ship with the next app version.
 2. **Google Play Console**: Settings -> Payments profile (merchant account).
-   App -> Monetize -> Subscriptions -> create the same three product ids (base plan
-   `monthly`), activate. Create a
+   App -> Monetize -> Subscriptions -> create the same six product ids (base plans `monthly` and `annual`), activate. Create a
    Cloud service account for RevenueCat with "View financial data" and "Manage
    orders and subscriptions"; download its JSON. Enable real-time developer
    notifications with the Pub/Sub topic RevenueCat gives. License testing: add

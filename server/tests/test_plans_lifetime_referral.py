@@ -172,7 +172,7 @@ def _tok(n):
 
 def test_levels_and_listening_hour_numbers():
     assert plans.LEVELS == ("free", "basic", "pro", "max")
-    for lv, hours in (("free", 1), ("basic", 6), ("pro", 20), ("max", 40)):
+    for lv, hours in (("free", 1), ("basic", 8), ("pro", 20), ("max", 80)):
         secs = plans.limit_for(lv, "stt_lifetime_seconds" if lv == "free" else "stt_monthly_seconds")
         toks = plans.limit_for(lv, "llm_lifetime_tokens" if lv == "free" else "llm_monthly_tokens")
         assert secs == hours * 3600 and toks == hours * plans.TOKENS_PER_HOUR
