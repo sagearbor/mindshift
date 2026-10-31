@@ -29,6 +29,9 @@ export const ROOM_CONSENT_LINE =
 /** Newest-first caps for the screen: the latest few cards stay readable. */
 export const MAX_ROOM_CARDS = 4;
 export const MAX_ROOM_ANSWERS = 3;
+/** Heads-up cues: a few on screen at once (newest first). */
+export const MAX_ROOM_HEADSUPS = 3;
+export const MAX_ROOM_CHECKS = 2;
 
 export interface RoomCard {
   id: string;
@@ -38,6 +41,46 @@ export interface RoomCard {
   sourceTitle: string;
   /** Session seconds of the utterance that mentioned it. */
   t: number;
+}
+
+/** Opt-in proactive cue: "You mentioned profit - your plan: ...". */
+export interface RoomHeadsUp {
+  id: string;
+  headline: string;
+  /** A real heading / key phrase of the passage, never one word of it. */
+  title: string;
+  /** One or two sentences. */
+  snippet: string;
+  /** The whole passage, shown when the card is tapped open. */
+  passage: string;
+  sourceItemId: string;
+  sourceTitle: string;
+  t: number;
+}
+
+/** Opt-in "this differs from your notes" card (a confident contradiction). */
+export interface RoomCheck {
+  id: string;
+  statement: string;
+  title: string;
+  passage: string;
+  reason: string;
+  sourceItemId: string;
+  sourceTitle: string;
+  t: number;
+}
+
+/** Library items without a real title can carry their id; never show that. */
+export function displaySourceTitle(title: string): string {
+  const t = (title || "").trim();
+  if (
+    !t ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t) ||
+    /^[0-9a-f]{16,}$/i.test(t)
+  ) {
+    return "your library";
+  }
+  return t;
 }
 
 export interface RoomAnswer {
@@ -51,6 +94,8 @@ export interface RoomAnswer {
 
 export interface RoomViewState {
   cards: RoomCard[];
+  headsUps: RoomHeadsUp[];
+  checks: RoomCheck[];
   answers: RoomAnswer[];
   /** Wake phrase heard alone — the next utterance is the question. */
   listening: boolean;
@@ -62,6 +107,8 @@ export interface RoomViewState {
 
 export const IDLE_ROOM_STATE: RoomViewState = {
   cards: [],
+  headsUps: [],
+  checks: [],
   answers: [],
   listening: false,
   answerError: null,
@@ -70,6 +117,8 @@ export const IDLE_ROOM_STATE: RoomViewState = {
 
 export type RoomFrame =
   | { kind: "card"; card: RoomCard }
+  | { kind: "headsup"; headsUp: RoomHeadsUp }
+  | { kind: "check"; check: RoomCheck }
   | { kind: "answer"; answer: RoomAnswer }
   | { kind: "listening"; t: number }
   | { kind: "answer_error"; question: string; reason: string; t: number };
@@ -92,6 +141,42 @@ export function parseRoomFrame(data: unknown): RoomFrame | null {
           id,
           title: str(d.title),
           fact,
+          sourceItemId: str(d.source_item_id),
+          sourceTitle: str(d.source_title),
+          t: num(d.t),
+        },
+      };
+    }
+    case "room_headsup": {
+      const id = str(d.id);
+      const snippet = str(d.snippet).trim();
+      if (!id || !snippet) return null;
+      return {
+        kind: "headsup",
+        headsUp: {
+          id,
+          headline: str(d.headline),
+          title: str(d.title),
+          snippet,
+          passage: str(d.passage).trim() || snippet,
+          sourceItemId: str(d.source_item_id),
+          sourceTitle: str(d.source_title),
+          t: num(d.t),
+        },
+      };
+    }
+    case "room_check": {
+      const id = str(d.id);
+      const passage = str(d.passage).trim();
+      if (!id || !passage) return null;
+      return {
+        kind: "check",
+        check: {
+          id,
+          statement: str(d.statement),
+          title: str(d.title),
+          passage,
+          reason: str(d.reason),
           sourceItemId: str(d.source_item_id),
           sourceTitle: str(d.source_title),
           t: num(d.t),
@@ -130,6 +215,14 @@ export function applyRoomFrame(state: RoomViewState, frame: RoomFrame): RoomView
     case "card": {
       if (state.cards.some((c) => c.id === frame.card.id)) return state;
       return { ...state, cards: [frame.card, ...state.cards].slice(0, MAX_ROOM_CARDS) };
+    }
+    case "headsup": {
+      if (state.headsUps.some((c) => c.id === frame.headsUp.id)) return state;
+      return { ...state, headsUps: [frame.headsUp, ...state.headsUps].slice(0, MAX_ROOM_HEADSUPS) };
+    }
+    case "check": {
+      if (state.checks.some((c) => c.id === frame.check.id)) return state;
+      return { ...state, checks: [frame.check, ...state.checks].slice(0, MAX_ROOM_CHECKS) };
     }
     case "answer":
       return {

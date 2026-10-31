@@ -20,6 +20,8 @@ jest.mock("../src/api/therapist", () => ({
 jest.mock("../src/live/modePrefs", () => ({
   loadLiveMode: jest.fn().mockResolvedValue("room"),
   saveLiveMode: jest.fn().mockResolvedValue(undefined),
+  loadHeadsUpCues: jest.fn().mockResolvedValue(false),
+  saveHeadsUpCues: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("../src/api/client", () => ({
   postShare: jest.fn(),

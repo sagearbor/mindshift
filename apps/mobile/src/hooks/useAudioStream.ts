@@ -401,6 +401,10 @@ interface UseAudioStreamReturn {
    *  config update the moment the selection changes mid-session ([] clears
    *  it). Titles and contents never pass through here. */
   setLibraryItemIds: (ids: string[]) => void;
+  /** Room mode's opt-in "Heads-up cues" (default off). Sent as
+   *  `heads_up_cues: true` on the first config frame when on, and as a config
+   *  update the moment it changes mid-session. */
+  setHeadsUpCues: (on: boolean) => void;
   /** What the server last acknowledged for the selection (its config_ack
    *  `library`): ids it will use and ids it ignored (not the user's own /
    *  deleted). Null until a frame carrying ids is acknowledged. */
@@ -736,6 +740,7 @@ export function useAudioStream(
   /** Coach-library selection (ids only) and what the server was last sent. */
   const libraryIdsRef = useRef<string[]>([]);
   const sentLibraryIdsRef = useRef<string[]>([]);
+  const headsUpCuesRef = useRef(false);
   const [libraryAck, setLibraryAck] = useState<
     { item_ids: string[]; ignored_item_ids: string[] } | null
   >(null);
@@ -2263,7 +2268,9 @@ export function useAudioStream(
             // Room mode: the server runs the meeting-room assistant instead
             // of the coach (server/room_mode.py). Other modes send no `mode`
             // (their wire is unchanged).
-            ...(sessionModeRef.current === "room" ? { mode: "room" } : {}),
+            ...(sessionModeRef.current === "room"
+              ? { mode: "room", ...(headsUpCuesRef.current ? { heads_up_cues: true } : {}) }
+              : {}),
             // Owner-only "Debug session capture" (Settings → Diagnostics):
             // the server keeps this session's transcript in memory for a
             // zero-turn POST. Absent for everyone else.
@@ -3326,6 +3333,19 @@ export function useAudioStream(
     }
   }, []);
 
+  const setHeadsUpCues = useCallback((on: boolean) => {
+    if (headsUpCuesRef.current === on) return;
+    headsUpCuesRef.current = on;
+    if (!sessionActiveRef.current) return; // the first config frame carries it
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return; // a reconnect's config carries it
+    try {
+      ws.send(JSON.stringify({ type: "config", heads_up_cues: on }));
+    } catch {
+      // Socket mid-close: a reconnect's config frame carries it.
+    }
+  }, []);
+
   const setSessionMode = useCallback((mode: LiveMode) => {
     sessionModeRef.current = mode;
     loopModeRef.current = mode;
@@ -3726,6 +3746,7 @@ export function useAudioStream(
     setRelationship,
     setSessionContext,
     setLibraryItemIds,
+    setHeadsUpCues,
     libraryAck,
     liveStatus,
     nudgeFlash,

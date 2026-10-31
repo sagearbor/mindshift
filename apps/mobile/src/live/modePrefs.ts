@@ -67,3 +67,43 @@ export async function saveLiveMode(
     // Fail-open: the choice still applies to this session.
   }
 }
+
+// ---------------------------------------------------------------------------
+// Heads-up cues (Room mode): opt-in, default OFF, remembered per account.
+// ---------------------------------------------------------------------------
+
+export const HEADS_UP_KEY_PREFIX = "mindshift.headsUpCues.v1";
+
+export function headsUpKey(userId: string | null | undefined): string {
+  const id = (userId || "anon").replace(/[^A-Za-z0-9._-]/g, "_");
+  return `${HEADS_UP_KEY_PREFIX}.${id}`;
+}
+
+export async function loadHeadsUpCues(userId: string | null | undefined): Promise<boolean> {
+  const key = headsUpKey(userId);
+  try {
+    const raw =
+      Platform.OS === "web"
+        ? webStorage()?.getItem(key) ?? null
+        : await SecureStore.getItemAsync(key);
+    return raw === "1";
+  } catch {
+    return false;
+  }
+}
+
+export async function saveHeadsUpCues(
+  userId: string | null | undefined,
+  on: boolean,
+): Promise<void> {
+  const key = headsUpKey(userId);
+  try {
+    if (Platform.OS === "web") {
+      webStorage()?.setItem(key, on ? "1" : "0");
+    } else {
+      await SecureStore.setItemAsync(key, on ? "1" : "0");
+    }
+  } catch {
+    // Fail-open: the choice still applies to this session.
+  }
+}
