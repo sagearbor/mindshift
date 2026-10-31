@@ -22,6 +22,7 @@
  * Mirrors me.ts / client.ts: fresh Firebase ID token as Bearer auth when
  * signed in; absent otherwise so the server answers its own 401.
  */
+import { reportPlanLimit } from "../store/planLimitStore";
 import { Platform } from "react-native";
 import { File as FSFile, FileMode } from "expo-file-system";
 import { getFreshToken } from "../auth/authToken";
@@ -114,7 +115,10 @@ export async function postLiveSession(body: LiveSessionBody): Promise<PostLiveSe
       const detail = await res
         .json()
         .then((d: { detail?: unknown }) =>
-          typeof d?.detail === "string" ? d.detail : "",
+          typeof d?.detail === "string"
+            ? d.detail
+            : // typed quota_notice / plan_limit body: open the upgrade sheet
+              (reportPlanLimit(d?.detail) ?? ""),
         )
         .catch(() => "");
       return { status: "failed", error: detail || `API error: ${res.status}` };

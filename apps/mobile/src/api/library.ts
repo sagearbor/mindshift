@@ -15,6 +15,7 @@
 import { Platform } from "react-native";
 import { File as FSFile } from "expo-file-system";
 import { getFreshToken } from "../auth/authToken";
+import { reportPlanLimit } from "../store/planLimitStore";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -88,6 +89,10 @@ async function errorMessage(res: Response): Promise<string> {
     const body = (await res.json()) as { detail?: unknown };
     const detail = body?.detail;
     if (typeof detail === "string") return detail;
+    // Typed plan-limit 429 (server/plans.py): open the upgrade sheet and use
+    // the server's friendly sentence as the error text.
+    const planMsg = reportPlanLimit(detail);
+    if (planMsg) return planMsg;
     if (Array.isArray(detail) && detail[0] && typeof detail[0].msg === "string") return detail[0].msg;
   } catch {
     // Non-JSON body: fall back to the status line.

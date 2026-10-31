@@ -69,6 +69,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Mapping
 
+import plans
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -210,6 +212,9 @@ class Exceeded:
     cap: float
     unit: str
     resets_at: str
+    # Plan context (server/plans.py) so the app can offer an upgrade.
+    plan: str = "free"
+    upgrade_plan: "str | None" = None
 
     @property
     def stopped(self) -> tuple[str, ...]:
@@ -242,6 +247,8 @@ class Exceeded:
             "stopped": list(self.stopped),
             "still_working": list(self.still_working),
             "message": self.message,
+            "plan": self.plan,
+            "upgrade_plan": self.upgrade_plan,
         }
 
 
@@ -409,9 +416,13 @@ class UsageMeter:
         # runs per audio frame (~10/s per session), so a per-limit copy of the
         # counters under the lock would be the wrong shape at scale.
         snapshot = self.totals(uid)
+        level = plans.effective_cached(uid).level
         for limit in limits:
-            cap_attr, _, unit = LIMITS[limit]
-            cap = float(globals().get(cap_attr) or 0)
+            _, _, unit = LIMITS[limit]
+            # The cap comes from the user's effective plan (server/plans.py);
+            # the free level reads this module's DAILY_* constants, so
+            # existing users and env overrides see exactly today's numbers.
+            cap = plans.cap_for(uid, limit)
             if cap <= 0:  # 0 / unset = no cap
                 continue
             used = self._used_from(snapshot, limit)
@@ -419,6 +430,7 @@ class UsageMeter:
                 return Exceeded(
                     feature=feature, limit=limit, used=used, cap=cap,
                     unit=unit, resets_at=next_reset_iso(),
+                    plan=level, upgrade_plan=plans.upgrade_level(level),
                 )
         return None
 
@@ -427,6 +439,8 @@ class UsageMeter:
         """Refresh this process's view of what OTHER instances recorded for
         ``uid`` today, at most once per :data:`SEED_TTL_S`. Called when a
         session opens and from the flusher; never on the per-utterance path."""
+        if uid and uid != UNATTRIBUTED_UID:
+            await plans.prime(uid)  # own TTL; never raises
         store = self._store
         if store is None or not uid or uid == UNATTRIBUTED_UID:
             return

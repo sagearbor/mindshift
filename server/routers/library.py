@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 import library
+import plans
 from auth import get_current_uid
 from library import models
 from library.service import LibraryError, NotFound
@@ -100,6 +101,11 @@ class Deleted(BaseModel):
     id: str
 
 
+def _declared_size(request: Request) -> int:
+    length = request.headers.get("content-length")
+    return int(length) if length and length.isdigit() else 0
+
+
 def _item(rec) -> LibraryItem:
     return LibraryItem(
         id=rec.id, title=rec.title, kind=rec.kind, chars=rec.chars, status=rec.status,
@@ -125,6 +131,9 @@ async def create_item(
 ) -> LibraryItem:
     svc = library.get_service()
     ctype = (request.headers.get("content-type") or "").lower()
+    # Plan gate (server/plans.py): blocks creating NEW items over the user's
+    # plan caps; never touches existing ones. Raises HTTP 429 `plan_limit`.
+    await plans.check_library_create(uid, svc, _declared_size(request))
     try:
         if ctype.startswith("multipart/form-data"):
             length = request.headers.get("content-length")
