@@ -41,7 +41,8 @@ Behaviour, in short:
 - Redeem: auth required, no guests (a guest uid is disposable), per-IP limiter
   plus 8 failures/hour/uid, one generic error for unknown/revoked/expired/used-up
   codes, atomic use counting in a Firestore transaction, idempotent per
-  user+code, extends a same-level grant (`expires = max(current, now) + days`),
+  user+code (a 7-day code is `mint_code.py mint --plan pro --days 7`, tested),
+  extends a same-level grant (`expires = max(current, now) + days`),
   never shortens, and does not spend a use when the user already has Pro with no
   expiry or via a paying subscription.
 - If `MINDSHIFT_FIRESTORE_PROJECT` is unset, plans are unavailable: everyone is
@@ -51,17 +52,57 @@ Behaviour, in short:
   nothing changes). They are reported by `/plan` but not enforced; making either a
   Pro perk means flipping the table value and adding an `effective_cached(uid)`
   check at the (other agent's) call site.
-- Known gaps: `DELETE /me` does not yet delete `ms_plans/{uid}` (add to
-  `account_deletion.py`; a few fields, but it is the user's uid); the per-uid
-  failure limiter is per process.
+- `DELETE /me` removes `ms_plans/{uid}`, its redemptions, the user's referral
+  code and referral record (`plan_records` in the deletion counts).
+- Known gap: the per-uid redeem failure limiter is per process.
 
-### Free-tier cost note
+### Speech-to-text allowance (owner decision 2026-10-31)
 
-Free's daily caps are today's, including 6 h/day of cloud STT. At roughly
-$0.25-0.45 per listening hour that is up to ~$2.70/day for one abusive free
-account. Phase 1 deliberately did not change it. Tightening free is a one-line
-edit to `LIMITS["free"]` (set explicit numbers instead of `None`), e.g. 1 h/day
-STT and 300k tokens/day, once Pro exists to sell against.
+Free gets **2 hours of cloud transcription as a LIFETIME total per account**
+(one constant: `plans.FREE_STT_LIFETIME_SECONDS`), not per day. Pro gets a
+calendar-month allowance (`stt_monthly_seconds`, 60 h by default). The counters
+live on `ms_plans/{uid}` (`lifetime`, `monthly`), are persisted by the usage
+flusher, survive restarts and day rollover, and are never touched by a redeem
+or grant. Over the limit: the live session keeps the on-device transcript and
+coaching, one notice says "You've used your 2 free hours of transcription",
+nothing is deleted. Other metrics keep their daily caps. Like the library caps,
+the windows are enforced only when plans are configured (Firestore project set).
+Worst-case free cost is now a one-time ~$0.50-0.90 per account.
+
+### Referrals (built)
+
+Every signed-in (non-guest) user has a personal share code (8 chars, e.g.
+`ABCD-2345`; shown in Settings > Plan with a Share button, created lazily on
+`GET /plan`). A new user types it into the same "Have a code?" box.
+
+- The new user gets **+7 days Pro immediately**.
+- The referrer gets **+7 days Pro only after the new user has done >= 10 minutes
+  of real live listening** (counted by the same usage flusher, so it is server-side
+  evidence, not a client claim). Credited exactly once per new account.
+- Rewards are Pro **days**, never percent discounts (store subscriptions cannot
+  take a dynamic % off).
+- Records: `ms_referrals/{new_uid}` = `{referrer, status: pending|rewarded|capped,
+  created_at, closed_at}`; `ms_referral_codes/{CODE}` = `{uid}`. Opaque uids only,
+  no email, name or device data. All removed by `DELETE /me` for that user's own
+  records.
+
+Abuse rules: guests cannot redeem (disposable uids); one referral per account,
+ever (`referred_by` + the `ms_referrals/{uid}` doc, written in a transaction); own
+code refused; the 10-minute listening gate makes throwaway-account farming cost
+real time (and each fake account still hits the 2-hour lifetime STT cap); at most
+**10 rewards per referrer (70 days)**, further ones are logged as `capped`; the
+usual per-IP and 8 failures/hour/uid redeem limits apply. Known limit: a person
+can make a second real account and listen 10 minutes; that is accepted, it costs
+us about $0.05 of STT.
+
+Users already on a paid store subscription: `plans.grant_days` returns `banked`
+and adds the days to `credit_days` on their plan doc instead of changing
+`plan_expires_at` (a promo must not overwrite the store's expiry). **Phase 2 must
+apply `credit_days`**: when RevenueCat sends EXPIRATION (or the subscription is
+cancelled and lapses), if `credit_days > 0`, set `plan=pro`, `plan_source=promo`,
+`plan_expires_at=now + credit_days`, and zero the field. Same rule for admin
+codes if you ever want them to bank. In phase 1 nobody has a store subscription,
+so banking is unit-tested but not yet exercised.
 
 ## Phase 2 (plan): RevenueCat + store subscriptions
 

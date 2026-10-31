@@ -48,12 +48,18 @@ LABELS: dict[str, str] = {"free": "Free", "pro": "Pro"}
 DAILY_KEYS = ("llm_tokens", "stt_seconds", "live_minutes", "model_downloads", "calls")
 LIBRARY_KEYS = ("library_items", "library_chars")
 FLAG_KEYS = ("room_mode", "heads_up_cues")
-LIMIT_KEYS = DAILY_KEYS + LIBRARY_KEYS + FLAG_KEYS
+# Cloud speech-to-text allowance that is NOT per day: a LIFETIME total (free)
+# or a calendar-MONTH total (pro). 0 = no such cap. The free number is the one
+# constant to tune: FREE_STT_LIFETIME_SECONDS.
+WINDOW_KEYS = ("stt_lifetime_seconds", "stt_monthly_seconds")
+LIMIT_KEYS = DAILY_KEYS + WINDOW_KEYS + LIBRARY_KEYS + FLAG_KEYS
+FREE_STT_LIFETIME_SECONDS = 2 * 3600  # "your 2 free hours"
 
 LIMITS: dict[str, dict[str, Any]] = {
     "free": {
         "llm_tokens": None, "stt_seconds": None, "live_minutes": None,
         "model_downloads": None, "calls": None,
+        "stt_lifetime_seconds": FREE_STT_LIFETIME_SECONDS, "stt_monthly_seconds": 0,
         # A trial-sized library; existing larger libraries are never trimmed.
         "library_items": 5, "library_chars": 200_000,
         # Both stay on for free so nothing regresses; flip here to make them
@@ -63,6 +69,7 @@ LIMITS: dict[str, dict[str, Any]] = {
     "pro": {
         "llm_tokens": 4_000_000, "stt_seconds": 12 * 3600, "live_minutes": 16 * 60,
         "model_downloads": 50, "calls": 150,
+        "stt_lifetime_seconds": 0, "stt_monthly_seconds": 60 * 3600,
         "library_items": 200, "library_chars": 20_000_000,
         "room_mode": True, "heads_up_cues": True,
     },
@@ -196,22 +203,35 @@ def decide_redeem(code: Optional[dict], already: bool, user: Optional[dict],
     if max_uses and uses >= max_uses:
         return Decision("invalid")
 
-    cur = effective(user, now)
-    if level_rank(cur.level) > level_rank(level) or (
-        cur.level == level and (cur.expires_at is None or cur.source == "revenuecat")
-    ):
+    kind, updates = grant_days(user, level, days, now)
+    if kind != "granted":
         return Decision("covered")
+    return Decision("granted", code_updates={"uses": uses + 1}, user_updates=updates)
+
+
+def grant_days(user: Optional[dict], level: str, days: int, now: datetime):
+    """Pure: how ``days`` of ``level`` land on ``user``.
+
+    -> ("granted", fields)  extends a same-level grant (never shortens);
+       ("banked", fields)   user pays via a store subscription: the days are
+                            banked in ``credit_days`` to apply after it ends
+                            (phase 2 applies them; phase 1 has no such users);
+       ("covered", {})      already has this level (or higher) with no expiry.
+    """
+    cur = effective(user, now)
+    if cur.source == "revenuecat" and level_rank(cur.level) >= level_rank(level):
+        return "banked", {"credit_days": int((user or {}).get("credit_days") or 0) + days}
+    if level_rank(cur.level) > level_rank(level) or (
+        cur.level == level and cur.expires_at is None
+    ):
+        return "covered", {}
     start = cur.expires_at if (cur.level == level and cur.expires_at) else now
-    return Decision(
-        "granted",
-        code_updates={"uses": uses + 1},
-        user_updates={
-            "plan": level,
-            "plan_expires_at": start + timedelta(days=days),
-            "plan_source": "promo",
-            "plan_updated_at": now,
-        },
-    )
+    return "granted", {
+        "plan": level,
+        "plan_expires_at": start + timedelta(days=days),
+        "plan_source": "promo",
+        "plan_updated_at": now,
+    }
 
 
 @dataclass
@@ -219,6 +239,111 @@ class RedeemResult:
     kind: str
     plan: str = "free"
     expires_at: Optional[datetime] = None
+
+
+# ---------------------------------------------------------------------------
+# Usage windows (lifetime / month) kept on the plan doc
+# ---------------------------------------------------------------------------
+
+def month_key(now: datetime) -> str:
+    return now.strftime("%Y-%m")
+
+
+def apply_usage(doc: Optional[dict], key: str, amount: float, now: datetime) -> dict:
+    """Pure: the ``lifetime`` / ``monthly`` fields after adding ``amount`` of
+    ``key``. Lifetime never resets; monthly resets when the month changes.
+    Plan grants / redeems never touch these fields."""
+    doc = doc or {}
+    life = dict(doc.get("lifetime") or {})
+    life[key] = float(life.get(key, 0)) + amount
+    mon = dict(doc.get("monthly") or {})
+    if mon.get("period") != month_key(now):
+        mon = {"period": month_key(now)}
+    mon[key] = float(mon.get(key, 0)) + amount
+    return {"lifetime": life, "monthly": mon}
+
+
+def window_used(doc: Optional[dict], key: str, window: str, now: datetime) -> float:
+    doc = doc or {}
+    if window == "lifetime":
+        return float((doc.get("lifetime") or {}).get(key, 0))
+    mon = doc.get("monthly") or {}
+    return float(mon.get(key, 0)) if mon.get("period") == month_key(now) else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Referrals: personal share code, +7 days Pro for BOTH sides
+# ---------------------------------------------------------------------------
+
+REFERRAL_DAYS = 7
+REFERRAL_MIN_LIVE_MINUTES = 10   # the new user must really use the app first
+REFERRAL_MAX_REWARDS = 10        # per referrer: 10 referrals = 70 days
+REFERRAL_CODE_LEN = 8            # admin codes are 12: length tells them apart
+REFERRALS = "ms_referrals"       # {referee_uid} -> status doc, no PII
+REFERRAL_CODES = "ms_referral_codes"  # {CODE} -> {uid}
+
+
+def generate_referral_code() -> str:
+    raw = "".join(secrets.choice(CODE_CHARSET) for _ in range(REFERRAL_CODE_LEN))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+def is_referral_code(normalized: str) -> bool:
+    return len(normalized) == REFERRAL_CODE_LEN
+
+
+@dataclass
+class ReferralRedeem:
+    kind: str  # granted | banked | covered | invalid | own_code | already_referred
+    referee_updates: dict = field(default_factory=dict)
+    referral_doc: Optional[dict] = None
+
+
+def decide_referral_redeem(referrer_uid: Optional[str], referee_uid: str,
+                           referee: Optional[dict], existing: Optional[dict],
+                           now: datetime) -> ReferralRedeem:
+    """New user B enters A's code. B gets +REFERRAL_DAYS Pro now; A's reward
+    waits (decide_referral_reward). One referral per account, ever."""
+    if not referrer_uid:
+        return ReferralRedeem("invalid")
+    if referrer_uid == referee_uid:
+        return ReferralRedeem("own_code")
+    if existing is not None or (referee or {}).get("referred_by"):
+        return ReferralRedeem("already_referred")
+    kind, updates = grant_days(referee, "pro", REFERRAL_DAYS, now)
+    updates = {**updates, "referred_by": referrer_uid}
+    return ReferralRedeem(
+        kind, updates,
+        {"referrer": referrer_uid, "created_at": now, "status": "pending",
+         "referee_days": REFERRAL_DAYS},
+    )
+
+
+@dataclass
+class ReferralReward:
+    kind: str  # rewarded | capped | not_ready | none
+    referral_updates: dict = field(default_factory=dict)
+    referrer_updates: dict = field(default_factory=dict)
+
+
+def decide_referral_reward(referral: Optional[dict], referee: Optional[dict],
+                           referrer: Optional[dict], now: datetime) -> ReferralReward:
+    """Credit the referrer once the referee has >= REFERRAL_MIN_LIVE_MINUTES
+    of real live listening. Exactly once per referee; at most
+    REFERRAL_MAX_REWARDS per referrer."""
+    if not referral or referral.get("status") != "pending":
+        return ReferralReward("none")
+    if window_used(referee, "live_minutes", "lifetime", now) < REFERRAL_MIN_LIVE_MINUTES:
+        return ReferralReward("not_ready")
+    earned = int((referrer or {}).get("referral_rewards") or 0)
+    if earned >= REFERRAL_MAX_REWARDS:
+        return ReferralReward("capped", {"status": "capped", "closed_at": now})
+    _, updates = grant_days(referrer, "pro", REFERRAL_DAYS, now)
+    return ReferralReward(
+        "rewarded",
+        {"status": "rewarded", "closed_at": now},
+        {**updates, "referral_rewards": earned + 1},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +361,8 @@ class MemoryPlanStore:
         self._users: dict[str, dict] = {}
         self._codes: dict[str, dict] = {}
         self._redemptions: set[tuple[str, str]] = set()
+        self._referrals: dict[str, dict] = {}
+        self._ref_codes: dict[str, str] = {}
         self._lock = threading.Lock()
 
     async def get(self, uid):
@@ -277,6 +404,66 @@ class MemoryPlanStore:
                 self._redemptions.add((uid, code))
             eff = effective(self._users.get(uid), now)
         return RedeemResult(d.kind, eff.level, eff.expires_at)
+
+
+    # -- usage windows, referrals, deletion ---------------------------------
+
+    async def add_usage(self, uid, key, amount, now):
+        with self._lock:
+            u = self._users.setdefault(uid, {})
+            u.update(apply_usage(u, key, amount, now))
+
+    async def delete_user(self, uid):
+        with self._lock:
+            n = 1 if self._users.pop(uid, None) is not None else 0
+            reds = {r for r in self._redemptions if r[0] == uid}
+            self._redemptions -= reds
+            n += len(reds)
+            if self._referrals.pop(uid, None) is not None:
+                n += 1
+            for code, owner in [c for c in self._ref_codes.items() if c[1] == uid]:
+                del self._ref_codes[code]
+                n += 1
+            return n
+
+    async def ensure_referral_code(self, uid):
+        with self._lock:
+            u = self._users.setdefault(uid, {})
+            if u.get("referral_code"):
+                return u["referral_code"]
+            while True:
+                c = normalize_code(generate_referral_code())
+                if c not in self._ref_codes:
+                    break
+            self._ref_codes[c] = uid
+            u["referral_code"] = c
+            return c
+
+    async def redeem_referral(self, referee, code, now):
+        with self._lock:
+            d = decide_referral_redeem(
+                self._ref_codes.get(code), referee, self._users.get(referee),
+                self._referrals.get(referee), now)
+            if d.kind in ("granted", "banked", "covered"):
+                self._users.setdefault(referee, {}).update(d.referee_updates)
+                self._referrals[referee] = d.referral_doc
+            eff = effective(self._users.get(referee), now)
+        return RedeemResult(d.kind, eff.level, eff.expires_at)
+
+    async def reward_referral(self, referee, now):
+        with self._lock:
+            ref = self._referrals.get(referee)
+            r = decide_referral_reward(
+                ref, self._users.get(referee),
+                self._users.get((ref or {}).get("referrer")), now)
+            if r.kind in ("rewarded", "capped"):
+                ref.update(r.referral_updates)
+                if r.referrer_updates:
+                    self._users.setdefault(ref["referrer"], {}).update(r.referrer_updates)
+        return r.kind
+
+    def referral_doc(self, referee):
+        return self._referrals.get(referee)
 
 
 class FirestorePlanStore:
@@ -347,6 +534,130 @@ class FirestorePlanStore:
         kind, udoc = run(db.transaction())
         eff = effective(udoc, now)
         return RedeemResult(kind, eff.level, eff.expires_at)
+
+    def _add_usage(self, uid, key, amount, now):
+        from google.cloud import firestore
+
+        db = self._get_db()
+        ref = db.collection(USERS).document(uid)
+
+        @firestore.transactional
+        def run(tx):
+            snap = ref.get(transaction=tx)
+            tx.set(ref, apply_usage(snap.to_dict() if snap.exists else None, key, amount, now),
+                   merge=True)
+
+        run(db.transaction())
+
+    def _delete_user(self, uid):
+        db = self._get_db()
+        ref = db.collection(USERS).document(uid)
+        n = 0
+        for d in ref.collection("redemptions").stream():
+            d.reference.delete()
+            n += 1
+        snap = ref.get()
+        code = (snap.to_dict() or {}).get("referral_code") if snap.exists else None
+        if code:
+            db.collection(REFERRAL_CODES).document(code).delete()
+            n += 1
+        rr = db.collection(REFERRALS).document(uid)
+        if rr.get().exists:
+            rr.delete()
+            n += 1
+        if snap.exists:
+            ref.delete()
+            n += 1
+        return n
+
+    def _ensure_referral_code(self, uid):
+        from google.api_core.exceptions import AlreadyExists
+
+        db = self._get_db()
+        ref = db.collection(USERS).document(uid)
+        snap = ref.get()
+        have = (snap.to_dict() or {}).get("referral_code") if snap.exists else None
+        if have:
+            return have
+        for _ in range(10):
+            c = normalize_code(generate_referral_code())
+            try:
+                db.collection(REFERRAL_CODES).document(c).create({"uid": uid})
+            except AlreadyExists:
+                continue
+            ref.set({"referral_code": c}, merge=True)
+            return c
+        raise RuntimeError("could not allocate a referral code")
+
+    def _redeem_referral(self, referee, code, now):
+        from google.cloud import firestore
+
+        db = self._get_db()
+        code_ref = db.collection(REFERRAL_CODES).document(code)
+        user_ref = db.collection(USERS).document(referee)
+        ref_ref = db.collection(REFERRALS).document(referee)
+
+        @firestore.transactional
+        def run(tx):
+            c = code_ref.get(transaction=tx)
+            u = user_ref.get(transaction=tx)
+            r = ref_ref.get(transaction=tx)
+            udoc = u.to_dict() if u.exists else None
+            d = decide_referral_redeem(
+                (c.to_dict() or {}).get("uid") if c.exists else None, referee, udoc,
+                r.to_dict() if r.exists else None, now)
+            if d.kind in ("granted", "banked", "covered"):
+                tx.set(user_ref, d.referee_updates, merge=True)
+                tx.set(ref_ref, d.referral_doc)
+                udoc = {**(udoc or {}), **d.referee_updates}
+            return d.kind, udoc
+
+        kind, udoc = run(db.transaction())
+        eff = effective(udoc, now)
+        return RedeemResult(kind, eff.level, eff.expires_at)
+
+    def _reward_referral(self, referee, now):
+        from google.cloud import firestore
+
+        db = self._get_db()
+        ref_ref = db.collection(REFERRALS).document(referee)
+        pre = ref_ref.get()
+        if not pre.exists or (pre.to_dict() or {}).get("status") != "pending":
+            return "none"
+        referrer = pre.to_dict()["referrer"]
+        user_ref = db.collection(USERS).document(referee)
+        a_ref = db.collection(USERS).document(referrer)
+
+        @firestore.transactional
+        def run(tx):
+            r = ref_ref.get(transaction=tx)
+            u = user_ref.get(transaction=tx)
+            a = a_ref.get(transaction=tx)
+            d = decide_referral_reward(
+                r.to_dict() if r.exists else None, u.to_dict() if u.exists else None,
+                a.to_dict() if a.exists else None, now)
+            if d.kind in ("rewarded", "capped"):
+                tx.update(ref_ref, d.referral_updates)
+                if d.referrer_updates:
+                    tx.set(a_ref, d.referrer_updates, merge=True)
+            return d.kind
+
+        return run(db.transaction())
+
+    async def add_usage(self, uid, key, amount, now):
+        await asyncio.to_thread(self._add_usage, uid, key, amount, now)
+
+    async def delete_user(self, uid):
+        return await asyncio.to_thread(self._delete_user, uid)
+
+    async def ensure_referral_code(self, uid):
+        return await asyncio.to_thread(self._ensure_referral_code, uid)
+
+    async def redeem_referral(self, referee, code, now):
+        return await asyncio.to_thread(self._redeem_referral, referee, code, now)
+
+    async def reward_referral(self, referee, now):
+        return await asyncio.to_thread(self._reward_referral, referee, now)
 
     async def get(self, uid):
         return await asyncio.to_thread(self._get, uid)
@@ -437,6 +748,81 @@ def effective_cached(uid: Optional[str]) -> Effective:
     with _cache_lock:
         hit = _cache.get(uid)
     return effective(hit[0] if hit else None)
+
+
+# Usage that feeds the lifetime/monthly windows and the referral reward. Recorded
+# in memory (hot path) and persisted by usage_meter's flusher via flush_usage().
+_TRACKED = {"stt.seconds": "stt_seconds", "live.minutes": "live_minutes"}
+_pending: dict[str, dict[str, float]] = {}
+
+
+def note_usage(uid: str, counters) -> None:
+    """Called from usage_meter.add (hot path: dict add under a lock)."""
+    for name, value in counters.items():
+        key = _TRACKED.get(name)
+        if key and isinstance(value, (int, float)) and value > 0:
+            with _cache_lock:
+                p = _pending.setdefault(uid, {})
+                p[key] = p.get(key, 0.0) + value
+
+
+def drop_pending(uid: str) -> None:
+    with _cache_lock:
+        _pending.pop(uid, None)
+
+
+def clear_pending() -> None:
+    with _cache_lock:
+        _pending.clear()
+
+
+def window_used_now(uid: str, key: str, window: str) -> float:
+    """Persisted (as of the last prime) + not-yet-persisted usage."""
+    now = datetime.now(timezone.utc)
+    with _cache_lock:
+        hit = _cache.get(uid)
+        pend = _pending.get(uid, {}).get(key, 0.0)
+    return window_used(hit[0] if hit else None, key, window, now) + pend
+
+
+async def flush_usage() -> None:
+    """Persist pending window usage and credit referral rewards. Never raises."""
+    store = get_store()
+    if store is None:
+        return
+    with _cache_lock:
+        batch = {u: dict(p) for u, p in _pending.items() if p}
+        _pending.clear()
+    now = datetime.now(timezone.utc)
+    for uid, keys in batch.items():
+        for key, amount in keys.items():
+            try:
+                await store.add_usage(uid, key, amount, now)
+            except Exception:  # noqa: BLE001
+                logger.warning("plan usage flush failed uid=%s", uid, exc_info=True)
+                with _cache_lock:
+                    p = _pending.setdefault(uid, {})
+                    p[key] = p.get(key, 0.0) + amount
+                continue
+            with _cache_lock:  # keep the cached doc current without a re-read
+                hit = _cache.get(uid)
+                if hit:
+                    doc = hit[0] if hit[0] is not None else {}
+                    doc.update(apply_usage(doc, key, amount, now))
+                    _cache[uid] = (doc, hit[1])
+        if "live_minutes" in keys:
+            await _maybe_reward_referrer(store, uid, now)
+
+
+async def _maybe_reward_referrer(store, uid: str, now: datetime) -> None:
+    try:
+        kind = await store.reward_referral(uid, now)
+        if kind == "rewarded":
+            logger.info("referral reward credited (referee uid=%s)", uid)
+            with _cache_lock:
+                _cache.clear()  # the referrer's cached plan is now stale
+    except Exception:  # noqa: BLE001
+        logger.warning("referral reward failed uid=%s", uid, exc_info=True)
 
 
 def cap_for(uid: Optional[str], key: str) -> float:

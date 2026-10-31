@@ -39,7 +39,7 @@ def _store(project):
 def _level(value: str) -> str:
     if value not in plans.LEVELS or value == "free":
         raise argparse.ArgumentTypeError(
-            f"plan must be one of {[l for l in plans.LEVELS if l != 'free']}")
+            f"plan must be one of {[lv for lv in plans.LEVELS if lv != 'free']}")
     return value
 
 

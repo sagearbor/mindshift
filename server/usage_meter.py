@@ -176,6 +176,12 @@ LIMITS: dict[str, tuple[str, tuple[str, ...], str]] = {
     "calls": ("DAILY_CALLS_CAP", (KEY_CALLS_STARTED,), "calls"),
 }
 
+# Plan-window limits: limit name -> (plans table key, window, counter key)
+PLAN_WINDOW_LIMITS = {
+    "stt_lifetime": ("stt_lifetime_seconds", "lifetime", "stt_seconds"),
+    "stt_monthly": ("stt_monthly_seconds", "month", "stt_seconds"),
+}
+
 # What each feature spends, and therefore which caps gate it. A feature is
 # blocked when ANY of its limits is exhausted.
 FEATURE_LIMITS: dict[str, tuple[str, ...]] = {
@@ -183,7 +189,9 @@ FEATURE_LIMITS: dict[str, tuple[str, ...]] = {
     # phone's on-device coaching untouched — that is the whole point.
     "cloud_suggestions": ("llm_tokens", "live_minutes"),
     # Cloud speech-to-text for a live session (the phone's local STT is free).
-    "cloud_transcription": ("stt_seconds", "live_minutes"),
+    # stt_lifetime / stt_monthly are plan windows (server/plans.py): free has a
+    # LIFETIME total, pro a monthly one; neither resets at midnight.
+    "cloud_transcription": ("stt_lifetime", "stt_monthly", "stt_seconds", "live_minutes"),
     "batch_analysis": ("llm_tokens",),
     "model_download": ("model_downloads",),
     "call_create": ("calls",),
@@ -215,6 +223,7 @@ class Exceeded:
     # Plan context (server/plans.py) so the app can offer an upgrade.
     plan: str = "free"
     upgrade_plan: "str | None" = None
+    friendly: "str | None" = None
 
     @property
     def stopped(self) -> tuple[str, ...]:
@@ -226,6 +235,8 @@ class Exceeded:
 
     @property
     def message(self) -> str:
+        if self.friendly:
+            return self.friendly
         working = ", ".join(self.still_working) or "nothing else on this path"
         return (
             f"Daily {self.limit} budget reached "
@@ -272,6 +283,12 @@ def next_reset_iso(when: "datetime | None" = None) -> str:
         hour=0, minute=0, second=0, microsecond=0,
     )
     return tomorrow.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def next_month_iso(when: "datetime | None" = None) -> str:
+    now = when or utc_now()
+    y, m = (now.year + 1, 1) if now.month == 12 else (now.year, now.month + 1)
+    return datetime(y, m, 1, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def days_since(since: str) -> list[str]:
@@ -362,6 +379,8 @@ class UsageMeter:
                     continue
                 bucket[name] = bucket.get(name, 0) + value
             self._dirty.add(key)
+        if key[0] != UNATTRIBUTED_UID:
+            plans.note_usage(key[0], counters)
 
     def add_llm(self, uid: "str | None", site: str, usage: Mapping[str, float]) -> None:
         """Record one LLM response's usage fields against ``site``."""
@@ -418,6 +437,11 @@ class UsageMeter:
         snapshot = self.totals(uid)
         level = plans.effective_cached(uid).level
         for limit in limits:
+            if limit in PLAN_WINDOW_LIMITS:
+                hit = self._check_window(uid, feature, limit, level)
+                if hit is not None:
+                    return hit
+                continue
             _, _, unit = LIMITS[limit]
             # The cap comes from the user's effective plan (server/plans.py);
             # the free level reads this module's DAILY_* constants, so
@@ -433,6 +457,35 @@ class UsageMeter:
                     plan=level, upgrade_plan=plans.upgrade_level(level),
                 )
         return None
+
+    @staticmethod
+    def _check_window(uid, feature, limit, level) -> "Exceeded | None":
+        """Lifetime / monthly plan caps. Enforced only when plans are
+        configured (a store exists), so an unconfigured deploy fails open."""
+        if plans.get_store() is None:
+            return None
+        table_key, window, counter = PLAN_WINDOW_LIMITS[limit]
+        cap = float(plans.limit_for(level, table_key) or 0)
+        if cap <= 0:
+            return None
+        used = plans.window_used_now(uid, counter, window)
+        if used < cap:
+            return None
+        hours = round(cap / 3600, 1)
+        hours = int(hours) if hours == int(hours) else hours
+        if window == "lifetime":
+            text = (f"You've used your {hours} free hours of transcription. "
+                    "Upgrade to Pro to keep going; your recordings and notes stay safe.")
+            resets = ""
+        else:
+            text = (f"You've used this month's {hours} hours of transcription. "
+                    "It refreshes at the start of next month.")
+            resets = next_month_iso()
+        return Exceeded(
+            feature=feature, limit=limit, used=used, cap=cap, unit="seconds",
+            resets_at=resets, plan=level, upgrade_plan=plans.upgrade_level(level),
+            friendly=text,
+        )
 
     # -- persistence (best-effort, always off the hot path) -----------------
     async def prime(self, uid: str) -> None:
@@ -463,6 +516,7 @@ class UsageMeter:
 
     async def flush(self) -> int:
         """Write every changed shard. Returns how many shards were written."""
+        await plans.flush_usage()  # lifetime/monthly windows + referral rewards
         store = self._store
         if store is None:
             with self._lock:
@@ -546,6 +600,7 @@ class UsageMeter:
             self._seed.clear()
             self._seeded_at.clear()
             self._dirty.clear()
+        plans.clear_pending()
 
 
 _meter = UsageMeter()

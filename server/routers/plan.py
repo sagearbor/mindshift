@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -47,6 +46,29 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
         cap = plans.limit_for(level, key)
         daily[key] = {"cap": cap, "used": round(meter.limit_used(uid, key), 3)}
     lib = await _library_usage(uid)
+    store = plans.get_store()
+    windows = {}
+    for name, key, window, counter in (
+        ("stt_lifetime", "stt_lifetime_seconds", "lifetime", "stt_seconds"),
+        ("stt_monthly", "stt_monthly_seconds", "month", "stt_seconds"),
+    ):
+        cap = plans.limit_for(level, key)
+        if cap:
+            windows[name] = {"cap": cap, "used": round(plans.window_used_now(uid, counter, window), 1)}
+    referral = None
+    if store is not None and not is_guest:
+        try:
+            doc = await store.get(uid) or {}
+            code = doc.get("referral_code") or await store.ensure_referral_code(uid)
+            referral = {
+                "code": f"{code[:4]}-{code[4:]}",
+                "rewards_earned": int(doc.get("referral_rewards") or 0),
+                "max_rewards": plans.REFERRAL_MAX_REWARDS,
+                "days_each": plans.REFERRAL_DAYS,
+                "already_referred": bool(doc.get("referred_by")),
+            }
+        except Exception:  # noqa: BLE001 - the card renders without it
+            logger.warning("referral code unavailable uid=%s", uid, exc_info=True)
     nxt = plans.upgrade_level(level)
     return {
         "plan": level,
@@ -56,6 +78,8 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
         "is_guest": is_guest,
         "limits": {k: plans.limit_for(level, k) for k in plans.LIMIT_KEYS},
         "daily": daily,
+        "windows": windows,
+        "referral": referral,
         "library": lib,
         "flags": {k: bool(plans.limit_for(level, k)) for k in plans.FLAG_KEYS},
         "upgrade_plan": nxt,
@@ -103,12 +127,25 @@ async def redeem(
     code = plans.normalize_code(body.code)
     now = datetime.now(timezone.utc)
     try:
-        result = await store.redeem(uid, code, now)
+        if plans.is_referral_code(code):
+            result = await store.redeem_referral(uid, code, now)
+        else:
+            result = await store.redeem(uid, code, now)
     except Exception:  # noqa: BLE001
         logger.exception("redeem failed uid=%s", uid)
         raise HTTPException(503, {
             "type": "redeem_error", "reason": "unavailable",
             "message": "Couldn't redeem right now. Please try again.",
+        })
+    if result.kind == "already_referred":
+        raise HTTPException(400, {
+            "type": "redeem_error", "reason": "already_referred",
+            "message": "You've already used a friend's referral code.",
+        })
+    if result.kind == "own_code":
+        raise HTTPException(400, {
+            "type": "redeem_error", "reason": "own_code",
+            "message": "That's your own code. Share it with a friend instead!",
         })
     if result.kind == "invalid":
         plans.note_redeem_failure(uid)

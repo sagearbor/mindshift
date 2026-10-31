@@ -21,10 +21,20 @@ export interface PlanSummary {
   flags: Record<string, boolean>;
   upgrade_plan: string | null;
   redeem_available: boolean;
+  /** Free: lifetime cap; Pro: monthly cap (seconds of cloud transcription). */
+  windows?: Record<string, { cap: number; used: number }>;
+  /** Personal share code; null for guests / when plans are unavailable. */
+  referral?: {
+    code: string;
+    rewards_earned: number;
+    max_rewards: number;
+    days_each: number;
+    already_referred: boolean;
+  } | null;
   purchase: { available: boolean; message?: string };
 }
 
-export type RedeemStatus = "granted" | "already_redeemed" | "covered";
+export type RedeemStatus = "granted" | "already_redeemed" | "covered" | "banked";
 
 export type PlanApiError = Error & { status?: number; reason?: string };
 

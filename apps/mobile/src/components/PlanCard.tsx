@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Share } from "react-native";
 import { getPlan, redeemCode, type PlanSummary } from "../api/plan";
 
 function fmtDate(iso: string | null): string {
@@ -19,8 +19,14 @@ function sourceText(p: PlanSummary): string {
 export function perks(p: PlanSummary): string[] {
   const out: string[] = [];
   const limits = p.limits ?? {};
-  const stt = limits.stt_seconds;
-  if (typeof stt === "number" && stt > 0) out.push(`Up to ${Math.round(stt / 3600)} h of cloud transcription a day`);
+  const life = p.windows?.stt_lifetime;
+  const month = p.windows?.stt_monthly;
+  if (life) {
+    const left = Math.max(0, life.cap - life.used);
+    out.push(`${(left / 3600).toFixed(1)} of ${Math.round(life.cap / 3600)} free transcription hours left`);
+  } else if (month) {
+    out.push(`${Math.round(month.cap / 3600)} h of cloud transcription a month`);
+  }
   const calls = limits.calls;
   if (typeof calls === "number" && calls > 0) out.push(`${calls} calls a day`);
   const items = limits.library_items;
@@ -67,6 +73,8 @@ export default function PlanCard() {
             ? `Code redeemed. You're on ${r.plan.label}.`
             : r.status === "already_redeemed"
               ? "You've already redeemed that code."
+              : r.status === "banked"
+              ? "Added. Your 7 days start after your current subscription ends."
               : `You already have ${r.plan.label} — nothing to add.`,
       });
     } catch (e) {
@@ -111,7 +119,7 @@ export default function PlanCard() {
           <TextInput
             testID="plan-code-input"
             style={styles.input}
-            placeholder="Redeem a code"
+            placeholder="Have a code? (promo or friend's)"
             autoCapitalize="characters"
             autoCorrect={false}
             value={code}
@@ -131,6 +139,29 @@ export default function PlanCard() {
       ) : plan?.is_guest ? (
         <Text style={styles.sub}>Create an account to redeem a code.</Text>
       ) : null}
+      {plan?.referral ? (
+        <View style={styles.redeem} testID="plan-referral">
+          <Text style={[styles.sub, { flex: 1 }]}>
+            Your share code: <Text style={styles.code} selectable testID="plan-referral-code">{plan.referral.code}</Text>
+            {"\n"}You and a friend each get {plan.referral.days_each} days of Pro when they join and use the app.
+            {plan.referral.rewards_earned > 0
+              ? ` Earned so far: ${plan.referral.rewards_earned}/${plan.referral.max_rewards}.`
+              : ""}
+          </Text>
+          <TouchableOpacity
+            testID="plan-referral-share"
+            accessibilityRole="button"
+            style={styles.redeemBtn}
+            onPress={() =>
+              void Share.share({
+                message: `Try MindShift. Enter my code ${plan.referral!.code} in Settings > Plan and we both get ${plan.referral!.days_each} days of Pro.`,
+              })
+            }
+          >
+            <Text style={styles.buyText}>Share</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       {msg ? (
         <Text style={[styles.sub, { color: msg.ok ? "#15803d" : "#b91c1c" }]} testID="plan-redeem-msg">
           {msg.text}
@@ -149,5 +180,6 @@ const styles = StyleSheet.create({
   buyText: { color: "#fff", fontWeight: "700" },
   redeem: { flexDirection: "row", marginTop: 10, alignItems: "center" },
   input: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginRight: 8 },
+  code: { fontWeight: "700", letterSpacing: 1 },
   redeemBtn: { backgroundColor: "#4f46e5", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
 });
