@@ -36,6 +36,16 @@ async def _library_usage(uid: str) -> dict:
         return {"items": None, "chars": None}
 
 
+def _purchase_info(is_guest: bool) -> dict:
+    from routers import billing
+
+    if is_guest:
+        return {"available": False, "message": "Create an account to subscribe."}
+    if plans.get_store() is None or not billing.webhook_secret():
+        return {"available": False, "message": "Paid plans are coming soon."}
+    return {"available": True}
+
+
 async def plan_summary(uid: str, is_guest: bool) -> dict:
     await plans.prime(uid, force=True)
     eff = plans.effective_cached(uid)
@@ -84,8 +94,9 @@ async def plan_summary(uid: str, is_guest: bool) -> dict:
         "flags": {k: bool(plans.limit_for(level, k)) for k in plans.FLAG_KEYS},
         "upgrade_plan": nxt,
         "redeem_available": plans.get_store() is not None and not is_guest,
-        # Phase 2 turns this on (RevenueCat); until then there is no purchase.
-        "purchase": {"available": False, "message": "Paid plans are coming soon."},
+        # Purchases need the webhook secret AND plan storage, else a paid-for
+        # plan could never land: report honestly.
+        "purchase": _purchase_info(is_guest),
     }
 
 

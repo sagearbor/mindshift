@@ -138,7 +138,71 @@ refused; the 10-minute listening gate means a fake account must really listen
 (each is itself capped at the free allowance); referrer bonus hard-capped (then
 `capped`); per-IP and 8 failures/hour/uid redeem limits apply.
 
-## Phase 2 (plan): RevenueCat + store subscriptions
+## Phase 2 (built in code, awaiting owner steps): RevenueCat + store subscriptions
+
+### Final state (feat/purchases-1-20, expo.version 1.20.0)
+
+This supersedes the "Server design" and "Client" sketches below where they differ.
+
+- **Webhook**: `POST /billing/revenuecat` (`server/routers/billing.py`, rules in
+  `server/revenuecat.py`, mirrors oral history's `mapEventToChanges`). Auth: the
+  `Authorization` header (verbatim or `Bearer <v>`) compared in constant time with env
+  `MINDSHIFT_REVENUECAT_WEBHOOK_SECRET`; unset => 503, wrong => 401. Grants
+  (INITIAL_PURCHASE, RENEWAL, UNCANCELLATION, NON_RENEWING_PURCHASE,
+  SUBSCRIPTION_EXTENDED, TEMPORARY_ENTITLEMENT_GRANT, REFUND_REVERSED) set level and
+  expiry; CANCELLATION keeps the level until expiry; BILLING_ISSUE keeps it to the
+  grace end; SUBSCRIPTION_PAUSED only flags; EXPIRATION => free; TRANSFER downgrades
+  the losing uid; TEST, PRODUCT_CHANGE, `$RCAnonymousID` and unrelated products => 200
+  ignored. Older `event_timestamp_ms` than the stored `plan_last_event_ms` is skipped; a
+  negative event for a product the user has moved off is skipped; a stronger promo/admin
+  grant is never overwritten (only store metadata is recorded). Written atomically
+  (Firestore transaction) to `ms_plans/{uid}`: `plan`, `plan_expires_at`,
+  `plan_source="revenuecat"`, `plan_status`, `plan_will_renew`, `plan_billing_issue`,
+  `store_product_id`, `store`, `store_environment`, `plan_last_event_ms`. Level is
+  in force only while unexpired (the existing `plans.effective` rule).
+- **Banked credit days**: no code banked days before this change. The webhook now honours
+  `credit_days` + `credit_plan` on the plan doc: when a store subscription ends
+  (EXPIRATION or TRANSFER away) those days start as a promo grant. Nothing writes the
+  fields yet (redeeming while subscribed still answers "covered" and spends no use);
+  wire redeem to bank days if the owner wants that.
+- **`GET /plan`** reports `purchase.available` = true only when plans storage and the
+  webhook secret are configured and the caller is not a guest.
+- **No `/plan/refresh` REST re-read** was built (needs the RevenueCat secret API key). After a
+  purchase or Restore the app polls `GET /plan` (8 x 1.5 s) for the webhook to land.
+- **App**: `react-native-purchases@11.0.0` (works with Expo SDK 57 / RN 0.86 as a dev-client /
+  EAS build; autolinked, no config plugin needed; not available in Expo Go or web).
+  `src/purchases/purchases.ts` configures from `EXPO_PUBLIC_REVENUECAT_IOS_KEY` /
+  `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`; absent => disabled and every button keeps saying
+  "Coming soon". `Purchases.logIn(firebase uid)` (the id the server keys plans on), never for
+  guests. Plan card: Subscribe on Basic / Plus / Pro (Max under "For business") buys the
+  `default` offering's package whose identifier equals the level; Restore purchases; the
+  limit sheet's Upgrade opens the same flow for the server's `upgrade_plan`. User-cancel is
+  silent; other errors show a friendly sentence.
+- **Native**: Android gets `com.android.vending.BILLING` from the RevenueCat/Play Billing
+  library's own manifest, and it is also listed explicitly in `app.json` (merging is
+  harmless). iOS needs no entitlements-file change for in-app purchase (it is an App ID
+  capability, on by default; StoreKit needs only the Paid Apps agreement and products).
+- **Versions**: `expo.version` 1.19.0 -> 1.20.0 (new runtime; do not OTA to 1.19.x
+  binaries), `android.versionCode` 42 -> 43 (EAS autoIncrement continues from there),
+  iOS `buildNumber` is left to EAS `autoIncrement: buildNumber`. `native-fingerprint.json`
+  re-recorded. Build BOTH platforms (`scripts/release_both.sh`).
+
+### Owner's remaining steps
+
+1. Cloud Run env: `MINDSHIFT_REVENUECAT_WEBHOOK_SECRET` (`openssl rand -hex 32`); put the same
+   value in RevenueCat > Integrations > Webhooks > Authorization header, URL
+   `https://<cloud-run-host>/billing/revenuecat`. Send TEST: expect 200 `ignored`.
+   (Remember `deploy_cloudrun.sh` wipes prod env: set the secret in the script's source.)
+2. Build env (EAS `production` profile env, not committed secrets; they are public SDK keys):
+   `EXPO_PUBLIC_REVENUECAT_IOS_KEY` (`appl_...`), `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`
+   (`goog_...`, once the Play app exists in RevenueCat).
+3. App Store Connect: Paid Apps agreement, the four `mindshift_<level>_monthly` products
+   approved with the 1.20.0 build; Play: same ids as subscriptions (BILLING-enabled build
+   on a track first).
+4. Sandbox/TestFlight and Play license-test: purchase, renewal, cancel, expiry, restore.
+5. Ship 1.20.0 on both stores together; only then does the Subscribe button appear.
+
+### Original plan (kept for reference)
 
 ### Pricing proposal
 

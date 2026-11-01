@@ -414,6 +414,15 @@ class MemoryPlanStore:
         with self._lock:
             self._users.setdefault(uid, {}).update(fields)
 
+    async def apply_atomic(self, uid, fn):
+        """Run ``fn(doc) -> updates|None`` atomically; True when applied."""
+        with self._lock:
+            updates = fn(dict(self._users[uid]) if uid in self._users else None)
+            if not updates:
+                return False
+            self._users.setdefault(uid, {}).update(updates)
+            return True
+
     async def create_code(self, doc):
         with self._lock:
             if doc["code"] in self._codes:
@@ -527,6 +536,23 @@ class FirestorePlanStore:
 
     def _set_fields(self, uid, fields):
         self._get_db().collection(USERS).document(uid).set(fields, merge=True)
+
+    def _apply_atomic(self, uid, fn):
+        from google.cloud import firestore
+
+        db = self._get_db()
+        ref = db.collection(USERS).document(uid)
+
+        @firestore.transactional
+        def run(tx):
+            snap = ref.get(transaction=tx)
+            updates = fn(snap.to_dict() if snap.exists else None)
+            if not updates:
+                return False
+            tx.set(ref, updates, merge=True)
+            return True
+
+        return run(db.transaction())
 
     def _create_code(self, doc):
         from google.api_core.exceptions import AlreadyExists
@@ -705,6 +731,9 @@ class FirestorePlanStore:
 
     async def set_fields(self, uid, fields):
         await asyncio.to_thread(self._set_fields, uid, fields)
+
+    async def apply_atomic(self, uid, fn):
+        return await asyncio.to_thread(self._apply_atomic, uid, fn)
 
     async def create_code(self, doc):
         await asyncio.to_thread(self._create_code, doc)

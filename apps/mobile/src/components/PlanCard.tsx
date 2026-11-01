@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Share } fr
 import { getPlan, type PlanSummary } from "../api/plan";
 import RedeemBox from "./RedeemBox";
 import { useListeningStore } from "../store/listeningStore";
+import { purchasesEnabled } from "../purchases/purchases";
+import { startUpgrade, startRestore, type FlowResult } from "../purchases/upgradeFlow";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
@@ -38,7 +40,16 @@ export function perks(p: PlanSummary): string[] {
 
 type Tier = NonNullable<PlanSummary["tiers"]>[number];
 
-function TierCard({ t, current }: { t: Tier; current?: string }) {
+interface Buy {
+  canBuy: boolean;
+  busy: boolean;
+  onBuy: (level: string) => void;
+}
+
+function TierCard({ t, current, buy }: { t: Tier; current?: string; buy?: Buy }) {
+  const isCurrent = current === t.level;
+  const enabled = !!buy?.canBuy && !isCurrent && !buy.busy;
+  const label = isCurrent ? "Current" : buy?.canBuy ? (buy.busy ? "Please wait" : "Subscribe") : "Coming soon";
   return (
     <View style={[styles.tier, t.popular && styles.tierPopular]} testID={`tier-${t.level}`}>
       <View style={{ flex: 1 }}>
@@ -52,18 +63,29 @@ function TierCard({ t, current }: { t: Tier; current?: string }) {
       </View>
       <TouchableOpacity
         accessibilityRole="button"
-        disabled
-        style={[styles.buy, styles.disabled, styles.tierBtn]}
+        disabled={!enabled}
+        onPress={() => buy?.onBuy(t.level)}
+        style={[styles.buy, !enabled && styles.disabled, styles.tierBtn]}
         testID={`tier-${t.level}-buy`}
       >
-        <Text style={styles.buyText}>{current === t.level ? "Current" : "Coming soon"}</Text>
+        <Text style={styles.buyText}>{label}</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 /** Basic / Plus (most popular) / Pro by default; Max under "For business". */
-export function TierCards({ tiers, current }: { tiers: Tier[]; current?: string }) {
+export function TierCards({
+  tiers,
+  current,
+  buy,
+  footer,
+}: {
+  tiers: Tier[];
+  current?: string;
+  buy?: Buy;
+  footer?: React.ReactNode;
+}) {
   const [business, setBusiness] = useState(false);
   const main = tiers.filter((t) => !t.business);
   const biz = tiers.filter((t) => t.business);
@@ -71,30 +93,33 @@ export function TierCards({ tiers, current }: { tiers: Tier[]; current?: string 
   return (
     <View testID="tier-cards">
       {main.map((t) => (
-        <TierCard key={t.level} t={t} current={current} />
+        <TierCard key={t.level} t={t} current={current} buy={buy} />
       ))}
       {biz.length ? (
         business ? (
-          biz.map((t) => <TierCard key={t.level} t={t} current={current} />)
+          biz.map((t) => <TierCard key={t.level} t={t} current={current} buy={buy} />)
         ) : (
           <TouchableOpacity testID="tier-business-link" accessibilityRole="link" onPress={() => setBusiness(true)}>
             <Text style={styles.link}>For business</Text>
           </TouchableOpacity>
         )
       ) : null}
-      <Text style={styles.sub}>Paid plans are coming soon.</Text>
+      {buy?.canBuy ? footer : <Text style={styles.sub}>Paid plans are coming soon.</Text>}
     </View>
   );
 }
 
 /**
  * Settings → Plan: current plan + expiry + what it includes, and a
- * "Redeem a code" box. The purchase button is a placeholder until paid plans
- * ship (docs/plans/2026-10-31-paid-plans.md): no fake purchase.
+ * "Redeem a code" box. Subscribe buttons buy through RevenueCat when this build
+ * has a key and the server says purchases are on; otherwise they stay "Coming
+ * soon" (docs/plans/2026-10-31-paid-plans.md). Never a fake purchase.
  */
 export default function PlanCard() {
   const [plan, setPlan] = useState<PlanSummary | null>(null);
   const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [flowMsg, setFlowMsg] = useState<FlowResult | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -107,6 +132,42 @@ export default function PlanCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const canBuy = !!plan?.purchase?.available && !plan.is_guest && purchasesEnabled();
+
+  const run = async (go: () => Promise<FlowResult>) => {
+    if (busy) return;
+    setBusy(true);
+    setFlowMsg(null);
+    try {
+      const r = await go();
+      setFlowMsg(r);
+      if (r.plan) setPlan(r.plan);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const buy: Buy = { canBuy, busy, onBuy: (level) => void run(() => startUpgrade(level)) };
+  const footer = (
+    <View>
+      <TouchableOpacity
+        testID="plan-restore"
+        accessibilityRole="button"
+        disabled={busy}
+        onPress={() => void run(() => startRestore())}
+      >
+        <Text style={styles.link}>Restore purchases</Text>
+      </TouchableOpacity>
+      {flowMsg && !flowMsg.cancelled ? (
+        <Text style={[styles.sub, !flowMsg.ok && styles.err]} testID="plan-flow-message">
+          {flowMsg.message}
+        </Text>
+      ) : null}
+      <Text style={styles.sub}>
+        Subscriptions renew monthly until cancelled. Manage or cancel in your App Store / Google Play account settings.
+      </Text>
+    </View>
+  );
 
   return (
     <View style={styles.card} testID="plan-card">
@@ -134,7 +195,7 @@ export default function PlanCard() {
         <ActivityIndicator />
       )}
 
-      <TierCards tiers={plan?.tiers ?? []} current={plan?.plan} />
+      <TierCards tiers={plan?.tiers ?? []} current={plan?.plan} buy={buy} footer={footer} />
 
       {plan?.redeem_available ? (
         <RedeemBox
@@ -186,6 +247,7 @@ const styles = StyleSheet.create({
   tierPopular: { borderColor: "#4f46e5", borderWidth: 2 },
   tierBtn: { marginTop: 0, paddingHorizontal: 12 },
   badge: { color: "#4f46e5", fontSize: 12, fontWeight: "700" },
+  err: { color: "#b91c1c" },
   link: { color: "#4f46e5", marginTop: 8, fontWeight: "600" },
   code: { fontWeight: "700", letterSpacing: 1 },
   redeemBtn: { backgroundColor: "#4f46e5", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },

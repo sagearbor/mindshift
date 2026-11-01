@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.19.0",
+    "version": "1.20.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "runtimeVersion": {
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 42,
+      "versionCode": 43,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
@@ -37,7 +37,8 @@
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "com.android.vending.BILLING"
       ],
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
