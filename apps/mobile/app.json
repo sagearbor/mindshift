@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 44,
+      "versionCode": 45,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
@@ -68,7 +68,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.sagearbor.mindshift.app",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "appleTeamId": "553Y9KWR84",
       "supportsTablet": false,
       "usesAppleSignIn": true,
