@@ -150,23 +150,83 @@ export interface VoiceInfo {
   quality?: string;
 }
 
-const base = (lang: string) => lang.replace("_", "-").split("-")[0].toLowerCase();
+const norm = (lang: string) => lang.replace("_", "-").toLowerCase();
+const base = (lang: string) => norm(lang).split("-")[0];
 
-/** Voices for the chosen coach language, or the phone language on Auto. */
+/** Voices for the chosen coach language (phone language on Auto). Strict: an
+ *  exact locale match (es-ES) wins; only if the phone has none do we widen to
+ *  the same base language (es-*), and never to another language. Duplicate
+ *  identifiers are dropped. */
 export function filterVoices(
   voices: VoiceInfo[],
   coachLanguage: string,
   phoneLanguage: string,
 ): VoiceInfo[] {
-  const want = base(coachLanguage === "auto" ? phoneLanguage : coachLanguage);
-  return voices.filter((v) => base(v.language || "") === want);
+  const want = norm(coachLanguage === "auto" ? phoneLanguage : coachLanguage);
+  const seen = new Set<string>();
+  const unique = voices.filter((v) => {
+    if (!v?.identifier || seen.has(v.identifier)) return false;
+    seen.add(v.identifier);
+    return true;
+  });
+  const exact = unique.filter((v) => norm(v.language || "") === want);
+  if (exact.length > 0) return exact;
+  return unique.filter((v) => base(v.language || "") === base(want));
 }
 
-export function friendlyVoiceName(v: VoiceInfo): string {
-  const looksLikeId = !v.name || /[._]/.test(v.name) || /-x-|local|network/i.test(v.name);
-  const lang = (v.language || "").replace("_", "-");
-  const name = looksLikeId ? `Voice (${lang})` : v.name;
-  return /enhanced|premium/i.test(v.quality ?? "") ? `${name} (enhanced)` : name;
+type DisplayNamesCtor = new (l: string[], o: object) => { of(c: string): string | undefined };
+
+function languageLabel(tag: string): string {
+  const t = tag.replace("_", "-");
+  try {
+    const [lang, region] = t.split("-");
+    const dn = (Intl as unknown as { DisplayNames?: DisplayNamesCtor }).DisplayNames;
+    if (dn) {
+      const l = new dn(["en"], { type: "language" }).of(lang);
+      if (l) return region ? `${l} (${region.toUpperCase()})` : l;
+    }
+  } catch {
+    // fall through to the raw tag
+  }
+  return t;
+}
+
+function meaningfulName(v: VoiceInfo): boolean {
+  const n = (v.name ?? "").trim();
+  if (!n || n === v.identifier) return false;
+  if (/[._]/.test(n) || /-language$/i.test(n) || /-x-|local|network/i.test(n)) return false;
+  if (/^([a-z]{2}|[a-z]{2,3}-[A-Za-z0-9]{2,4})$/.test(n)) return false; // a bare locale
+  return true;
+}
+
+export interface VoiceOption {
+  identifier: string;
+  label: string;
+}
+
+/** Filtered, de-duplicated voices with readable labels: the device's own name
+ *  when meaningful, else "<Language> voice N" (numbered per language). */
+export function voiceOptions(
+  voices: VoiceInfo[],
+  coachLanguage: string,
+  phoneLanguage: string,
+): VoiceOption[] {
+  const counters: Record<string, number> = {};
+  return filterVoices(voices, coachLanguage, phoneLanguage).map((v) => {
+    const enhanced = /enhanced|premium/i.test(v.quality ?? "") ? " (enhanced)" : "";
+    let label: string;
+    if (meaningfulName(v)) {
+      label = v.name.trim();
+    } else if (/-language$/i.test(v.identifier)) {
+      // Generic per-language placeholder some devices list; kept but labelled.
+      label = `${languageLabel(v.language || "")} system voice`;
+    } else {
+      const k = norm(v.language || "");
+      counters[k] = (counters[k] ?? 0) + 1;
+      label = `${languageLabel(v.language || "")} voice ${counters[k]}`;
+    }
+    return { identifier: v.identifier, label: label + enhanced };
+  });
 }
 
 /** The stored voice if it is still offered for this language, else null. */
