@@ -35,9 +35,13 @@ beforeEach(() => {
 
 describe("LanguageSettings accordion", () => {
   it("is collapsed by default; headers show current values", async () => {
-    setLanguagePrefs({ coachLanguage: "es-ES", conversationLanguage: "auto", coachVoice: null });
     mockVoices = [{ identifier: "m", name: "Monica", language: "es-ES" }];
     const c = await mount();
+    // (mount loads stored prefs, so set the choice afterwards)
+    await act(async () => {
+      setLanguagePrefs({ coachLanguage: "es-ES", conversationLanguage: "auto", coachVoice: null });
+      await flush();
+    });
     expect(texts(c.root)).toEqual(["Language", "▼"]);
     expect(byId(c.root, "coach-language")).toHaveLength(0);
 

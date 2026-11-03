@@ -195,7 +195,7 @@ function meaningfulName(v: VoiceInfo): boolean {
   const n = (v.name ?? "").trim();
   if (!n || n === v.identifier) return false;
   if (/[._]/.test(n) || /-language$/i.test(n) || /-x-|local|network/i.test(n)) return false;
-  if (/^[a-z]{2,3}(-[a-z0-9]{2,4})?$/i.test(n)) return false; // a bare locale
+  if (/^([a-z]{2}|[a-z]{2,3}-[A-Za-z0-9]{2,4})$/.test(n)) return false; // a bare locale
   return true;
 }
 
