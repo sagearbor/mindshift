@@ -37,6 +37,7 @@ import type {
   FastLoopCapabilities,
   FastLoopHandlers,
 } from "../live/defaultDeps";
+import { getLanguagePrefs, recognizerLang, speakOptionsFor } from "../live/languagePrefs";
 import {
   createDefaultFastLoop,
   expoHaptics,
@@ -616,7 +617,7 @@ function liveSessionModeOf(mode: LiveMode): LiveSessionMode {
 /** Production fast-loop factory: the native stack, or the browser stack on
  *  the web build (onnxruntime-web + Web Speech API — src/live/webDeps.ts). */
 const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
-  Platform.OS === "web" ? createWebFastLoop(handlers) : createDefaultFastLoop(handlers);
+  Platform.OS === "web" ? createWebFastLoop(handlers) : createDefaultFastLoop(handlers, { lang: recognizerLang(getLanguagePrefs().conversationLanguage) });
 /** Production pre-flight probe (same builders, no loop): the native stack,
  *  or the browser stack on the web build. */
 const defaultProbeCapabilities = () =>
@@ -1276,6 +1277,7 @@ export function useAudioStream(
         // and it clears expo-speech's internal utterance queue).
         stopSpeechSafely();
         Speech.speak(text, {
+          ...speakOptionsFor(getLanguagePrefs()),
           // Nothing was actually spoken — never pretend otherwise. The
           // suggestion is already on screen; surface the degraded state.
           onError: (error) => markSpeechUnavailable(error),
@@ -2266,6 +2268,14 @@ export function useAudioStream(
               sentLibraryIdsRef.current = ids;
               return ids.length ? { library_item_ids: ids } : {};
             })(),
+            // Language prefs (live/languagePrefs.ts): only when set, so the
+            // default wire is unchanged.
+            ...(getLanguagePrefs().coachLanguage !== "auto"
+              ? { coach_language: getLanguagePrefs().coachLanguage }
+              : {}),
+            ...(getLanguagePrefs().conversationLanguage !== "auto"
+              ? { conversation_language: getLanguagePrefs().conversationLanguage }
+              : {}),
             // Room mode: the server runs the meeting-room assistant instead
             // of the coach (server/room_mode.py). Other modes send no `mode`
             // (their wire is unchanged).

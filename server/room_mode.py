@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from llm_client import CachedPrefixPrompt
+from languages import with_language
 from room_prompts import room_answer_system, room_answer_user
 
 logger = logging.getLogger("room_mode")
@@ -357,12 +358,13 @@ def parse_answer(raw: str) -> dict:
 
 async def answer_question(
     llm, question: str, *, asker: str | None, library_ctx, conversation: list[str], t: float,
+    coach_language: str | None = None,
 ) -> dict:
     """One LLM call -> the ``room_answer`` frame. The library block is placed
     like the coach's: a cache-marked system prefix in full mode, with the turn
     in retrieved mode. Raises RoomAnswerUnavailable / the client's error."""
     has_library = bool(library_ctx is not None and library_ctx.text)
-    system: str = room_answer_system(library=has_library)
+    system: str = with_language(room_answer_system(library=has_library), coach_language, "answer")
     user = room_answer_user(question, asker, conversation[-ANSWER_HISTORY_TURNS:])
     if has_library:
         if library_ctx.mode == "full":
@@ -399,6 +401,7 @@ async def handle_room_turn(
     get_library: Callable[[str], Awaitable[object | None]] | None,
     llm,
     send: Callable[[dict], Awaitable[None]],
+    coach_language: str | None = None,
 ) -> None:
     """Run the room pipeline for one finalized utterance.
 
@@ -424,7 +427,7 @@ async def handle_room_turn(
         try:
             frame = await answer_question(
                 llm, question, asker=speaker, library_ctx=library_ctx,
-                conversation=conversation, t=t,
+                conversation=conversation, t=t, coach_language=coach_language,
             )
         except Exception as exc:  # noqa: BLE001 — reported, never fabricated
             reason = exc.reason if isinstance(exc, RoomAnswerUnavailable) else type(exc).__name__

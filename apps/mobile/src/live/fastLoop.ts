@@ -38,6 +38,7 @@
  * heard — no `turn_local` goes out while STT is unavailable, so the
  * server's own transcript for those spans is not suppressed.
  */
+import { getLanguagePrefs } from "./languagePrefs";
 import type { FrameVad } from "./vad";
 import { EnergyVad, SILERO_SAMPLE_RATE } from "./vad";
 import type { SegmenterConfig, Span } from "./segmenter";
@@ -1511,6 +1512,9 @@ export class FastLoop {
         mode: session.mode,
         ...(session.relationship ? { relationship: session.relationship } : {}),
         ...(session.sessionContext ? { sessionContext: session.sessionContext } : {}),
+        ...(getLanguagePrefs().coachLanguage !== "auto"
+          ? { replyLanguage: getLanguagePrefs().coachLanguage }
+          : {}),
       });
       llmMs = this.now() - tl0;
       provider = result.provider;

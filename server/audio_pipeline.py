@@ -50,6 +50,7 @@ import session_resume
 import usage_meter
 from library import live as library_live
 import room_mode
+from languages import deepgram_language, validate_language, with_language
 from library.models import LibraryContext
 from llm_client import CachedPrefixPrompt, LLMClient
 from models.audio import (
@@ -128,6 +129,16 @@ DEEPGRAM_LIVE_PARAMS: dict[str, str] = {
     "utterance_end_ms": "1200",
     "vad_events": "false",
 }
+def live_params(language: str | None = None) -> dict[str, str]:
+    """DEEPGRAM_LIVE_PARAMS, plus `language` when a supported conversation
+    language is set (unsupported codes fall back to the default, logged)."""
+    params = dict(DEEPGRAM_LIVE_PARAMS)
+    dg = deepgram_language(language)
+    if dg:
+        params["language"] = dg
+    return params
+
+
 # Deepgram kills idle live connections after ~10s (NET-0001); a KeepAlive
 # every few seconds while no audio is flowing prevents that.
 DEEPGRAM_KEEPALIVE_INTERVAL_S = 4.0
@@ -468,7 +479,10 @@ class DeepgramTranscriber:
         self,
         url: str | None = None,
         keepalive_interval: float = DEEPGRAM_KEEPALIVE_INTERVAL_S,
+        language: str | None = None,
     ) -> None:
+        # Conversation language (BCP-47 allowlist code); None = Deepgram default.
+        self.language = language
         # URL injectable for tests (point at a local fake Deepgram server).
         self._base_url = url or os.getenv("DEEPGRAM_URL", "").strip() or DEEPGRAM_LIVE_URL
         self._keepalive_interval = keepalive_interval
@@ -490,7 +504,7 @@ class DeepgramTranscriber:
             raise TranscriberUnavailable(
                 "DEEPGRAM_API_KEY not set — real-time transcription is disabled"
             )
-        url = f"{self._base_url}?{urlencode(DEEPGRAM_LIVE_PARAMS)}"
+        url = f"{self._base_url}?{urlencode(live_params(self.language))}"
         try:
             self._ws = await websockets.connect(
                 url,
@@ -1150,6 +1164,7 @@ class SuggestionJob:
     history: dict | None = None
     relationship: str | None = None
     session_context: str | None = None
+    coach_language: str | None = None
     # Enqueue-time retrieval query for the library (the last few turns'
     # text); "" when no library is selected.
     library_recent: str = ""
@@ -1689,6 +1704,10 @@ class SessionContext:
     # Config `heads_up_cues` (bool, default off): room mode's opt-in proactive
     # library cues + contradiction check (room_heads_up.py).
     heads_up_cues: bool = False
+    # Config `coach_language` / `conversation_language` (allowlisted BCP-47,
+    # languages.py; None = auto = behaviour unchanged).
+    coach_language: str | None = None
+    conversation_language: str | None = None
     # Config `debug_capture` (bool, default False): the phone's owner-only
     # "Debug session capture" switch. Only then is this session's transcript
     # registered for the debug save (and only while the env kill switch
@@ -2039,6 +2058,12 @@ async def _apply_config(
     # force whenever the frame carried the key.
     # Opt-in "Heads-up cues" (room mode): bool, default off. Remembered on the
     # context so it applies whichever order the keys arrive in.
+    for key in ("coach_language", "conversation_language"):
+        if key in payload:
+            # Validated-or-ignored: unknown values mean auto.
+            setattr(ctx, key, validate_language(payload[key]))
+            if ack is not None:
+                ack[key] = getattr(ctx, key)
     if isinstance(payload.get("heads_up_cues"), bool):
         ctx.heads_up_cues = payload["heads_up_cues"]
         if ctx.room is not None:
@@ -2834,6 +2859,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 get_library=get_library if ctx.library is not None else None,
                 llm=llm_client,
                 send=room_send,
+                coach_language=ctx.coach_language,
             )
         timing.llm_end = timing.sent = ctx.latency.now()
         ctx.latency.record(timing, session_id)
@@ -2957,6 +2983,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     stream=progressive, stats=hedge_stats,
                     history=job.history, relationship=job.relationship,
                     session_context=job.session_context, library=library_ctx,
+                    coach_language=job.coach_language,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -3038,6 +3065,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 history=job.history, relationship=job.relationship,
                 session_context=job.session_context, library=library_ctx,
                 wearer_unknown=identity == WEARER_UNKNOWN,
+                coach_language=job.coach_language,
             )
         timing.llm_end = ctx.latency.now()
         note_hedge()
@@ -3268,6 +3296,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             role=ctx.role,
             relationship=ctx.relationship,
             session_context=ctx.session_context,
+            coach_language=ctx.coach_language,
             library_recent=library_live.recent_text(
                 [u.text for u in ctx.utterances if u is not utterance] + [utterance.text]
             ) if ctx.library is not None else "",
@@ -3744,6 +3773,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # package, bad URL) that retrying cannot fix.
         transcriber_connected_once = False
         try:
+            transcriber.language = ctx.conversation_language
             await transcriber.connect()
             transcriber_connected_once = True
         except TranscriberUnavailable as exc:
@@ -3773,6 +3803,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             for attempt, delay in enumerate(TRANSCRIBER_RECONNECT_BACKOFFS_S, 1):
                 await asyncio.sleep(delay)
                 candidate = transcriber_factory()
+                candidate.language = ctx.conversation_language
                 try:
                     await candidate.connect()
                 except TranscriberUnavailable as exc:
@@ -4833,6 +4864,7 @@ async def _generate_suggestions(
     wearer_unknown: bool = False,
     session_context: str | None = None,
     library: LibraryContext | None = None,
+    coach_language: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4871,6 +4903,7 @@ async def _generate_suggestions(
             relationship=relationship, session_context=session_context,
             library=has_library,
         )
+    system = with_language(system, coach_language)
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
     system, user_content = _with_library(system, user_content, library)
 
@@ -4926,6 +4959,7 @@ async def _generate_nudge(
     relationship: str | None = None,
     session_context: str | None = None,
     library: LibraryContext | None = None,
+    coach_language: str | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4958,6 +4992,7 @@ async def _generate_nudge(
     # a streaming-capable client the call still goes through the hedged
     # stream, so a nudge gets the same first-token tail protection as a
     # suggestion. ``stream=False`` (legacy clients) is the exact old call.
+    system = with_language(system, coach_language)
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
     system, user_content = _with_library(system, user_content, library)
 

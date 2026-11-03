@@ -5,6 +5,7 @@
  * which the recognizer must survive by restarting itself.
  */
 import { ExpoSpeechRecognizer } from "../src/live/expoStt";
+import { getLanguageNote, setLanguageNote } from "../src/live/languagePrefs";
 
 interface SpeechMock {
   requestPermissionsAsync: jest.Mock;
@@ -24,6 +25,30 @@ beforeEach(() => {
   mock.start.mockClear();
   mock.stop.mockClear();
   mock.requestPermissionsAsync.mockResolvedValue({ granted: true, status: "granted" });
+});
+
+describe("ExpoSpeechRecognizer conversation language", () => {
+  it("passes lang to the native start", async () => {
+    const rec = new ExpoSpeechRecognizer({ lang: "es-ES" });
+    await rec.start();
+    expect(mock.start.mock.calls.at(-1)![0].lang).toBe("es-ES");
+    rec.stop();
+  });
+
+  it("falls back to the default language when the OS rejects it, and says so", async () => {
+    setLanguageNote(null);
+    const rec = new ExpoSpeechRecognizer({ lang: "hi-IN", restartDelayMs: 5 });
+    const errors: string[] = [];
+    rec.onError((c) => errors.push(c));
+    await rec.start();
+    mock.__emit("error", { error: "language-not-supported", message: "x" });
+    mock.__emit("end", null);
+    await sleep(20);
+    expect(errors).toEqual([]);
+    expect(mock.start.mock.calls.at(-1)![0].lang).toBe("en-US");
+    expect(getLanguageNote()).toMatch(/hi-IN.*isn't available/);
+    rec.stop();
+  });
 });
 
 describe("ExpoSpeechRecognizer restart-on-end", () => {
