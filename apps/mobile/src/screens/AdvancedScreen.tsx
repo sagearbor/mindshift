@@ -553,9 +553,6 @@ export default function AdvancedScreen({
         </Text>
       </TouchableOpacity>
 
-      <Text style={styles.sectionHeading} testID="section-language">
-        Language
-      </Text>
       <LanguageSettings userId={user?.uid ?? null} />
 
       <Text style={styles.sectionHeading} testID="section-appearance">
