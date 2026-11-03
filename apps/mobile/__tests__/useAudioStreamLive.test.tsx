@@ -36,6 +36,7 @@ import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
 import { SpeakerLabeler } from "../src/live/speakerId";
+import { setLanguagePrefs } from "../src/live/languagePrefs";
 import { useMoodStore } from "../src/store/moodStore";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody } from "../src/api/liveSessions";
@@ -191,6 +192,52 @@ describe("useAudioStream live mode", () => {
       await hook.result.current.stopSession();
     });
     await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("language prefs: config carries them and Speech.speak gets language + voice", async () => {
+    setLanguagePrefs({ coachLanguage: "es-ES", conversationLanguage: "fr-FR", coachVoice: "voice-1" });
+    try {
+      const fake = makeFakeFastLoop();
+      const hook = await renderHook(() =>
+        useAudioStream({
+          capability: { capable: true, reason: "ok" },
+          makeFastLoop: fake.make,
+          postSession: async () => ({ status: "unsupported" as const }),
+        }),
+      );
+      await act(() => {
+        hook.result.current.setSpeechEnabled(true);
+        hook.result.current.setSessionMode("speaker");
+      });
+      await act(async () => {
+        await hook.result.current.startSession("live-lang", 70);
+      });
+      const ws = FakeWebSocket.instances[0];
+      await act(() => ws.emitOpen());
+      await act(async () => {
+        await flush();
+      });
+      expect(
+        ws.sentJson().some(
+          (m) => m.type === "config" && m.coach_language === "es-ES" && m.conversation_language === "fr-FR",
+        ),
+      ).toBe(true);
+      await act(async () => {
+        feed(toneInt16(1.0, -20));
+        fake.rec.emit({ text: "you never call me", isFinal: true });
+        feed(silenceInt16(0.5));
+        await fake.loop!.settle();
+      });
+      await act(async () => {
+        await flush();
+      });
+      expect(speakMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ language: "es-ES", voice: "voice-1" }),
+      );
+    } finally {
+      setLanguagePrefs({ coachLanguage: "auto", conversationLanguage: "auto", coachVoice: null });
+    }
   });
 
   it("runs the fast loop: local turns fill the transcript + feed, speak, send turn_local, then post the session", async () => {

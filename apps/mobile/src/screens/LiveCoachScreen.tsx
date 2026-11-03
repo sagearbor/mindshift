@@ -1,5 +1,5 @@
 import ListeningPill from "../components/ListeningPill";
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import {
   View,
   Text,
@@ -31,6 +31,13 @@ import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { useDevModeStore } from "../store/devModeStore";
 import { useMoodStore } from "../store/moodStore";
+import {
+  getLanguageNote,
+  loadLanguagePrefs,
+  setLanguageNote,
+  setLanguagePrefs,
+  subscribeLanguagePrefs,
+} from "../live/languagePrefs";
 import { loadHeadsUpCues, loadLiveMode, saveHeadsUpCues, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
@@ -249,6 +256,18 @@ export default function LiveCoachScreen({
   const libraryIgnored = (libraryAck?.ignored_item_ids ?? []).filter((id) => libraryIds.includes(id)).length;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
+  // Language prefs apply to the session wherever they were set (Advanced).
+  useEffect(() => {
+    let cancelled = false;
+    setLanguageNote(null);
+    void loadLanguagePrefs(userId).then((p) => {
+      if (!cancelled) setLanguagePrefs(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  const languageNote = useSyncExternalStore(subscribeLanguagePrefs, getLanguageNote);
   const [empathyLevel, setEmpathyLevel] = useState(50);
   const [interjectLevel, setInterjectLevel] = useState(0);
   // Speak the coach's suggestions aloud (default on). Off = on-screen only,
@@ -797,6 +816,12 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* Transcription availability banner */}
+      {languageNote ? (
+        <View style={styles.banner} testID="language-note">
+          <Text style={styles.bannerText}>{languageNote}</Text>
+        </View>
+      ) : null}
+
       {transcriptionMessage ? (
         <View style={styles.banner} testID="transcription-banner">
           <Text style={styles.bannerText}>

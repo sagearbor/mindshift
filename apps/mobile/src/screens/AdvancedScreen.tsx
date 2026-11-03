@@ -33,6 +33,7 @@ import TherapistLinkCard from "../components/TherapistLinkCard";
 import PlanCard from "../components/PlanCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
+import LanguageSettings from "../components/LanguageSettings";
 import { useAvatarStore } from "../store/avatarStore";
 import { useDevModeStore } from "../store/devModeStore";
 import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
@@ -551,6 +552,11 @@ export default function AdvancedScreen({
           For therapists: the sessions your patients have shared with you, with tone trends and export.
         </Text>
       </TouchableOpacity>
+
+      <Text style={styles.sectionHeading} testID="section-language">
+        Language
+      </Text>
+      <LanguageSettings userId={user?.uid ?? null} />
 
       <Text style={styles.sectionHeading} testID="section-appearance">
         Appearance

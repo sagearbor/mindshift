@@ -46,6 +46,8 @@ export interface TextTone {
  */
 export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal" | "room";
 
+import { languageInstruction } from "./languagePrefs";
+
 export interface SuggestInput {
   text: string;
   speaker: string;
@@ -64,6 +66,9 @@ export interface SuggestInput {
   /** The user's own words about this conversation, already trimmed to the
    *  on-device budget (sessionContext.ts ON_DEVICE_CONTEXT_MAX_CHARS). */
   sessionContext?: string | null;
+  /** Coach language (BCP-47) when the user chose one; unset/"auto" = prompt
+   *  byte-identical to before. */
+  replyLanguage?: string | null;
 }
 
 export interface SuggestOutput {
@@ -147,7 +152,11 @@ export function buildPrompt(input: SuggestInput): { system: string; user: string
     rel +
     (history ? `Earlier:\n${history}\n\n` : "") +
     `Latest turn from ${who}: "${input.text}"${cue}\n\n${task}`;
-  return { system: SUGGESTION_SYSTEM_PROMPT, user };
+  const langLine = languageInstruction(input.replyLanguage);
+  return {
+    system: langLine ? `${SUGGESTION_SYSTEM_PROMPT} ${langLine}` : SUGGESTION_SYSTEM_PROMPT,
+    user,
+  };
 }
 
 // ---------------------------------------------------------------------------

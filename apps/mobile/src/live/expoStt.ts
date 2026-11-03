@@ -53,6 +53,8 @@ export const ANDROID_ON_DEVICE_SERVICE = "com.google.android.as";
 /** Errors after which the recognizer is simply restarted (the session is
  *  torn down natively, but nothing is wrong with the device): idle
  *  timeouts, a busy/aborted service, a transient client or network hiccup. */
+import { setLanguageNote } from "./languagePrefs";
+
 export const RESTARTABLE_STT_ERRORS = new Set([
   "no-speech",
   "speech-timeout",
@@ -164,7 +166,13 @@ export class ExpoSpeechRecognizer implements SpeechRecognizer {
     this.now = options.now ?? Date.now;
   }
 
+  /** Language in force; falls back to the default if the OS rejects it. */
+  private lang: string | undefined;
+  private langFellBack = false;
+
   async start(): Promise<void> {
+    this.lang = this.options.lang;
+    this.langFellBack = false;
     const m = speechModule();
     if (!m) throw new Error("expo-speech-recognition native module not installed");
     const perm = await m.requestPermissionsAsync();
@@ -188,6 +196,17 @@ export class ExpoSpeechRecognizer implements SpeechRecognizer {
       }),
       m.addListener("error", (e) => {
         if (this.stopped) return; // #165: stop() itself can emit "client".
+        if (e.error === "language-not-supported" && this.lang && !this.langFellBack) {
+          // The OS can't recognize the chosen language on-device: say so and
+          // carry on with the default rather than pretending.
+          this.langFellBack = true;
+          setLanguageNote(
+            `Speech recognition for ${this.lang} isn't available on this phone; using the default language.`,
+          );
+          this.lang = undefined;
+          this.scheduleRestart();
+          return;
+        }
         if (RESTARTABLE_STT_ERRORS.has(e.error)) {
           this.restartErrorCodes[e.error] = (this.restartErrorCodes[e.error] ?? 0) + 1;
           return; // the `end` that follows restarts us
@@ -205,7 +224,7 @@ export class ExpoSpeechRecognizer implements SpeechRecognizer {
 
   private startNative(m: SpeechModule) {
     m.start({
-      lang: this.options.lang ?? "en-US",
+      lang: this.lang ?? "en-US",
       interimResults: true,
       continuous: true,
       requiresOnDeviceRecognition: true,
