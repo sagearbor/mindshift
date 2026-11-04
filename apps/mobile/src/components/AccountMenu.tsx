@@ -60,6 +60,19 @@ export default function AccountMenu({
         >
           <Text style={styles.rowTitle}>Settings</Text>
         </TouchableOpacity>
+        {user?.isAnonymous ? (
+          // A returning user on a fresh install lands here as a guest with no
+          // other way to reach the sign-in screen. Same wiring as Log out, so a
+          // guest still gets the "you'll lose these recordings" confirm first.
+          <TouchableOpacity
+            testID="chrome-account-sign-in-existing"
+            accessibilityRole="button"
+            style={styles.row}
+            onPress={onSignOut}
+          >
+            <Text style={styles.rowTitle}>Sign in to an existing account</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           testID="chrome-account-sign-out"
           accessibilityRole="button"

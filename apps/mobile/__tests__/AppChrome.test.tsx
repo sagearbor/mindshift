@@ -204,6 +204,29 @@ describe("AppChrome — avatar account menu", () => {
     act(() => comp.unmount());
   });
 
+  it("a guest also gets a 'Sign in to an existing account' row; an account holder does not", () => {
+    const guest = makeProps({
+      user: { email: null, displayName: null, isAnonymous: true } as any,
+    });
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome {...guest} />);
+    });
+    act(() => queryId(comp, "chrome-avatar-button")!.props.onPress());
+    act(() =>
+      queryId(comp, "chrome-account-sign-in-existing")!.props.onPress(),
+    );
+    expect(guest.onSignOut).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+
+    act(() => {
+      comp = renderer.create(<AppChrome {...makeProps()} />);
+    });
+    act(() => queryId(comp, "chrome-avatar-button")!.props.onPress());
+    expect(queryId(comp, "chrome-account-sign-in-existing")).toBeNull();
+    act(() => comp.unmount());
+  });
+
   it("tapping the backdrop closes the menu without side effects", () => {
     const props = makeProps();
     let comp!: renderer.ReactTestRenderer;

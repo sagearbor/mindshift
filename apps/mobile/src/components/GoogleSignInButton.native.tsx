@@ -30,7 +30,13 @@ export default function GoogleSignInButton() {
   useEffect(() => {
     // webClientId sets the ID-token audience Firebase verifies. Gated upstream
     // by googleSignInConfigured, so it is defined whenever this renders.
-    GoogleSignin.configure({ webClientId: googleOAuth.webClientId });
+    // iosClientId: on iOS the SDK needs the iOS OAuth client id from
+    // configure() (the app has no GoogleService-Info.plist), or signIn()
+    // throws and the user sees the generic failure. Android ignores it.
+    GoogleSignin.configure({
+      webClientId: googleOAuth.webClientId,
+      iosClientId: googleOAuth.iosClientId,
+    });
   }, []);
 
   const onPress = async () => {
