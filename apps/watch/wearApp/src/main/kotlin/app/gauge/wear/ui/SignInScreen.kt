@@ -111,7 +111,7 @@ fun SignInScreen(onSignedIn: () -> Unit, modifier: Modifier = Modifier) {
     ScalingLazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
         item {
             Text(
-                text = errorText ?: code?.let { "Enter $it on your phone or gauge.app/pair" }
+                text = errorText ?: code?.let { "Enter $it in the MindShift phone app" }
                     ?: "Getting a code…",
                 style = MaterialTheme.typography.body1,
                 // Left-aligned, this ran past the left edge of a round 454x454 face and

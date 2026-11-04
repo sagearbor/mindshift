@@ -50,8 +50,29 @@ def test_privacy_policy_mentions_wear_os() -> None:
     body = _text(PRIVACY_HTML).lower()
     assert "wear os" in body, (
         "The privacy policy must name the Wear OS companion app "
-        "(com.sagearbor.gauge.wear) — it has no privacy policy of its own, "
-        "per docs/play/README.md."
+        "— it has no privacy policy of its own, per docs/play/README.md."
+    )
+
+
+def test_privacy_policy_covers_the_watch_under_the_mindshift_package() -> None:
+    """Since 2026-10-30 the Wear app ships INSIDE the MindShift Play listing
+    (apps/watch/wearApp/build.gradle.kts applicationId), so the policy linked
+    from that listing must say it covers the watch under that package — and
+    still name the old gauge.wear id while those test builds exist."""
+    body = _text(PRIVACY_HTML)
+    watch_para = body[body.index("Wear OS watch app"):][:600]
+    assert "com.sagearbor.mindshift.app" in watch_para, watch_para
+    assert "com.sagearbor.gauge.wear" in watch_para, watch_para
+
+
+def test_privacy_policy_names_the_watch_install_id() -> None:
+    """The watch mints a random install UUID and sends it on every telemetry
+    batch (GaugePrefs.deviceId -> TelemetryBatch.device), declared as
+    "Device or other IDs" in both Play packs."""
+    body = _text(PRIVACY_HTML).lower()
+    assert "install id" in body, (
+        "The privacy policy must name the watch's random install ID "
+        "(Data safety: Device or other IDs)."
     )
 
 

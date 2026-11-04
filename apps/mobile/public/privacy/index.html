@@ -104,7 +104,7 @@
 <header class="top">
   <p class="eyebrow">MindShift</p>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 18 October 2026</p>
+  <p class="updated">Last updated: 30 October 2026</p>
 </header>
 
 <div class="lede">
@@ -139,8 +139,10 @@ project, not a company. You can reach a human at
 <p>This policy covers the MindShift Android app
 (<code>com.sagearbor.mindshift.app</code>), the iOS app, the web version at
 <a href="https://arborfam-hub.web.app">arborfam-hub.web.app</a>, and the
-MindShift Wear OS companion app (<code>com.sagearbor.gauge.wear</code>), which
-has no privacy policy of its own. Where one of these behaves differently, it
+MindShift Wear OS watch app, which ships inside the same Google Play listing
+as the phone app (same package name, <code>com.sagearbor.mindshift.app</code>;
+earlier test builds were published as <code>com.sagearbor.gauge.wear</code>,
+and this policy covers those too). Where one of these behaves differently, it
 says so below.</p>
 
 <h2 id="account">You need an account — but you can start without one</h2>
@@ -238,6 +240,12 @@ any other (see <a href="#delete">Deleting your data</a>).</p>
       <td>To find out why a session broke</td>
       <td>Our server only</td>
       <td>Yes — error reports and device details</td>
+    </tr>
+    <tr>
+      <td>Watch install ID (Wear OS)</td>
+      <td>So the watch's error and performance reports from one install can be told apart from another's</td>
+      <td>Our server only, on every watch telemetry report and watch capture</td>
+      <td>Yes, with those reports. It is a random ID the watch app makes up the first time it runs — not an advertising ID or a hardware serial — and it changes if you reinstall or clear the app's data</td>
     </tr>
   </tbody>
 </table>
@@ -443,6 +451,11 @@ address, your phone's model and manufacturer, the OS and app version, and
 statistics about the session that failed (how many turns, how slow, which error).
 It does <strong>not</strong> contain your transcript or your audio. You can also
 send one deliberately from <em>Settings → Diagnostics → Send diagnostics</em>.</p>
+<p>A paired or unpaired <strong>Wear OS watch</strong> sends its own
+telemetry automatically: app events and errors, the app version, and battery
+level, tagged with a random <strong>install ID</strong> the watch app
+made up on its first launch. It carries no transcript, no audio and no account
+ID.</p>
 <p>We do not use any third-party analytics or crash-reporting service. These
 reports go to our own server and nowhere else.</p>
 
@@ -657,6 +670,12 @@ moves; the commitment is that this page keeps describing what the code actually
 does, not what would be convenient to say.</p>
 <h3>Change log</h3>
 <ul>
+  <li><strong>30 October 2026.</strong> The Wear OS watch app now ships inside
+  the MindShift Google Play listing (package
+  <code>com.sagearbor.mindshift.app</code>) instead of a separate listing, and
+  is named MindShift everywhere on the watch. Spelled out the watch's
+  automatic telemetry and the random install ID it carries, which this page
+  had only mentioned in passing. Nothing the watch collects changed.</li>
   <li><strong>18 October 2026.</strong> Added the coach library: notes and
   uploaded documents you can give the coach, what we store (the original file,
   its text, a structured copy of a spreadsheet, and a search index), that the

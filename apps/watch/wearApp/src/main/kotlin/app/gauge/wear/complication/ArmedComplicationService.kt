@@ -51,9 +51,9 @@ class ArmedComplicationService : SuspendingComplicationDataSourceService() {
     private fun rangedValueData(state: ControllerState): ComplicationData {
         val (value, label) = complicationValue(state)
         val description = when {
-            state.sentinel == SentinelState.STREAMING -> "Gauge escalation level ${value.toInt()}"
-            state.sentinel != SentinelState.DISARMED -> "Gauge on, ${state.mode.displayNameForDescription()}"
-            else -> "Gauge off"
+            state.sentinel == SentinelState.STREAMING -> "MindShift escalation level ${value.toInt()}"
+            state.sentinel != SentinelState.DISARMED -> "MindShift on, ${state.mode.displayNameForDescription()}"
+            else -> "MindShift off"
         }
 
         return RangedValueComplicationData.Builder(

@@ -32,14 +32,21 @@ Only the Wear OS app (`wearApp/`) and the Kotlin Multiplatform module it depends
 
 ## Keystore and applicationId facts
 
-- `apps/watch/keystore.properties` (gitignored, recreated locally by each developer/
-  agent from the same source) points at `~/.config/gauge/gauge-upload.jks` — the
-  wear package's permanent Play upload key. This is **deliberately unchanged**: the
-  signing identity must stay stable for Play Store upload continuity, independent of
-  which repo the source code lives in.
-- The wear app's `applicationId`, `com.sagearbor.gauge.wear`, is likewise **permanent**
-  and is not renamed by this import. Display branding (app name, icon, in-app copy)
-  will be updated to MindShift branding in Phase 3; the package id itself stays as-is.
+**Superseded 2026-10-30 ("rebrand watch"):** the watch left its own Play listing and
+now ships INSIDE the MindShift listing — Google's single-listing model for phone +
+Wear OS.
+
+- `applicationId` is now `com.sagearbor.mindshift.app` (debug keeps the `.debug`
+  suffix). Kotlin namespaces stay `app.gauge.*` — invisible to users.
+- versionCode = `1_000_000 + n` (first: 1_000_019) so it can never collide with the
+  phone's Expo-incremented codes in the shared listing; versionName follows the phone.
+- Release signing uses the **MindShift listing's upload key** (Expo EAS-managed for
+  the phone). `apps/watch/keystore.properties` (gitignored) is a symlink to
+  `~/.config/mindshift/keystore.properties`, which points at
+  `~/.config/mindshift/mindshift-upload.jks`. Never copy either into the repo.
+- The old upload key `~/.config/gauge/gauge-upload.jks` belongs to the retired
+  `com.sagearbor.gauge.wear` listing only (being unpublished, never deleted). Keep it
+  backed up; do not use it for MindShift builds.
 
 ## Build
 

@@ -74,7 +74,7 @@ until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
 #    (no interactive dialogs on a fresh emulator otherwise).
 cd apps/watch && ./gradlew :wearApp:assembleDebug
 adb install -r wearApp/build/outputs/apk/debug/wearApp-debug.apk
-PKG=com.sagearbor.gauge.wear.debug
+PKG=com.sagearbor.mindshift.app.debug
 adb shell pm grant $PKG android.permission.RECORD_AUDIO
 adb shell pm grant $PKG android.permission.BODY_SENSORS
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS

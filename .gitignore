@@ -249,6 +249,11 @@ apps/watch/.gradle/
 apps/watch/**/build/
 apps/watch/local.properties
 apps/watch/keystore.properties
+# `eas credentials` → "Download credentials" drops these in apps/mobile; move the
+# keystore to ~/.config/mindshift/ and never commit either.
+apps/mobile/credentials/
+*.jks
+*.keystore
 
 # Google Play service-account key for `eas submit` (never commit; see
 # docs/plans/2026-08-24-realtime-three-tracks-handoff.md §9). Drop the JSON

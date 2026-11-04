@@ -87,7 +87,7 @@ describe("WatchSetupScreen", () => {
     });
 
     expect(Linking.openURL).toHaveBeenCalledWith(
-      "https://play.google.com/store/apps/details?id=com.sagearbor.gauge.wear",
+      "https://play.google.com/store/apps/details?id=com.sagearbor.mindshift.app",
     );
     // Step 1 steps back visually and confirms what happened — the button
     // stays usable (re-opening Play is legitimate) rather than disappearing.

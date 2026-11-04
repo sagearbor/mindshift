@@ -5,9 +5,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-// Upload-key signing props: gitignored keystore.properties at the repo root
-// (keystore itself lives outside the repo in ~/.config/gauge/). Loaded at the
-// top level because `java.*` is shadowed inside the android {} block.
+// Upload-key signing props: gitignored apps/watch/keystore.properties, a
+// symlink to ~/.config/mindshift/keystore.properties — the MindShift listing's
+// upload key (the same one EAS uses for the phone; see PORTED_FROM_GAUGE.md).
+// Loaded at the top level because `java.*` is shadowed inside android {}.
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -19,11 +20,24 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.sagearbor.gauge.wear"
+        // 2026-10-30: the watch moved from its own Play listing
+        // (com.sagearbor.gauge.wear, last build 0.5.2 / vc18) INTO the MindShift
+        // listing — Google's single-listing model for phone + Wear OS: one
+        // package name, one store page, the Wear build on the "Wear OS" form
+        // factor tracks. Same package + same Play app-signing key as the phone
+        // is also what the Wearable Data Layer needs if the two ever talk
+        // directly. Pairing today goes through the server (6-char code), so it
+        // does not depend on the package id.
+        applicationId = "com.sagearbor.mindshift.app"
         minSdk = 30
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.5.2"
+        // Phone and watch builds share ONE versionCode space in the listing and
+        // Play rejects any reuse, forever. The phone (Expo autoIncrement) is in
+        // the tens; the watch lives at 1_000_000 + n so the two can never
+        // collide. n continues the old gauge.wear sequence (last was 18).
+        versionCode = 1_000_019
+        // Aligned with the phone release this ships beside (apps/mobile/app.json).
+        versionName = "1.20.0"
 
         buildConfigField(
             "String",
@@ -77,7 +91,16 @@ android {
             resValue("string", "app_name", "MindShift Dev")
         }
         release {
-            isMinifyEnabled = false
+            // R8: the unshrunk release APK was 26 MB, almost all dex from
+            // Compose/OkHttp/guava/kotlin-stdlib. Library keep rules ship
+            // inside the AARs/JARs (consumer rules); ours are in
+            // proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = if (hasUploadKey) signingConfigs.getByName("upload")
                             else signingConfigs.getByName("debug")
         }

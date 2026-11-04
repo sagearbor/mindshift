@@ -52,7 +52,17 @@ _schema:
   authored_by: Claude (agent), from a full read of apps/watch/ and server/watch/
 
 app_identity:
-  package_name: com.sagearbor.gauge.wear
+  package_name: com.sagearbor.mindshift.app
+  changed_2026_10_30: >
+    MOVED INTO THE MINDSHIFT LISTING. The watch now builds as
+    com.sagearbor.mindshift.app (versionCode 1_000_000 + n, versionName aligned
+    with the phone) and ships on that listing's Wear OS form-factor tracks. The
+    old com.sagearbor.gauge.wear listing is being unpublished. Consequences for
+    this pack: App access / Ads / Content rating / Target audience / Data safety
+    are now ONE set of answers for the listing — the phone pack's. Use this
+    pack for the watch-specific reasoning, the Wear form-factor answers
+    (wear_os_listing) and the Wear store-listing text and screenshots.
+  old_package_name: com.sagearbor.gauge.wear
   proof: apps/watch/wearApp/build.gradle.kts:22
   play_developer_account: "7699975610134980668 (Sage Arbor)"
   app_already_exists_in_console: true
@@ -63,7 +73,7 @@ app_identity:
     the contact details were set via the API. What is MISSING is: screenshots
     (none uploaded), and every "Set up your app" declaration below. This pack
     completes the declarations only — it does NOT ship a release.
-  current_version: "0.5.0 (versionCode 16)"
+  current_version: "1.20.0 (versionCode 1000019)"
   proof_version: apps/watch/wearApp/build.gradle.kts:25-26
   form_factor: "Wear OS (standalone)"
   proof_form_factor:
@@ -1059,7 +1069,7 @@ other_declarations:
 wear_os_listing:
   form_factor_opt_in:
     where: "Play Console → Grow → Store presence → Store listings (or Release → Setup → Advanced settings → Form factors) → add 'Wear OS'."
-    value: "Wear OS is already the app's form factor — this record IS the standalone Wear listing."
+    value: "Add Wear OS to the MindShift listing (com.sagearbor.mindshift.app) — since 2026-10-30 the watch ships there, not on its own record."
     note: >
       If the console shows Wear OS as not yet added, add it. Adding a form
       factor is a listing action, not a release action, so it is in scope. Do
@@ -1080,7 +1090,7 @@ wear_os_listing:
       - apps/watch/wearApp/src/main/AndroidManifest.xml:25-27   # standalone = true
       - apps/watch/wearApp/build.gradle.kts:122                  # OkHttp; no play-services-wearable
       - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:80-87
-      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:113-118  # "Enter <code> on your phone or gauge.app/pair"
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:113-118  # "Enter <code> in the MindShift phone app"
     if_the_console_asks_for_the_companion_package:
       value: "com.sagearbor.mindshift.app"
       note: >
@@ -1390,7 +1400,7 @@ notes_for_the_agent:
     - "NEVER change the developer account settings, payment profile, users & permissions, or API access."
     - "NEVER accept a new Play agreement or policy acknowledgement on the owner's behalf."
     - "NEVER upload a screenshot that is not in this repo or supplied by the owner. The Wear screenshots do not exist yet — leave that section empty and report it."
-    - "You are working on com.sagearbor.gauge.wear. If the console header says com.sagearbor.mindshift.app, you are in the wrong app — stop and switch."
+    - "Since 2026-10-30 you are working on com.sagearbor.mindshift.app (the Wear OS form factor of the MindShift listing). Never upload a Wear build to the old com.sagearbor.gauge.wear listing."
   save_behaviour:
     - "Play autosaves some forms and requires an explicit Save on others. Press Save on each section when it is offered — saving a draft is fine and expected."
     - "The Data safety form is a multi-step wizard; 'Next' through it and Save. Only the final 'Submit' is off-limits."
