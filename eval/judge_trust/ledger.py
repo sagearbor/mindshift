@@ -29,7 +29,7 @@ PRICES = {
     "gpt-5-mini": (0.25, None, 2.00, "OpenAI page"),
     "gpt-6.1-terra": (1.00, None, 5.00, "OpenAI page"),
     "gpt-audio-1.5": (2.50, 32.00, 10.00, "OpenAI page"),
-    "gemini-3.8-flash": (1.50, 1.50, 7.50, "assumed 2x the page's 2026 price (0.75/3.75)"),
+    "gemini-3.8-flash": (0.75, 0.75, 3.75, "Gemini page (2026 price; audio not listed separately)"),
     "gemini-3.5-flash": (1.50, 1.50, 7.50, "assumed (not on page)"),
     "gemini-3.5-flash-lite": (0.30, 0.30, 2.50, "Gemini page"),
     "gemini-3.1-flash-lite": (0.25, 0.50, 1.50, "Gemini page"),
@@ -78,6 +78,8 @@ def _running() -> float:
 
 def check_budget(expected: float = 0.0) -> None:
     with _lock:
+        # re-read the shared log every time so parallel runner processes see each other's spend
+        _spent_cache["v"] = spent()
         if _running() + expected > CAP:
             raise BudgetExceeded(f"spend estimate ${_running():.3f} + ${expected:.3f} would pass cap ${CAP:.2f}")
 
