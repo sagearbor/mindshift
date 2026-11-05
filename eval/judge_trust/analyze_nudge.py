@@ -9,7 +9,7 @@ import numpy as np
 
 from env import MAIN, OUT
 from nudge_judges import FAMILY, FLAGS, OWNER_CARDS
-from stats import boot_ci, cohen_kappa, fleiss_ci, kappa_ci
+from stats import ac1_ci, boot_ci, cohen_kappa, fleiss_ci, kappa_ci, spearman
 
 JUDGES = ["claude-sonnet-5-5", "claude-haiku-5-5", "gpt-5-mini", "gpt-6.1-terra", "gemini-3.8-flash",
           "gemini-3.5-flash-lite", "qwen-local"]
@@ -54,6 +54,14 @@ def agreement(G, judges, ids, field) -> dict:
     cnt = np.array([[sum(M[j][k] == 0 for j in judges), sum(M[j][k] == 1 for j in judges)] for k in range(len(ids))])
     out["fleiss"] = fleiss_ci(cnt) if len(ids) > 3 else None
     out["mean_pairwise"] = float(np.mean([v[0] for v in out["pairwise"].values()]))
+    # POST-HOC (not pre-registered): prevalence-robust agreement
+    out["pct_agree"] = {f"{a} | {b}": float(np.mean(M[a] == M[b])) for a, b in itertools.combinations(judges, 2)}
+    out["ac1"] = {f"{a} | {b}": ac1_ci(M[a], M[b]) for a, b in itertools.combinations(judges, 2)}
+    out["loo_ac1"] = {}
+    for j in judges:
+        others = [o for o in judges if o != j]
+        maj = np.array([majority([M[o][k] for o in others]) for k in range(len(ids))])
+        out["loo_ac1"][j] = ac1_ci(M[j], maj)
     out["_M"] = M
     out["_ids"] = ids
     return out
@@ -72,6 +80,18 @@ def main() -> dict:
         rep[f"real_{field}"] = {k: v for k, v in a.items() if not k.startswith("_")}
         if field == "helpful":
             M, ids = a["_M"], a["_ids"]
+    # POST-HOC: continuous agreement (Spearman) on P(helpful) and on timing 0-3, real frozen cases
+    rep["spearman_p"], rep["spearman_timing"] = {}, {}
+    for a_, b_ in itertools.combinations(judges, 2):
+        rep["spearman_p"][f"{a_} | {b_}"] = spearman([G[a_][i].get("p_helpful", 0) for i in ids],
+                                                     [G[b_][i].get("p_helpful", 0) for i in ids])
+        rep["spearman_timing"][f"{a_} | {b_}"] = spearman([G[a_][i].get("timing", 0) for i in ids],
+                                                          [G[b_][i].get("timing", 0) for i in ids])
+    # the 17 PR #215 lines, and the combined set (real + 17 + synthetic): same statistics
+    p17 = sorted({k for j in judges for k in G[j] if k.startswith("pr215:")})
+    rep["e17_helpful"] = {k: v for k, v in agreement(G, judges, p17, "helpful").items() if not k.startswith("_")}
+    allids = real_ids + p17 + [c["case_id"] for c in syn]
+    rep["all_helpful"] = {k: v for k, v in agreement(G, judges, allids, "helpful").items() if not k.startswith("_")}
     # admissibility per prereg
     rep["admissible"] = {j: bool(rep["real_helpful"]["loo"][j][0] >= 0.40 and rep["real_helpful"]["loo"][j][1] > 0.20)
                          for j in judges}

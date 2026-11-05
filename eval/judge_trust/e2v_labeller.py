@@ -27,11 +27,15 @@ MAP = {"angry": "anger", "disgusted": "disgust", "fearful": "fear", "happy": "ha
 def main() -> None:
     from funasr import AutoModel
     model = AutoModel(model="emotion2vec/emotion2vec_plus_large", hub="hf", disable_update=True)
-    sample = json.loads((OUT / "cremad_sample.json").read_text())["items"]
-    jobs = [(s["clip"], ROOT / "AudioWAV" / f"{s['clip']}.wav") for s in sample]
-    tts = sorted((OUT / "tts").glob("tts_*.wav"))
-    jobs += [(p.stem, p) for p in tts]
-    out = open(OUT / "emotion_results_e2v.jsonl", "w")
+    if len(sys.argv) > 1 and sys.argv[1] == "ravdess":
+        jobs = [(x["id"], Path(x["wav"])) for x in json.loads((OUT / "ravdess_sample.json").read_text())]
+        out = open(OUT / "emotion_results_ravdess_e2v.jsonl", "w")
+    else:
+        sample = json.loads((OUT / "cremad_sample.json").read_text())["items"]
+        jobs = [(s["clip"], ROOT / "AudioWAV" / f"{s['clip']}.wav") for s in sample]
+        tts = sorted((OUT / "tts").glob("tts_*.wav"))
+        jobs += [(p.stem, p) for p in tts]
+        out = open(OUT / "emotion_results_e2v.jsonl", "w")
     for i, (cid, wav) in enumerate(jobs):
         r = model.generate(str(wav), granularity="utterance", extract_embedding=False)[0]
         labs = [l.split("/")[-1] for l in r["labels"]]

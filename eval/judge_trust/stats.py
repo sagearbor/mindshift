@@ -91,6 +91,32 @@ def binary_class_stats(pred, ref, cls, B=2000):
     return out
 
 
+def gwet_ac1(a, b) -> float:
+    """Gwet's AC1 for two raters, binary 0/1. Robust to the kappa 'prevalence paradox'."""
+    a = np.asarray(a).astype(int)
+    b = np.asarray(b).astype(int)
+    if len(a) == 0:
+        return float("nan")
+    po = float(np.mean(a == b))
+    pi = (a.mean() + b.mean()) / 2
+    pe = 2 * pi * (1 - pi)
+    return (po - pe) / (1 - pe) if pe < 1 else 1.0
+
+
+def ac1_ci(a, b, B=2000):
+    a = np.asarray(a)
+    b = np.asarray(b)
+    v = gwet_ac1(a, b)
+    lo, hi = boot_ci(lambda i: gwet_ac1(a[i], b[i]), len(a), B)
+    return v, lo, hi
+
+
+def spearman(x, y) -> float:
+    from scipy.stats import spearmanr
+    r = spearmanr(x, y)[0]
+    return float(r) if np.isfinite(r) else float("nan")
+
+
 def tvd(p, q) -> float:
     """Total variation distance between two distributions."""
     return 0.5 * float(np.abs(np.asarray(p) - np.asarray(q)).sum())

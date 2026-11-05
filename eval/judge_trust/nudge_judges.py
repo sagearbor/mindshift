@@ -167,6 +167,9 @@ def load_owner_cards() -> list[tuple[str, dict]]:
 
 def load_cases(which: str) -> list[tuple[str, dict]]:
     out = []
+    if which == "confirm":
+        m = json.loads((OUT / "nudge_cases_confirm.json").read_text())
+        return [(c["case_id"], c["view"]) for c in m["cases"]]
     if which in ("owner", "all"):
         out += load_owner_cards()
     if which in ("frozen", "all"):
@@ -182,7 +185,7 @@ def load_cases(which: str) -> list[tuple[str, dict]]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", required=True)
-    ap.add_argument("--cases", default="all", choices=["frozen", "existing17", "owner", "all"])
+    ap.add_argument("--cases", default="all", choices=["frozen", "existing17", "owner", "confirm", "all"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=6)
     a = ap.parse_args()

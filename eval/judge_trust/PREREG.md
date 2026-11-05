@@ -56,6 +56,17 @@ development), and the 17 PR #215 lines. Exact-text leakage check against those s
 the normalised (coach_line, answered_turn) pair. Hindsight (context_after) removed. Manifest stores a
 SHA-256 per case and for the whole set.
 
+## B2. Confirmation addendum (written 2026-11-05 AFTER the section-B results, BEFORE the confirmation run)
+Section-B result: the pre-registered bars FAILED (Fleiss 0.13 on the real frozen set), mostly because
+almost every held-out line is judged not helpful (kappa prevalence paradox) and two lenient judges
+(gpt-5-mini, gemini-3.5-flash-lite) disagree with the rest. A core panel was then picked POST HOC:
+{claude-haiku-5-5, gpt-6.1-terra, gemini-3.8-flash} (Fleiss 0.60 [0.39, 0.76] on real+17 lines).
+Because it was chosen on the same data, it is only confirmed if, on a FRESH confirmation set
+(70 held-out lines never judged before: 15 heated|wearer = all that remain, 30 heated|other, 25 calm|wearer,
+seed 20261106),
+its Fleiss kappa on `helpful` is >= 0.40 with lower 95% CI >= 0.20 AND its pairwise percent agreement
+is >= 0.85 for every pair. Otherwise: "not confirmed". Same prompt, same models, no changes.
+
 ## D. Spend
 Hard cap USD 5.00 (run cap 4.50) on estimated cost of every call, logged per call; stop on breach.
 GPT/OpenAI outputs are used only as evaluation judges, never as training labels.

@@ -189,5 +189,38 @@ def main() -> None:
     print(json.dumps({k: v for k, v in manifest.items() if k != "cases"}, indent=1))
 
 
+def confirm_set() -> None:
+    """Fresh confirmation set (PREREG B2): held-out rows never used in the frozen set or as synthetic bases."""
+    held = set(json.loads((REC / "landscape/splits.json").read_text())["held_out"])
+    excl_ids, tune_text = tuning_sources()
+    frozen = json.loads((OUT / "nudge_cases_frozen.json").read_text())
+    used = {c["case_id"].split(":", 2)[-1] if c["kind"] != "real" else c["case_id"][5:] for c in frozen["cases"]}
+    used_items_lines = {(c["view"]["coach_line"]) for c in frozen["cases"] if c["kind"] == "real"}
+    seen, cells = set(), defaultdict(list)
+    for r in load_pool():
+        if r["item"] not in held or r["id"] in excl_ids or r["src"] in used or r["view"]["coach_line"] in used_items_lines:
+            continue
+        key = (r["item"], norm(r["view"]["coach_line"]))
+        if key in seen or norm(r["view"]["coach_line"]) in tune_text:
+            continue
+        seen.add(key)
+        cells[(r["meta"]["group"], bool(r["meta"]["answered_turn_truth_is_wearer"]))].append(r)
+    rng = np.random.default_rng(20261106)
+    cases = []
+    for cell, n in ((("heated", True), 15), (("heated", False), 30), (("calm", True), 25)):
+        lst = cells[cell]
+        for i in sorted(rng.choice(len(lst), size=min(n, len(lst)), replace=False).tolist()):
+            r = lst[i]
+            v = clean(r["view"])
+            cases.append({"case_id": f"confirm:{r['src']}", "kind": "real", "cell": f"{cell[0]}|wearer={cell[1]}",
+                          "corpus": r["meta"]["corpus"], "view": v,
+                          "sha256": h(json.dumps(v, sort_keys=True, ensure_ascii=False))})
+    m = {"what": "confirmation set (PREREG B2)", "seed": 20261106, "n": len(cases),
+         "set_sha256": h("".join(sorted(c["sha256"] for c in cases))), "cases": cases}
+    (OUT / "nudge_cases_confirm.json").write_text(json.dumps(m, indent=1, ensure_ascii=False))
+    print("confirm set", len(cases), m["set_sha256"][:16], {k: len(v) for k, v in cells.items()})
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    confirm_set() if "--confirm" in sys.argv else main()
