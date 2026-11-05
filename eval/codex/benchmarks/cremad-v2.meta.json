@@ -1,0 +1,25 @@
+{
+  "source_url": "https://github.com/CheyneyComputerScience/CREMA-D",
+  "source_commit": "1658cd342dff90010aa843eaeebd53610a08b1dc",
+  "ratings_sha256": "5eab9668f6adc2666b0179ae80553a50a5172dbc9812e582cd0ffa7bc0dd237e",
+  "timing_sha256": "e6d44cbbf1dca05746c789f87ecdbf975e01cb142bba88266f23189a47bb4667",
+  "labels": [
+    "anger",
+    "disgust",
+    "fear",
+    "happiness",
+    "neutral",
+    "sadness"
+  ],
+  "split_algorithm": "sha256(mindshift-emotion-v1:actor), first 20% test, next 20% dev, remainder train",
+  "rating_filter": "Original first-response time <= 10000 ms, audio-only queryType=1",
+  "index_sha256": "2b7195c43ba96e99bb39cd1fcd8421625f2411ecd0e04148590e5de79f03bd7a",
+  "quarantined": [
+    {
+      "id": "1076_MTI_SAD_XX",
+      "sha256": "2759bb80ce3ac9a64f18aa386ed436fc38e8dbf0568ef3d8957a24ab66e9317c",
+      "reason": "All-zero waveform; excluded before training"
+    }
+  ],
+  "license": "ODbL-1.0 database and DbCL-1.0 contents; see NOTICE.md"
+}

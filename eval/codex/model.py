@@ -10,10 +10,11 @@ import numpy as np
 import soundfile as sf
 import torch
 from scipy.signal import resample_poly
-from .benchmark import ROOT, sha256, save_json
+from .benchmark import ROOT, sha256, save_json, verify_audio_rows
 
 REVISIONS = {'tiny':'169d4a4341b33bc18d8881c4b69c2e104e1cc0af',
-             'base':'e37978b90ca9030d5170a5c07aadb050351a65bb'}
+             'base':'e37978b90ca9030d5170a5c07aadb050351a65bb',
+             'small':'973afd24965f72e36ca33b3055d56a652f456b4d'}
 WINDOW_SECONDS = 6
 
 
@@ -79,6 +80,7 @@ def extract(size,manifest_path,batch_size=32,limit=None):
     device='mps' if torch.backends.mps.is_available() else 'cpu'
     manifest=json.loads(Path(manifest_path).read_text())
     rows=manifest['rows'][:limit] if limit else manifest['rows']
+    verify_audio_rows(rows)
     encoder,processor=load_encoder(size,device)
     cache=ROOT/'artifacts'/f'features-{size}'
     cache.mkdir(parents=True,exist_ok=True)
@@ -106,7 +108,7 @@ def extract(size,manifest_path,batch_size=32,limit=None):
     out=ROOT/'artifacts'/f'features-{size}{"-smoke" if limit else ""}.npz'
     np.savez(out,x=x,ids=np.array([r['id'] for r in rows]))
     save_json(out.with_suffix('.json'),dict(model=f'openai/whisper-{size}',revision=REVISIONS[size],
-        manifest_sha256=sha256(manifest_path),seconds=WINDOW_SECONDS,pooling='valid-frame mean+std',
+        manifest_sha256=sha256(manifest_path),archive_sha256=sha256(out),seconds=WINDOW_SECONDS,pooling='valid-frame mean+std',
         device=device,n_clips=len(rows),new_clips=len(missing),elapsed_seconds=time.monotonic()-start,
         empty_outputs=0,nonfinite_outputs=0,finish_reason_length=0,
         note='Encoder forward pass, no text generation or token budget. First six seconds of positional table; no clip truncation.'))
@@ -116,7 +118,7 @@ def extract(size,manifest_path,batch_size=32,limit=None):
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--size',choices=REVISIONS,required=True)
-    p.add_argument('--manifest',type=Path,default=ROOT/'data/manifest-v1.json')
+    p.add_argument('--manifest',type=Path,default=ROOT/'data/manifest-v2.json')
     p.add_argument('--batch-size',type=int,default=32)
     p.add_argument('--limit',type=int)
     a=p.parse_args()

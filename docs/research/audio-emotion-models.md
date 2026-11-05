@@ -6,14 +6,14 @@ Scope: voice emotion only, phone first. No nudge labels, nudge policy, hosted in
 
 | Candidate | Weight permission evidence | Role | Decision |
 |---|---|---|---|
-| OpenAI Whisper tiny/base encoders | [Official README](https://github.com/openai/whisper#license) explicitly covers code and model weights; [MIT licence](https://github.com/openai/whisper/blob/main/LICENSE), “free of charge” | Frozen representation plus six-emotion head trained here; no transcription decoder in export | Proceed, retain MIT attribution. These are downloadable local weights, not an OpenAI API or its generated-output terms. |
-| Qwen2.5-Omni-7B | [Publisher model card](https://huggingface.co/Qwen/Qwen2.5-Omni-7B), Apache-2.0 | Possible offline teacher, not phone model | Eligible licence candidate; not validated as an emotion teacher here yet. Card lists MELD aggregate 0.570, not per-emotion natural-speech numbers. |
+| OpenAI Whisper tiny/base/small encoders | [Official README](https://github.com/openai/whisper#license) explicitly covers code and model weights; [MIT licence](https://github.com/openai/whisper/blob/main/LICENSE), “free of charge” | Frozen representation plus six-emotion head trained here; no transcription decoder in export | Proceed, retain MIT attribution. These are downloadable local weights, not an OpenAI API or its generated-output terms. |
+| Qwen2.5-Omni-7B | [Publisher model card](https://huggingface.co/Qwen/Qwen2.5-Omni-7B), Apache-2.0 | Possible offline teacher, not phone model | Tested locally on all 1,476 development clips: audio macro F1 0.3877, transcript-only 0.1265. Fails provisional teacher gate; no mass labels generated. Card lists MELD aggregate 0.570, not per-emotion natural-speech numbers. |
 | emotion2vec+ large | [Publisher card](https://huggingface.co/emotion2vec/emotion2vec_plus_large): custom `model-license`, linked to FunASR; [current model agreement](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) | Possible offline teacher | Excluded from the commercial training path pending unambiguous weight terms. The research code’s MIT badge is not evidence that these weights are MIT. Custom terms contain restrictions/revision clauses; do not silently substitute a code licence. |
-| WavLM base-plus | [Publisher repository](https://huggingface.co/microsoft/wavlm-base-plus) | Possible encoder comparator | HF metadata does not specify a licence. Verify exact weight permission before introducing it. |
+| WavLM base-plus | [Publisher repository](https://huggingface.co/microsoft/wavlm-base-plus) | Possible encoder comparator | The card links [UniSpeech CC-BY-SA-3.0 terms](https://github.com/microsoft/UniSpeech/blob/main/LICENSE), while the wider unilm repository has MIT code. Exact weight attribution and share-alike interpretation remain unresolved here; excluded from this run. |
 
 Whisper is a speech-recognition pretrained encoder, not an already validated emotion classifier. Its phone suitability is established only when we export and measure our entire encoder/head pipeline. Published per-emotion natural-speech results for these particular Whisper classifiers: **not found** (they are new experiments).
 
-Pinned Whisper revisions: tiny `169d4a4341b33bc18d8881c4b69c2e104e1cc0af`, base `e37978b90ca9030d5170a5c07aadb050351a65bb`. Exact tensor counts and artifact sizes are measured by the export code, rather than inferred from full transcription model names.
+Pinned Whisper revisions: tiny `169d4a4341b33bc18d8881c4b69c2e104e1cc0af`, base `e37978b90ca9030d5170a5c07aadb050351a65bb`, small `973afd24965f72e36ca33b3055d56a652f456b4d`. Exact tensor counts and artifact sizes are measured by the export code, rather than inferred from full transcription model names.
 
 ## Data permission and human truth
 

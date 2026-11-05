@@ -7,13 +7,27 @@ from pathlib import Path
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from .benchmark import ROOT, LABELS, metrics, save_json, sha256, validate_partition
+from .benchmark import ROOT, LABELS, metrics, save_json, sha256, validate_partition, verify_audio_rows
 from .model import expand_votes
 
 
 def check_alignment(expected, actual):
     if list(expected) != list(actual):
         raise ValueError('Feature IDs do not match manifest order')
+
+
+def load_features(path, ids, manifest_hash):
+    path=Path(path)
+    meta=json.loads(path.with_suffix('.json').read_text())
+    if meta['manifest_sha256'] != manifest_hash:
+        raise ValueError('Feature cache belongs to different manifest')
+    if meta.get('archive_sha256') != sha256(path):
+        raise ValueError('Feature archive changed or lacks a recorded hash')
+    features=np.load(path)
+    check_alignment(ids,features['ids'])
+    if not np.isfinite(features['x']).all():
+        raise ValueError('Nonfinite cached features')
+    return features
 
 
 def fit_head(x,votes,splits,c,balanced=False):
@@ -43,20 +57,28 @@ def predict_head(x,head):
     return p/p.sum(1,keepdims=True)
 
 
-def train(size,manifest_path,out):
+def training_mask(rows,cohort):
+    if cohort not in {'all_votes','actor_agrees'}:
+        raise ValueError('Unknown training cohort')
+    intended={'ANG':0,'DIS':1,'FEA':2,'HAP':3,'NEU':4,'SAD':5}
+    return np.array([r['split']=='train' and (cohort=='all_votes' or r['majority']==intended[r['intended_emotion']]) for r in rows])
+
+
+def train(size,manifest_path,out,cohort='all_votes'):
     if out.exists():
         raise FileExistsError('Use a new run directory; never overwrite experiment evidence')
     out.mkdir(parents=True)
     manifest=json.loads(manifest_path.read_text())
     rows=manifest['rows']; validate_partition(rows)
+    verify_audio_rows(rows)
     features_path=ROOT/'artifacts'/f'features-{size}.npz'
-    features=np.load(features_path)
+    features=load_features(features_path,[r['id'] for r in rows],sha256(manifest_path))
     check_alignment([r['id'] for r in rows],features['ids'])
     meta=json.loads(features_path.with_suffix('.json').read_text())
     if meta['manifest_sha256'] != sha256(manifest_path):
         raise ValueError('Feature cache belongs to different manifest')
     x=features['x']; votes=np.array([r['votes'] for r in rows])
-    tr=np.array([r['split']=='train' for r in rows]); dev=np.array([r['split']=='dev' for r in rows])
+    tr=training_mask(rows,cohort); dev=np.array([r['split']=='dev' for r in rows])
     candidates=[]; start=time.monotonic()
     for balanced in [False,True]:
         for c in [.01,.1,1,10]:
@@ -84,7 +106,7 @@ def train(size,manifest_path,out):
     prior=prior.mean(0)
     save_json(out/'selection.json',dict(size=size,labels=LABELS,manifest_sha256=sha256(manifest_path),
         feature_metadata=meta,selection_rule='maximum development macro F1; final test unopened',
-        winner=winner,candidates=candidates,seconds=time.monotonic()-start,
+        winner=winner,candidates=candidates,cohort=cohort,n_train=int(tr.sum()),seconds=time.monotonic()-start,
         transcript_dev=metrics(votes[dev],predict_head(text_x[dev],text_head)),
         prior_dev=metrics(votes[dev],np.tile(prior,(dev.sum(),1))),
         sentence_keys=sentence_keys,train_prior=prior.tolist(),
@@ -94,7 +116,8 @@ def train(size,manifest_path,out):
 
 if __name__=='__main__':
     ap=argparse.ArgumentParser()
-    ap.add_argument('--size',choices=['tiny','base'],required=True)
-    ap.add_argument('--manifest',type=Path,default=ROOT/'data/manifest-v1.json')
+    ap.add_argument('--size',choices=['tiny','base','small'],required=True)
+    ap.add_argument('--manifest',type=Path,default=ROOT/'data/manifest-v2.json')
     ap.add_argument('--out',type=Path,required=True)
-    a=ap.parse_args(); train(a.size,a.manifest,a.out)
+    ap.add_argument('--cohort',choices=['all_votes','actor_agrees'],default='all_votes')
+    a=ap.parse_args(); train(a.size,a.manifest,a.out,a.cohort)

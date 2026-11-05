@@ -38,6 +38,13 @@ def save_json(path, data):
     temp.replace(path)
 
 
+def verify_audio_rows(rows):
+    """Check consumed audio even when inference/features are cached."""
+    for row in rows:
+        if sha256(ROOT / row['audio_path']) != row['sha256']:
+            raise ValueError(f"Benchmark audio changed: {row['id']}")
+
+
 def read_audio_votes(path, timing_path=None):
     # Reproduce processFinishedResponses.R: remove first clicks > 10 seconds.
     excluded = set()
@@ -111,7 +118,11 @@ def audio_info(path):
         raise ValueError(f'Invalid or missing audio: {path}') from exc
     if info.frames <= 0 or info.samplerate <= 0:
         raise ValueError(f'Empty audio: {path}')
-    return {'duration_s': info.duration, 'sample_rate': info.samplerate, 'channels': info.channels}
+    waveform, _ = sf.read(path, dtype='float32', always_2d=True)
+    rms = float(np.sqrt(np.mean(waveform.mean(axis=1).astype(float)**2)))
+    if not np.isfinite(rms) or rms < 1e-5:
+        raise ValueError(f'silent or nonfinite source audio: {path}')
+    return {'rms': rms, 'duration_s': info.duration, 'sample_rate': info.samplerate, 'channels': info.channels}
 
 
 def metrics(votes, probabilities):
@@ -134,7 +145,8 @@ def metrics(votes, probabilities):
         mask = (confidence >= lo) & (confidence < lo+.1 if lo < .9 else confidence <= 1)
         if mask.any():
             ece += mask.mean() * abs(correct[mask].mean() - confidence[mask].mean())
-    kappa = float(cohen_kappa_score(y,pred,labels=list(range(6))))
+    kappa = (float('nan') if len(set(y) | set(pred)) == 1 else
+             float(cohen_kappa_score(y,pred,labels=list(range(6)))))
     return {'n_total': len(v), 'n_single_label': len(y), 'n_tied': int((~unique).sum()),
         'accuracy': float(accuracy_score(y,pred)), 'macro_f1': float(f1.mean()),
         'balanced_accuracy': float(recall.mean()), 'kappa': kappa if np.isfinite(kappa) else None,
@@ -173,6 +185,7 @@ def build_manifest(source, out):
     with (source/'processedResults/summaryTable.csv').open() as f:
         summaries = {r['FileName']: set(r['VoiceVote'].split(':')) for r in csv.DictReader(f)}
     rows = []
+    quarantined = []
     for name in sorted(votes):
         actor, sentence, intended, intensity = name.split('_')
         count = votes[name]
@@ -180,8 +193,15 @@ def build_manifest(source, out):
         if winners != summaries[name]:
             raise ValueError(f'Raw audio ratings disagree with official VoiceVote: {name}')
         path = source/'AudioWAV'/f'{name}.wav'
+        try:
+            info = audio_info(path)
+        except ValueError as exc:
+            if 'silent or nonfinite' not in str(exc):
+                raise
+            quarantined.append(dict(id=name, sha256=sha256(path), reason=str(exc)))
+            continue
         rows.append(dict(id=name, speaker=actor, split=splits[actor],
-            audio_path=str(path.relative_to(ROOT)), sha256=sha256(path), **audio_info(path),
+            audio_path=str(path.relative_to(ROOT)), sha256=sha256(path), **info,
             votes=count, label_source='human_audio_votes', majority=majority(count),
             agreement=max(count)/sum(count), intended_emotion=intended, intensity=intensity,
             transcript=SENTENCES[sentence], corpus='CREMA-D', commercial_use=True,
@@ -194,22 +214,22 @@ def build_manifest(source, out):
         'timing_sha256': sha256(source/'finishedEmoResponses.csv'),
         'rating_filter': 'Original first-response time <= 10000 ms, audio-only queryType=1',
         'split_algorithm': 'sha256(mindshift-emotion-v1:actor), first 20% test, next 20% dev, remainder train',
-        'rows': rows}
+        'rows': rows, 'quarantined': quarantined}
     save_json(out,manifest)
     summary = {s: {'clips': sum(r['split']==s for r in rows),
         'speakers': len({r['speaker'] for r in rows if r['split']==s}),
         'unique_majority_counts': dict(Counter(LABELS[r['majority']] for r in rows if r['split']==s and r['majority'] is not None)),
         'tied': sum(r['split']==s and r['majority'] is None for r in rows)} for s in ['train','dev','test']}
-    summary.update(manifest_sha256=sha256(out), total_clips=len(rows),
+    summary.update(quarantined=quarantined, manifest_sha256=sha256(out), total_clips=len(rows),
                    max_duration_s=max(r['duration_s'] for r in rows),
                    intended_differs_from_unique_majority=sum(r['majority'] is not None and CODES[r['majority']] != r['intended_emotion'][0] for r in rows))
-    save_json(out.with_name('dataset_summary.json'),summary)
+    save_json(out.with_suffix('.summary.json'),summary)
     print(json.dumps(summary,indent=2))
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--source',type=Path,default=ROOT/'data/crema-d')
-    ap.add_argument('--out',type=Path,default=ROOT/'data/manifest-v1.json')
+    ap.add_argument('--out',type=Path,default=ROOT/'data/manifest-v2.json')
     args = ap.parse_args()
     build_manifest(args.source,args.out)

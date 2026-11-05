@@ -95,3 +95,21 @@ def test_missing_response_time_matches_original_r_filter(tmp_path):
     timing=tmp_path/'timing.csv'
     timing.write_text('queryType,sessionNums,questNum,ttr\n1,1,1,NULL\n')
     assert b.read_audio_votes(path,timing)['clip'] == [1,0,0,0,0,0]
+
+
+def test_manifest_audio_quality_rejects_silent_source(tmp_path):
+    import soundfile as sf
+    p=tmp_path/'silent.wav'
+    sf.write(p,np.zeros(16000),16000)
+    with pytest.raises(ValueError,match='silent'):
+        b.audio_info(p)
+
+
+def test_changed_audio_is_rejected_even_with_existing_manifest(tmp_path):
+    p=tmp_path/'clip.wav'
+    p.write_bytes(b'original')
+    row=dict(id='clip',audio_path=str(p),sha256=b.sha256(p))
+    b.verify_audio_rows([row])
+    p.write_bytes(b'replaced')
+    with pytest.raises(ValueError,match='changed'):
+        b.verify_audio_rows([row])
