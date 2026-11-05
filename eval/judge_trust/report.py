@@ -109,7 +109,9 @@ def build(recs_html: str, bottom_html: str) -> str:
     for m, R in ea["models"].items():
         cr.append([E(m), k3((R.get("audio_only") or {}).get("kappa")), k3((R.get("both") or {}).get("kappa")),
                    k3((R.get("contradict") or {}).get("kappa")),
-                   (k3(R["text_only"]["kappa"]) + " " + badge("PASS" if R["text_only"]["pass"] else "FAIL")) if R.get("text_only") else "-",
+                   ((k3(R["text_only"]["kappa"]) + " " + badge("PASS" if R["text_only"]["pass"] else "FAIL"))
+                    if R.get("text_only") and R["text_only"]["kappa"][0] == R["text_only"]["kappa"][0]
+                    else "n/a (model rejects text-only input)" if R.get("text_only") else "-"),
                    (f"{R['leak_contradict']['rate']:.0%} ({R['leak_contradict']['moved_to_text']}/{R['leak_contradict']['eligible']}) " + badge(R['leak_contradict']['verdict'])) if R.get("leak_contradict") else "-",
                    (f"{R['leak_tts']['labelled_word_emotion']:.0%} word / {R['leak_tts']['labelled_neutral']:.0%} neutral " + badge(R['leak_tts']['verdict'])) if R.get("leak_tts") else "-"])
     body += ("<h3>Conditions and text-leakage tests</h3><p class='mut'>contradict = same audio, transcript swapped for "
@@ -122,6 +124,11 @@ def build(recs_html: str, bottom_html: str) -> str:
         body += "<h3>Two-labeller agreement filter (keep a label only where both agree)</h3>" + table(
             ["pair", "coverage", "accuracy on kept", "kappa on kept"],
             [[E(k), f"{v['coverage']:.0%} of {v['n_both']}", f"{v['accuracy_on_agreed'] or 0:.2f}", k3(v.get("kappa_on_agreed"))] for k, v in af.items()])
+    rv = json.loads((OUT / "ravdess_check.json").read_text()) if (OUT / "ravdess_check.json").exists() else None
+    if rv:
+        body += ("<h3>Cross-corpus: RAVDESS (eval only; reference = actor's intended emotion, 96 clips)</h3>"
+                 + table(["labeller", "kappa [CI]", "acc"] + EM,
+                         [[E(m), k3(r["kappa"]), f"{r['accuracy']:.2f}"] + [f"R {r['recall'][e] or 0:.2f}" for e in EM] for m, r in rv.items()]))
     parts.append(sec("1. Emotion labellers vs human crowd (CREMA-D)", body, True))
     if cc:
         parts.append(sec("2. Language-agnostic check (CONFER, Greek debates, eval only)",
@@ -133,14 +140,17 @@ def build(recs_html: str, bottom_html: str) -> str:
     h = na["real_helpful"]
     d = na["real_derived_helpful"]
     judges = na["judges"]
-    rr = [[E(j), E(na["families"][j]), f"{h['rate'][j]:.0%}", k3(h["loo"][j]), badge("ADMISSIBLE" if na["admissible"][j] else "NOT ADMISSIBLE").replace("ADMISSIBLE", "admissible"),
+    rr = [[E(j), E(na["families"][j]), f"{h['rate'][j]:.0%}", k3(h["loo"][j]), badge("YES" if na["admissible"][j] else "NO"),
            f"{na['synthetic'][j]['neg_correct']:.0%} " + badge("PASS" if na["synthetic"][j]["neg_pass"] else "FAIL") if na["synthetic"][j]["neg_correct"] is not None else "-",
            f"{na['synthetic'][j]['pos_controls_helpful']:.0%}", f"{na['owner'][j]['agree']}/{na['owner'][j]['n']}",
            f"${na['cost_per_case'].get(j, 0):.4f}", str(na["parse_fail"][j])] for j in judges]
     body = (f"<p>Frozen set: {h['n']} real coach lines from held-out sessions (all judges answered), plus "
             f"{sum(v for k, v in man['by_kind'].items() if k != 'real')} synthetic cases whose answer is fixed by the owner's written rules. "
             "Rubric v4 (PR #215) plus P(helpful) and a 6-item checklist, one call per case.</p>"
-            f"<div class='box'>Panel Fleiss kappa (helpful): <b>{k3(h['fleiss'])}</b>, mean pairwise {h['mean_pairwise']:.2f}. "
+            f"<div class='box'>Pre-registered verdict: panel "
+            f"{badge('TRUSTWORTHY' if h['fleiss'][0] >= 0.40 and h['fleiss'][1] >= 0.20 else 'NOT TRUSTWORTHY')}; "
+            f"admissible judges: {sum(na['admissible'].values())} of {len(judges)}. "
+            f"Panel Fleiss kappa (helpful): <b>{k3(h['fleiss'])}</b>, mean pairwise {h['mean_pairwise']:.2f}. "
             f"Checklist-derived verdict: Fleiss <b>{k3(d['fleiss'])}</b>, mean pairwise {d['mean_pairwise']:.2f}. "
             f"Full-panel majority calls {na['full_panel_rate']:.0%} of real lines helpful.</div>"
             + table(["judge", "family", "says helpful", "kappa vs others' majority", "admissible?", "rule cases right", "pos. controls helpful",
@@ -160,12 +170,31 @@ def build(recs_html: str, bottom_html: str) -> str:
                  f"{k3(e['self_consistency']['sonnet_new_vs_orig'])}, gpt-5-mini vs its earlier verdicts "
                  f"{k3(e['self_consistency']['gpt5mini_new_vs_orig'])}.</p>"
                  + table(["judge", "says helpful on the 17"], [[E(k), f"{v:.0%}"] for k, v in e["rates"].items()]))
-    mp = na.get("min_panel_candidates") or []
-    body += "<h3>Smallest panel that reproduces the full panel</h3>" + (table(
-        ["panel", "kappa vs full panel [CI]", "$/case"],
-        [[E(" + ".join(c["panel"])), f"{c['kappa_vs_full']:.2f} [{c['ci'][0]:.2f}, {c['ci'][1]:.2f}]", f"${c['usd_per_case']:.4f}"] for c in mp[:6]])
-        if mp else "<p>No panel of 2+ judges from 2+ families reached kappa 0.80 against the full panel.</p>")
-    body += table(["size", "best panel", "kappa vs full"], [[k, E(" + ".join(v["panel"])), f"{v['kappa_vs_full']:.2f}"] for k, v in na["best_by_size"].items()])
+        e17 = na["e17_helpful"]
+        body += "<p>Pairwise on the 17 (sorted by kappa):</p>" + table(
+            ["pair", "kappa [CI]", "% agree"],
+            [[E(k.replace(" | ", " vs ")), k3(v), f"{e17['pct_agree'][k]:.0%}"] for k, v in sorted(e17["pairwise"].items(), key=lambda kv: -kv[1][0])])
+    body += ("<h3>Why kappa collapses here: post-hoc, prevalence-robust view (NOT pre-registered)</h3>"
+             "<p>Almost every held-out line is judged not helpful, so a judge that says 'no' to everything (Sonnet 5.5: "
+             "0 of 93) gets kappa 0 even when it agrees on 90%+ of lines. Gwet's AC1 and raw agreement are not "
+             "distorted by that; Spearman compares the judges' P(helpful) and timing scores as rankings.</p>" + table(
+                 ["pair", "% agree", "AC1 [CI]", "rho P(helpful)", "rho timing"],
+                 [[E(k.replace(" | ", " vs ")), f"{h['pct_agree'][k]:.0%}", k3(h["ac1"][k]), f"{na['spearman_p'][k]:+.2f}",
+                   f"{na['spearman_timing'][k]:+.2f}"] for k in sorted(h["pct_agree"], key=lambda k: -h["pct_agree"][k])]))
+    c = na.get("confirm")
+    if c:
+        body += (f"<h3>Confirmation of the post-hoc core panel on {c['n']} fresh lines (PREREG B2)</h3>"
+                 f"<div class='box'>{E(' + '.join(c['panel']))}: Fleiss <b>{k3(c['fleiss'])}</b>, "
+                 f"pairwise agreement {', '.join(f'{v:.0%}' for v in c['pct_agree'].values())}, helpful rates "
+                 f"{', '.join(f'{v:.0%}' for v in c['rate'].values())}. {badge(c['verdict'])}</div>"
+                 + table(["pair", "kappa [CI]", "% agree", "AC1 [CI]"],
+                         [[E(k.replace(' | ', ' vs ')), k3(v), f"{c['pct_agree'][k]:.0%}", k3(c['ac1'][k])] for k, v in c["pairwise"].items()]))
+    q = na.get("qwen")
+    if q:
+        body += (f"<h3>Open-weight local judge: Qwen3.5-9B 4-bit (Apache-2.0, MLX, $0)</h3><p>Scored on the {q['n']} real/17 "
+                 f"lines it finished ({q['secs_per_case']:.0f} s per line on this Mac). Says helpful {q['rate']:.0%} vs core-panel "
+                 f"majority {q['core_rate']:.0%}; agreement {q['pct_agree']:.0%}, kappa {k3(q['kappa_vs_core'])}, AC1 {k3(q['ac1_vs_core'])}. "
+                 f"Rule cases right: {(q['synthetic_neg_correct'] or 0):.0%} of {q['synthetic_n']}.</p>")
     parts.append(sec("3. Nudge-quality judge panel (no human labels exist)", body, True))
     # ---------------- frozen set
     body = (f"<p>Set SHA-256 <code>{man['set_sha256']}</code>; rubric v4 SHA-256 <code>{man['rubric']['sha256'][:16]}...</code>. "
@@ -188,7 +217,7 @@ def build(recs_html: str, bottom_html: str) -> str:
 
 
 if __name__ == "__main__":
-    recs = (OUT / "recs.html").read_text() if (OUT / "recs.html").exists() else "<p>(pending)</p>"
-    bottom = (OUT / "bottom.html").read_text() if (OUT / "bottom.html").exists() else ""
+    recs = (HERE / "report_text/recs.html").read_text()
+    bottom = (HERE / "report_text/bottom.html").read_text()
     (OUT / "REPORT.html").write_text(build(recs, bottom))
     print("wrote", OUT / "REPORT.html")

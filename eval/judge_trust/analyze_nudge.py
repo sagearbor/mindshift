@@ -92,6 +92,31 @@ def main() -> dict:
     rep["e17_helpful"] = {k: v for k, v in agreement(G, judges, p17, "helpful").items() if not k.startswith("_")}
     allids = real_ids + p17 + [c["case_id"] for c in syn]
     rep["all_helpful"] = {k: v for k, v in agreement(G, judges, allids, "helpful").items() if not k.startswith("_")}
+    # open-weight local judge, scored separately (slow on this Mac, may cover only part of the set)
+    if G.get("qwen-local") and "qwen-local" not in judges:
+        core3 = ["claude-haiku-5-5", "gpt-6.1-terra", "gemini-3.8-flash"]
+        qids = [i for i in real_ids + p17 if G["qwen-local"].get(i, {}).get("ok") and all(G[j].get(i, {}).get("ok") for j in core3)]
+        if qids:
+            q = np.array([int(G["qwen-local"][i]["helpful"]) for i in qids])
+            cm = np.array([majority([int(G[j][i]["helpful"]) for j in core3]) for i in qids])
+            qs = [c for c in syn if G["qwen-local"].get(c["case_id"], {}).get("ok")]
+            rep["qwen"] = {"n": len(qids), "rate": float(q.mean()), "core_rate": float(cm.mean()),
+                           "kappa_vs_core": kappa_ci(q, cm, [0, 1]), "ac1_vs_core": ac1_ci(q, cm),
+                           "pct_agree": float(np.mean(q == cm)),
+                           "synthetic_n": len(qs),
+                           "synthetic_neg_correct": float(np.mean([int(G["qwen-local"][c["case_id"]]["helpful"]) == 0 for c in qs
+                                                                   if c["expected_helpful"] == 0])) if qs else None,
+                           "secs_per_case": float(np.mean([G["qwen-local"][i].get("secs") or 0 for i in qids]))}
+    # PREREG B2: confirmation of the post-hoc core panel on a fresh set
+    cp = OUT / "nudge_cases_confirm.json"
+    core = ["claude-haiku-5-5", "gpt-6.1-terra", "gemini-3.8-flash"]
+    if cp.exists() and all(j in G for j in core):
+        cids = [c["case_id"] for c in json.loads(cp.read_text())["cases"]]
+        ac = agreement(G, core, cids, "helpful")
+        if ac["n"]:
+            ok = bool(ac["fleiss"][0] >= 0.40 and ac["fleiss"][1] >= 0.20 and min(ac["pct_agree"].values()) >= 0.85)
+            rep["confirm"] = {**{k: v for k, v in ac.items() if not k.startswith("_")}, "panel": core,
+                              "n_attempted": len(cids), "verdict": "CONFIRMED" if ok else "NOT CONFIRMED"}
     # admissibility per prereg
     rep["admissible"] = {j: bool(rep["real_helpful"]["loo"][j][0] >= 0.40 and rep["real_helpful"]["loo"][j][1] > 0.20)
                          for j in judges}
