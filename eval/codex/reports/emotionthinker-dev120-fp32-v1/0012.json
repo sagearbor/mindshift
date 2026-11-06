@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery strongly suggests an emotional state that is intense and forceful. First, the energy level of the speech is notably high, which often correlates with heightened emotions such as frustration or anger. This elevated energy creates a sense of urgency and assertiveness in the tone. Additionally, the pitch remains at a normal level rather than rising dramatically, which might indicate excitement or fear\u2014it instead reinforces a controlled but firm expression.\n\nThe stress placed on every word in the phrase \u201cDon\u2019t forget a jacket!\u201d further amplifies this impression. By emphasizing each part of the sentence, the speaker conveys a sense of insistence and perhaps irritation, as if trying to ensure compliance under duress. While the semantic content itself\u2014reminding someone to bring a jacket\u2014is neutral, its delivery transforms it into something more emotionally charged due to prosodic cues like the high energy and deliberate stress patterns.\n\nConsidering the speaker profile\u2014a middle-aged male\u2014their vocal characteristics align well with how anger might manifest in their age group, where control over intensity may be tempered yet still evident through forceful articulation. Taken together, these acoustic features point toward an emotion rooted in frustration or anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1016_DFA_ANG_XX",
+  "audio_sha256": "50fe7d9d361552907fbb74cf268669e71452c916abff3bf2dac793fa3c6a21a6",
+  "seconds": 16.919810582883656,
+  "label_source": "machine",
+  "approved_for_training": false
+}

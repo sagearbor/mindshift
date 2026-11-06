@@ -155,3 +155,54 @@ agreement-only training is not presented as a stage before all-clip fine-tuning.
 
 Only these targeted tests are used while data jobs run. No whole-repository suite
 is run, and no existing tracked application data is modified.
+
+## Overnight extensions (2026-11-06)
+
+The original freeze and nine-candidate results remain unchanged. Agreement-only
+fine-tuning reused the previously inspected English test only as regression
+evidence; its separate freeze is `reports/agreement-v2-freeze.json`. Development
+results determine selection. The class-balancing experiment is predeclared in
+`reports/balanced-training-plan.json`; its inverse-square-root weights use only
+training human votes. Calibration is reported separately because weighting
+changes the optimized distribution. Epoch zero means the starting classifier
+was retained, not a successful weighted fine-tune.
+
+Native audio screens use exactly the same 120 development clips (20 per emotion,
+18 speakers) for Qwen3-Omni MLX, Liquid, EmotionThinker and MERaLiON. See
+`reports/native-screen-comparison.json`, per-run configuration/raw responses,
+`reports/local-model-weight-inventory.json` and runtime inventories. Native
+reasoning uses a 40,000-token budget and fails on malformed, empty or truncated
+answers. One-hot native answers are not calibrated probability estimates.
+MERaLiON's publisher lists CREMA-D as training data; its screen is an overlap
+diagnostic, not independent validation. No new teacher qualified.
+
+Two external human-rated corpora were downloaded from their publishers and
+checksum-verified. Their protocols were committed before inference with the
+unchanged original small int8 export:
+
+- [Emozionalmente](https://zenodo.org/records/12616095), CC BY 4.0: acted Italian,
+  five ratings per clip. `reports/emozionalmente-protocol.json` selects 953
+  publisher-test clips from 86 actors. All seven labels are considered before
+  excluding tied/surprise winners and clips exceeding six seconds.
+- [Morgan Emotional Speech Set](https://zenodo.org/records/7378320), Shae Morgan,
+  CC BY 4.0 according to publisher API metadata: acted English, six actors,
+  1,800 recordings with four-category human distributions in the downloadable
+  spreadsheet. `reports/mess-protocol.json` selects 1,270 angry/happy/sad
+  plurality clips, excluding 530 calm/tied clips. Calm is not neutral. All six
+  model outputs remain eligible; an unsupported predicted emotion counts wrong.
+  Macro metrics average only the three evaluated target emotions. All original
+  distributions and actor intentions are in `reports/mess-human-ratings.json`.
+
+Both diagnostics show poor transfer. These corpora are acted, their rating tasks
+differ, and foundation-model pretraining exposure is unknown. They do not prove
+natural-conversation quality. After inspection they are reusable regression sets,
+not fresh acceptance evidence for later tuning. The 15-clip MESS float/int8 check
+is an implementation check, not a new benchmark. No MESS training occurred.
+
+Audit/evaluation entry points are `external_data`, `external_evaluate`,
+`mess_data`, and `mess_evaluate` under `eval.codex`. They require the ignored
+publisher downloads/model artifacts and deliberately refuse to overwrite frozen
+protocols or existing evaluation directories. Do not delete evidence to rerun.
+The normal report rebuild also verifies these raw predictions and writes the
+new transfer heatmap (`reports/transfer-chart.svg` and JSON). Current active-job
+details are in `OVERNIGHT-20261106.md`; all app, nudge and device work is excluded.

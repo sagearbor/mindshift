@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of urgency and frustration, which becomes evident through several prosodic features. First, the speech rate is notably fast, suggesting heightened emotional arousal. Rapid delivery often correlates with agitation or impatience, as speakers tend to rush when they feel pressured or annoyed.\n\nThe energy level is described as normal rather than subdued, but combined with the fast pace, this creates an impression of controlled intensity\u2014common in situations where someone is trying to assert authority or express dissatisfaction without escalating into shouting. Additionally, the stress placed on \"eleven\" and \"o'clock\" highlights the importance of time, possibly indicating exasperation over a delay or a situation requiring immediate attention.\n\nWhile the pitch remains at a normal level, its steadiness may reflect restrained anger rather than explosive rage. This restraint aligns well with the semantic content of the transcription, \u201cIt\u2019s eleven o\u2019clock,\u201d which could imply annoyance if spoken in a context involving a deadline or missed opportunity. For a middle-aged male speaker, such vocal patterns might further suggest a mature expression of irritation, balancing control with underlying frustration.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1001_IEO_ANG_HI",
+  "audio_sha256": "a6a173a924668940761223ce19a99045785f5c55a8689c7123ae8fcd9230c39a",
+  "seconds": 14.902284166775644,
+  "label_source": "machine",
+  "approved_for_training": false
+}

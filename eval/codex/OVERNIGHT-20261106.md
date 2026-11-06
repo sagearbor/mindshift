@@ -229,3 +229,21 @@ IN PROGRESS. Consult raw results and logs, not this document alone.
 - Next: finish both active jobs, compare small development macro F1/per-class
   recall/Brier, refresh report and independent review, commit/push. Retain
   heartbeat until these bounded experiments finish. No qualified teacher yet.
+
+## EmotionThinker complete; only small weighting remains
+
+- EmotionThinker finished120/120 in1,995.5s: 65 correct, macro F1 .481376931.
+  Disgust recall0/20; anger18/20, fear11/20, happiness14/20, neutral6/20,
+  sadness16/20. Zero empty, truncated, invalid or runtime failures. Longest
+  generation289 tokens, below unchanged40000 budget.
+- Independent reviewer checked all120 raw answers, exact shared IDs/order,
+  speakers, metrics and failure counters. Still not qualified as a teacher.
+- All four native audio model screens are now complete. Their raw responses,
+  per-emotion columns and runtime configurations are preserved in reports.
+- Small balanced MPS training started automatically in existing session22306.
+  Epoch1 macro F1 .5578 vs starting frozen classifier .571733. Max20epochs,
+  early stop patience6, fixed plan; do not stop based on these partial scores.
+- Remaining bounded work: let small training finish, compare completed evidence,
+  final report/hash/review, commit/push, update draft PR, then disable heartbeat.
+  If no candidate passes, clearly report the high-calibre goal remains unmet;
+  do not manufacture a qualified model or an automatic-label pool.

@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of urgency and frustration, which becomes evident through several prosodic features. First, the energy level is notably high, suggesting heightened emotional intensity. This elevated energy often correlates with emotions like anger or irritation, as speakers tend to project more force when expressing strong feelings.\n\nThe pitch remains at a normal level, which might initially seem neutral, but combined with the stressed delivery of key words\u2014\u201cforget,\u201d \u201ca,\u201d and \u201cjacket\u201d\u2014it creates an impression of insistence or exasperation. Stressing these particular words emphasizes the importance of the message while also hinting at dissatisfaction if the listener has failed to heed the advice. \n\nAdditionally, the speech rate being normal suggests that the speaker is deliberate rather than rushed, reinforcing the idea of controlled anger rather than chaotic frustration. For a middle-aged male speaker, this combination of steady pacing, high energy, and targeted stress patterns aligns well with someone expressing annoyance or irritation. While the semantic content itself (\u201cDon\u2019t forget a jacket\u201d) could be interpreted neutrally, the prosody transforms it into something more emotionally charged.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1088_DFA_ANG_XX",
+  "audio_sha256": "76041eb28e2d17107c9e2d30e00a1d8b14ec01aac6c62d118c2f28d93d2909f7",
+  "seconds": 14.84629216697067,
+  "label_source": "machine",
+  "approved_for_training": false
+}

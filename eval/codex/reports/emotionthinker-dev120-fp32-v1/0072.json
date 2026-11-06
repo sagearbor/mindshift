@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is intense and confrontational. First, the energy level of the speech is notably high, which often correlates with heightened emotions such as frustration or anger. This elevated energy creates a sense of urgency or forcefulness in the tone, even though the pitch remains at a normal level\u2014indicating controlled intensity rather than chaotic outbursts.\n\nThe stress placed on specific words like \"I'm,\" \"on,\" and \"way\" further emphasizes the speaker\u2019s determination to assert their position. Stressing these particular words conveys a sense of insistence or defiance, as if the speaker is trying to make their point clear despite potential resistance from others. Additionally, the semantic content of the phrase, \u201cI\u2019m on my way to the meeting,\u201d while neutral on its own, can take on a sharper edge when paired with the prosodic cues. It may suggest impatience or irritation, especially given the context implied by the speaker\u2019s tone.\n\nConsidering the speaker profile\u2014a middle-aged male\u2014it is plausible that this demographic might express anger through firmness and control rather than overt aggression. Taken together, the combination of high energy, stressed words, and assertive phrasing strongly points toward an emotionally charged delivery consistent with anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1067_IOM_ANG_XX",
+  "audio_sha256": "da27948487bc46ce3f38a5635b5a7661a3e74560aba54563ef2e7024b905c3da",
+  "seconds": 16.77638145815581,
+  "label_source": "machine",
+  "approved_for_training": false
+}

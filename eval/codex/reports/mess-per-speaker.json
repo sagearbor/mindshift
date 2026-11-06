@@ -1,0 +1,599 @@
+{
+  "note": "Descriptive only; six actors do not establish population generalization",
+  "scores": {
+    "F1": {
+      "n_total": 225,
+      "accuracy": 0.19555555555555557,
+      "macro_f1": 0.18565400843881855,
+      "balanced_accuracy": 0.19555555555555557,
+      "confusion_matrix": [
+        [
+          44,
+          14,
+          0,
+          0,
+          17,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2,
+          0,
+          0,
+          73,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          39,
+          17,
+          0,
+          0,
+          19,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.5301204819277109,
+          "recall": 0.5866666666666667,
+          "f1": 0.5569620253164557,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 75
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 75
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    },
+    "F2": {
+      "n_total": 211,
+      "accuracy": 0.22748815165876776,
+      "macro_f1": 0.27154266498528795,
+      "balanced_accuracy": 0.21333333333333335,
+      "confusion_matrix": [
+        [
+          45,
+          3,
+          0,
+          0,
+          27,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          3,
+          72,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          2,
+          0,
+          0,
+          0,
+          59,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.9574468085106383,
+          "recall": 0.6,
+          "f1": 0.7377049180327869,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 1.0,
+          "recall": 0.04,
+          "f1": 0.07692307692307693,
+          "support": 75
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 61
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    },
+    "F3": {
+      "n_total": 222,
+      "accuracy": 0.15765765765765766,
+      "macro_f1": 0.21212121212121213,
+      "balanced_accuracy": 0.15555555555555556,
+      "confusion_matrix": [
+        [
+          35,
+          1,
+          0,
+          0,
+          39,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          75,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          72,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 1.0,
+          "recall": 0.4666666666666667,
+          "f1": 0.6363636363636364,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 75
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 72
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    },
+    "M1": {
+      "n_total": 207,
+      "accuracy": 0.30434782608695654,
+      "macro_f1": 0.27096774193548384,
+      "balanced_accuracy": 0.27999999999999997,
+      "confusion_matrix": [
+        [
+          63,
+          0,
+          0,
+          0,
+          12,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          3,
+          0,
+          0,
+          0,
+          70,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          14,
+          1,
+          0,
+          0,
+          44,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.7875,
+          "recall": 0.84,
+          "f1": 0.8129032258064516,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 73
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 59
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    },
+    "M2": {
+      "n_total": 181,
+      "accuracy": 0.1712707182320442,
+      "macro_f1": 0.19496855345911948,
+      "balanced_accuracy": 0.13777777777777778,
+      "confusion_matrix": [
+        [
+          31,
+          7,
+          0,
+          0,
+          37,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          0,
+          67,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          36,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 1.0,
+          "recall": 0.41333333333333333,
+          "f1": 0.5849056603773585,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 70
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 36
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    },
+    "M3": {
+      "n_total": 224,
+      "accuracy": 0.04017857142857143,
+      "macro_f1": 0.07502374169040836,
+      "balanced_accuracy": 0.04,
+      "confusion_matrix": [
+        [
+          6,
+          1,
+          0,
+          0,
+          68,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          3,
+          72,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          74,
+          0
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 1.0,
+          "recall": 0.08,
+          "f1": 0.14814814814814814,
+          "support": 75
+        },
+        "disgust": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "fear": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "happiness": {
+          "precision": 1.0,
+          "recall": 0.04,
+          "f1": 0.07692307692307693,
+          "support": 75
+        },
+        "neutral": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sadness": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 74
+        }
+      },
+      "macro_average_labels": [
+        "anger",
+        "happiness",
+        "sadness"
+      ]
+    }
+  }
+}

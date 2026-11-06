@@ -9,9 +9,9 @@
   "html_structural_check": "16 collapsed accordions; three valid embedded SVGs; no external assets",
   "browser_visual_verification": "blocked: browser URL policy disallows local file URL; no workaround attempted",
   "phone_verified": false,
-  "independent_review": "Reviewer verified MESS cohort, scoring, resampling, frontend matching and balancing fallback; active jobs remain incomplete",
+  "independent_review": "Reviewer verified all 120 EmotionThinker raw answers and shared cohort, MESS mapping/scoring, 18 transfer-chart cells, and tiny balancing fallback. Small balanced training remains active.",
   "report_comparison_check": "63 changes recomputed from frozen per-run metrics; human denominators recomputed from benchmark index",
-  "report_html_sha256": "2ea18a0b95bd45ba5e82502848413503c18d41b86105c7276df5dda5d523ec23",
+  "report_html_sha256": "f56d1e45a3390e10281e37dc29e13ab5141967323c774f8f80498a749b7fae49",
   "report_update_test_run": "58 targeted tests passed on 2026-11-06",
   "overview_chart_check": "18 plotted coordinates verified against raw metrics; valid SVG; chart above first accordion; standalone PNG visually inspected"
 }
