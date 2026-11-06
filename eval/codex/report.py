@@ -8,6 +8,7 @@ from pathlib import Path
 from .benchmark import ROOT, LABELS, save_json, sha256, read_audio_votes, majority
 from .freeze import validate_run
 from . import report_visuals as visuals
+from .plot_comparisons import chart_data
 
 
 def read(path):return json.loads(path.read_text())
@@ -161,6 +162,7 @@ def build():
         detail(4,'Cloud teacher capability and rights gaps',False,visuals.TEACHERS),
         detail(5,'Training and holdout remain separate',True,visuals.HOLDOUT),
     ]
+    html+='OVERVIEW_CHART_PLACEHOLDER'
     html+=''.join(new_panels+panels)
     html+='<h2>State of play</h2>'+table(['Area','Where it is','Affects today’s product?'],[['Evaluation code and reports','codex/emotion-eval branch','No'],['Model weights and source audio','Local ignored eval/codex directories','No'],['Nudge logic, deployed apps, main','Untouched','No'],['Phone and watch runtime','Not implemented or measured','No']])
     html+='<h2>Where I was wrong</h2><p>Initial unfiltered counts (3,085 agreements, 6,806 unique winners, 636 ties) were corrected to the official filtered counts (3,099, 6,798 and 644 respectively). The initial 7,442 usable-audio assumption became 7,441 after an all-zero WAV was found. A completed base training run hit a path error while saving metadata; metadata was recovered from preserved history without changing predictions. Earlier project accuracy notes used different labels and missing artifacts, so they do not establish current quality.</p>'
@@ -182,6 +184,15 @@ def build():
     for term,definition in definitions.items():
         html=re.sub(r'(?<![\w/.-])'+re.escape(term)+r'(?![\w/.-])',lambda m:f'<abbr title="{escape(definition)}">{term}</abbr>',html,count=1)
     html=html.replace('</style>',visuals.CSS+'</style>')
+    chart=read(reports/'modification-overview.json')
+    svg_path=reports/'modification-overview.svg'
+    if chart['data']!=chart_data(records) or chart['svg_sha256']!=sha256(svg_path):
+        raise ValueError('Stale overview chart: regenerate with eval.codex.plot_comparisons')
+    svg=svg_path.read_text();svg=svg[svg.index('<svg'):]
+    svg=svg.replace('<svg ', '<svg role="img" aria-label="Three before-and-after plots comparing training filters, encoder fine-tuning, and compression for Whisper tiny, base, and small" style="width:100%;height:auto;display:block" ',1)
+    overview='<figure style="margin:24px 0">'+svg+'<figcaption><strong>Fine-tuning helped overall; compression cost little accuracy.</strong> Each panel is an independent comparison, not a sequence of three training steps. Filtering uses frozen encoders at float precision; fine-tuning uses all training clips at float precision; compression uses the same fine-tuned checkpoint. Macro F1 gives each emotion equal weight and is not overall percent correct. Passing the full provisional goal also requires every emotion’s recall to reach 60%.</figcaption></figure>'
+    overview+='<p><strong>Recommended next steps:</strong> First compare agreement-only fine-tuning with the existing all-clip model, selecting on development speakers. In parallel, collect human-rated natural speech from new speakers for an independent acceptance set. Then benchmark a stronger, commercially compatible audio teacher before expanding machine labels, and measure latency, memory and battery on a real phone. Treat watch optimization as a later decision.</p>'
+    html=html.replace('OVERVIEW_CHART_PLACEHOLDER',overview)
     (reports/'report.html').write_text(html)
     wrap=ROOT.parents[1]/'tmp/wrapups/20261105-emotion-eval.html';wrap.parent.mkdir(parents=True,exist_ok=True);wrap.write_text(html)
     print(wrap)

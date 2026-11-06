@@ -140,6 +140,15 @@ retain their parent recording and speaker IDs.
 
 ## Tests
 
+The visible overview chart is generated from saved test metrics with
+`python -m eval.codex.plot_comparisons` (optional plotting dependency:
+Matplotlib 3.11.2), before running `python -m eval.codex.report`.
+Plotting can use a separate environment; it does not change model dependencies.
+The report builder checks the plotted data and SVG checksum before embedding it.
+The SVG, PNG, and underlying numerical values are saved as
+`reports/modification-overview.*`. The figure compares changes separately;
+agreement-only training is not presented as a stage before all-clip fine-tuning.
+
 ```sh
 .venv/bin/python -m pytest -q -c /dev/null eval/codex/tests
 ```
