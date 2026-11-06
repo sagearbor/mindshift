@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 from .benchmark import ROOT, LABELS, save_json, sha256, read_audio_votes, majority
 from .freeze import validate_run
+from . import report_visuals as visuals
 
 
 def read(path):return json.loads(path.read_text())
@@ -151,7 +152,16 @@ def build():
     html+='<div class="cards">'+''.join(f'<div class="card {"good" if good else "bad"}"><b>{value}</b><small>{label}</small></div>' for value,label,good in cards)+'</div>'
     html+=table(['Scorecard','Verdict','So what'],[['Human benchmark','GOOD','Both actor intent and listener votes preserved'],['Phone-size export','GOOD','Complete tiny model under 10 MB'],['Recognition quality','BAD','Still below the provisional research target'],['Phone validation','BAD','Real-device tests remain unfinished'],['Automatic labelling','BAD','Teacher failed; large-scale labels not generated']])
     html+='<div class="recap"><p><strong>Oneliner:</strong> A reproducible benchmark and compact models are ready; reliable recognition is not achieved yet.</p><p><strong>Task given:</strong> Build a commercially usable, accurate phone emotion model verified against human-tagged audio.</p><p><strong>My result:</strong> Incomplete on accuracy and device verification; benchmark, training comparisons and local exports completed.</p><p><strong>Recommended next step:</strong> Keep both labels, train from listener votes, and add human-rated natural speech before trusting automatic labels.</p></div>'
-    html+=''.join(panels)
+    # Put the requested comparisons first; retain all original evidence panels.
+    panels=[re.sub(r'(<summary>)(\d+)\.',lambda m:m[1]+str(int(m[2])+5)+'.',p,count=1) for p in panels]
+    new_panels=[
+        detail(1,'Per-emotion results: all models',False,visuals.model_matrix(records,teacher)),
+        detail(2,'What each modification changed',True,visuals.modifications(records)),
+        detail(3,'Where the 1,341 recordings came from',True,visuals.provenance(rows)),
+        detail(4,'Cloud teacher capability and rights gaps',False,visuals.TEACHERS),
+        detail(5,'Training and holdout remain separate',True,visuals.HOLDOUT),
+    ]
+    html+=''.join(new_panels+panels)
     html+='<h2>State of play</h2>'+table(['Area','Where it is','Affects today’s product?'],[['Evaluation code and reports','codex/emotion-eval branch','No'],['Model weights and source audio','Local ignored eval/codex directories','No'],['Nudge logic, deployed apps, main','Untouched','No'],['Phone and watch runtime','Not implemented or measured','No']])
     html+='<h2>Where I was wrong</h2><p>Initial unfiltered counts (3,085 agreements, 6,806 unique winners, 636 ties) were corrected to the official filtered counts (3,099, 6,798 and 644 respectively). The initial 7,442 usable-audio assumption became 7,441 after an all-zero WAV was found. A completed base training run hit a path error while saving metadata; metadata was recovered from preserved history without changing predictions. Earlier project accuracy notes used different labels and missing artifacts, so they do not establish current quality.</p>'
     html+='<h2>What happens next</h2>'
@@ -171,6 +181,7 @@ def build():
         'calibration':'Agreement between predicted confidence and observed correctness'}
     for term,definition in definitions.items():
         html=re.sub(r'(?<![\w/.-])'+re.escape(term)+r'(?![\w/.-])',lambda m:f'<abbr title="{escape(definition)}">{term}</abbr>',html,count=1)
+    html=html.replace('</style>',visuals.CSS+'</style>')
     (reports/'report.html').write_text(html)
     wrap=ROOT.parents[1]/'tmp/wrapups/20261105-emotion-eval.html';wrap.parent.mkdir(parents=True,exist_ok=True);wrap.write_text(html)
     print(wrap)
