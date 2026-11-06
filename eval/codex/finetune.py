@@ -13,20 +13,33 @@ from .export import EmotionModel,PortableHead
 from .train import training_mask
 
 
-def vote_loss(p,q):
+def balance_weights(q,train_idx,power):
+    if not 0<=power<=1 or len(train_idx)==0:raise ValueError('Invalid balance power or empty training cohort')
+    frequency=q[train_idx].mean(0)
+    if not torch.isfinite(frequency).all() or (frequency<0).any():raise ValueError('Invalid training votes')
+    weights=frequency.clamp(min=1e-6).pow(-power)
+    return weights/(weights*frequency).sum()
+
+
+def vote_loss(p,q,weights=None):
     if not torch.isfinite(p).all() or not torch.isfinite(q).all():
         raise ValueError('Nonfinite training probabilities or votes')
-    return -(q*torch.log(p.clamp(min=1e-8))).sum(1).mean()
+    terms=q*torch.log(p.clamp(min=1e-8))
+    if weights is not None:
+        if not torch.isfinite(weights).all() or (weights<=0).any():raise ValueError('Invalid class weights')
+        terms=terms*weights
+    return -terms.sum(1).mean()
 
 
 def run_source_path(source):
     return str(Path(source).resolve().relative_to(ROOT))
 
 
-def finetune(source,out,manifest_path,epochs=20,batch_size=32):
+def finetune(source,out,manifest_path,epochs=20,batch_size=32,balance_power=0,device_override='auto'):
     if out.exists(): raise FileExistsError('Use a new run directory')
     torch.manual_seed(20261105);np.random.seed(20261105);torch.set_num_threads(6)
     device='mps' if torch.backends.mps.is_available() else 'cpu'
+    if device_override!='auto':device=device_override
     selection=json.loads((source/'selection.json').read_text())
     if selection['manifest_sha256']!=sha256(manifest_path):raise ValueError('Manifest changed')
     rows=json.loads(manifest_path.read_text())['rows']
@@ -52,6 +65,11 @@ def finetune(source,out,manifest_path,epochs=20,batch_size=32):
     votes=np.array([rows[i]['votes'] for i in chosen],dtype=np.float32)
     q=torch.from_numpy(votes/votes.sum(1,keepdims=True)).to(device)
     train_idx=np.flatnonzero(tr[chosen]);dev_idx=np.flatnonzero(dv[chosen])
+    weights=balance_weights(q,train_idx,balance_power) if balance_power else None
+    save_json(out/'training-config.json',dict(balance_power=balance_power,
+        class_weights=weights.detach().cpu().tolist() if weights is not None else None,
+        class_weight_source='training human vote distributions only',device=device,
+        note='Class weighting changes the target distribution; assess calibration separately.'))
     optimizer=torch.optim.AdamW([{'params':model.encoder.parameters(),'lr':1e-5},
                                 {'params':model.head.parameters(),'lr':1e-4}],weight_decay=.01)
     best=selection['winner']['dev_macro_f1'];best_epoch=0;history=[];patience=6
@@ -62,7 +80,7 @@ def finetune(source,out,manifest_path,epochs=20,batch_size=32):
         for offset in range(0,len(order),batch_size):
             idx=torch.tensor(order[offset:offset+batch_size],device=device)
             optimizer.zero_grad(set_to_none=True)
-            p=model(mel[idx],lengths[idx]);loss=vote_loss(p,q[idx]);loss.backward()
+            p=model(mel[idx],lengths[idx]);loss=vote_loss(p,q[idx],weights);loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(),1)
             optimizer.step();losses.append(float(loss.detach().cpu()))
         model.eval();pred=[]
@@ -86,7 +104,8 @@ def finetune(source,out,manifest_path,epochs=20,batch_size=32):
         winner=dict(name=f'finetuned-epoch-{best_epoch}',dev_macro_f1=best,dev=history[best_epoch-1]['dev'])
     selection.update(winner=winner,finetune_source=run_source_path(source),best_epoch=best_epoch,
                      training_method='end-to-end human soft-vote cross entropy',epochs_run=len(history),
-                     selection_rule='maximum development macro F1, patience 6; test unopened',
+                     balance_power=balance_power,
+                     selection_rule='maximum development macro F1, patience 6; no test used in this training run',
                      provisional_gate_passed=best>=.75 and min(r['recall'] for r in winner['dev']['per_emotion'].values())>=.60)
     save_json(out/'selection.json',selection)
     save_json(out/'run_health.json',dict(empty_outputs=0,nonfinite_outputs=0,finish_reason_length=0,device=device,
@@ -97,4 +116,6 @@ def finetune(source,out,manifest_path,epochs=20,batch_size=32):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--manifest',type=Path,default=ROOT/'data/manifest-v2.json');p.add_argument('--epochs',type=int,default=20)
-    a=p.parse_args();finetune(a.source,a.out,a.manifest,a.epochs)
+    p.add_argument('--balance-power',type=float,default=0)
+    p.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
+    a=p.parse_args();finetune(a.source,a.out,a.manifest,a.epochs,balance_power=a.balance_power,device_override=a.device)

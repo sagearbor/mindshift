@@ -1,0 +1,94 @@
+{
+  "lfm3-audio-2b": {
+    "revision": "2d6c1f99c129b3ef07a8d168bc0ff08e2bdb93f1",
+    "files": [
+      {
+        "path": "audio_tokenizer/model.safetensors",
+        "bytes": 147143540,
+        "sha256": "45984a872fdcf0b94cd0ec68822bbf26f0c6fcb580cfaba0f7fa3ee60355137f",
+        "download_revision": "2d6c1f99c129b3ef07a8d168bc0ff08e2bdb93f1"
+      },
+      {
+        "path": "model.safetensors",
+        "bytes": 4004729320,
+        "sha256": "9abe5e402f163296e0988f94ad67f65dab61c723e260fea9374109b3775e28f7",
+        "download_revision": "2d6c1f99c129b3ef07a8d168bc0ff08e2bdb93f1"
+      }
+    ]
+  },
+  "qwen3-omni-mlx": {
+    "revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778",
+    "files": [
+      {
+        "path": "model-00001-of-00005.safetensors",
+        "bytes": 5363303245,
+        "sha256": "997df794e8e13adcf16e97d7c7aec08094295bb7d4da79324b9f9c0383ff4d43",
+        "download_revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778"
+      },
+      {
+        "path": "model-00002-of-00005.safetensors",
+        "bytes": 5364688314,
+        "sha256": "d57567ed6e60c908d1d6d25c2dd0a3d8fc6377f0306ec6cdcd3c54c25e6435fa",
+        "download_revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778"
+      },
+      {
+        "path": "model-00003-of-00005.safetensors",
+        "bytes": 5364688323,
+        "sha256": "177ff73def79a840826e1ab60eb409383a0e6e8225d356953e9fb6be59527ccc",
+        "download_revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778"
+      },
+      {
+        "path": "model-00004-of-00005.safetensors",
+        "bytes": 5364071644,
+        "sha256": "c6e4afdceaf6e6db02d2e749c67f9348954befd55ba981266cf22f9ec37288aa",
+        "download_revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778"
+      },
+      {
+        "path": "model-00005-of-00005.safetensors",
+        "bytes": 368325851,
+        "sha256": "cf2a42cd040380fea10cc426417a5f8a940e01a401104aa86d941c4ed6db9864",
+        "download_revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778"
+      }
+    ]
+  },
+  "emotionthinker": {
+    "revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850",
+    "files": [
+      {
+        "path": "model-00001-of-00004.safetensors",
+        "bytes": 4985055536,
+        "sha256": "d2bb20bc5fc304d852732b5421f63c0d1fe7d196581c56ee1a6b516d4cb67e61",
+        "download_revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850"
+      },
+      {
+        "path": "model-00002-of-00004.safetensors",
+        "bytes": 4991496832,
+        "sha256": "7af9ac7da5af514d8b36cb3bfde3e676eb8e33aaf00c414ddd547b5a12e8c039",
+        "download_revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850"
+      },
+      {
+        "path": "model-00003-of-00004.safetensors",
+        "bytes": 4991496936,
+        "sha256": "705e3d5d3fbbb81ddcb499f2bd989c8fb095bf5b5efcb3779fe8094fbe3d8cf6",
+        "download_revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850"
+      },
+      {
+        "path": "model-00004-of-00004.safetensors",
+        "bytes": 2895740064,
+        "sha256": "4e0f1b48db7d20a5ed8ed81bfd0329217676d90eefa6139e3d27bf70e4a17581",
+        "download_revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850"
+      }
+    ]
+  },
+  "meralion-ser": {
+    "revision": "7e3ee6fa4534dea8316e8ca43e377e2fbb58496b",
+    "files": [
+      {
+        "path": "model.safetensors",
+        "bytes": 3080143412,
+        "sha256": "a143a3890362fb405d07df1d4b5a6d2b4d6680824c5643800c52e40953286fbd",
+        "download_revision": "7e3ee6fa4534dea8316e8ca43e377e2fbb58496b"
+      }
+    ]
+  }
+}

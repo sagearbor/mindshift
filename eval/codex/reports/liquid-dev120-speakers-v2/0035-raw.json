@@ -1,0 +1,5 @@
+{
+  "id": "1042_MTI_SAD_XX",
+  "text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe user wants me to classify the emotion in the speaker's voice.\nThe speaker says: \"Maybe tomorrow it will be cold.\"\nThe emotion suggested by the words is neutral or mild sadness, but the instruction says \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words.\"\nThe options are:\nA = anger\nB = disgust\nC = fear\nD = happiness\nE = neutral\nF = sadness\n\nThe phrase \"Maybe tomorrow it will be cold\" is a neutral statement about the weather. It doesn't express anger, disgust, fear, happiness, or sadness. It is neutral.\nTherefore, the correct label is E.\n</think>\n\nE",
+  "n_generated_tokens": 218
+}
