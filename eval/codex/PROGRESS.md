@@ -48,3 +48,16 @@
   still blocked; no browser-rendering claim. Main report path unchanged.
 - Full live job/session details and next work in OVERNIGHT-20261106.md. Research
   remains incomplete: finish teacher and small balancing, review/report results.
+
+## 2026-11-06 final overnight batch
+
+- EmotionThinker completed120/120, macro F1 .481377,65/120correct; disgust0/20.
+  All raw answers independently checked; no empty/truncated/invalid failures.
+- Small balanced run completed9epochs, bestepoch3: development macro F1 .574036
+  versus existing .591683; Brier .133888 versus .121119 (worse). No promotion.
+- All planned jobs complete; original compact models retained. Original freeze
+  unchanged; no new weighted-model test evaluation or pseudo-label training.
+- High-calibre goal remains unmet, particularly transfer to new English audio.
+  The benchmark and diagnostics are reusable evidence, not quality certification.
+  No phone, app, nudge or deployment work performed. Pause recovery heartbeat
+  after final report verification and push; do not restart completed jobs.

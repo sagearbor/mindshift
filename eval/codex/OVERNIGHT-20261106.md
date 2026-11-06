@@ -247,3 +247,34 @@ IN PROGRESS. Consult raw results and logs, not this document alone.
   final report/hash/review, commit/push, update draft PR, then disable heartbeat.
   If no candidate passes, clearly report the high-calibre goal remains unmet;
   do not manufacture a qualified model or an automatic-label pool.
+
+## Final bounded batch complete (2026-11-06)
+
+- Small balanced MPS completed9epochs, selectedepoch3. Development macro F1
+  .574036127 versus existing all-clip fine-tune .591682988; Brier error .133888
+  versus .121119 (higher is worse). No replacement, export or test evaluation.
+- Tiny weighted run retained epoch-zero frozen-classifier fallback: macro F1
+  .528191 versus existing fine-tune .544031. Its Brier .142838 versus .154058
+  is a fallback-classifier comparison, not evidence weighting improved calibration.
+- All four native model screens, both weighted experiments, agreement-only
+  comparisons, Italian and MESS diagnostics are complete. No active GPU/CPU
+  job remains from this queue. No new model or automatic labeling pool qualifies.
+- The high-calibre model goal remains unmet. Existing compact exports remain
+  experimental; new English evidence establishes a serious transfer weakness.
+  Future useful work needs broader English training evidence and an independent
+  natural-speech acceptance set; do not keep tuning against these inspected tests.
+- Final report retains original graphs plus explicit cross-corpus heatmap and
+  all per-emotion scores. Final targeted suite/review and Git push recorded in
+  the completion entry below; pause the 15-minute recovery heartbeat afterward.
+
+### Completion verification
+
+- Final targeted suite58passed, zero failures/errors. Report source check:
+  three valid SVGs,16collapsedaccordions, no external assets; current hashes
+  recorded in `reports/verification.json`. Browser rendering remains unverified.
+- Independent final review recomputed small macro F1/Brier, confirmed the exact
+  development cohort and no new test scoring. Corrected stale pending text.
+- Existing draft PR218 updated with all completed outcomes. Original selected
+  models remain experimental; no deployment or merge performed.
+- Recovery heartbeat `emotion-research-overnight` successfully PAUSED after
+  all planned jobs finished. No pending local training or model-screen task.

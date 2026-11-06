@@ -194,7 +194,7 @@ def build():
     from .overnight_report import build_section, native_section, external_section, mess_section, balanced_section, transfer_chart
     overview=transfer_chart()+overview
     overview+=build_section()+native_section()+external_section()+mess_section()+balanced_section()
-    overview+='<p><strong>Current research:</strong> Probe stronger local audio models and find existing human-rated natural speech with documented reuse terms. Preserve human ratings and actor intent separately. No automatic labels enter training until a teacher passes evaluation. Phone testing and nudges are outside this research scope.</p>'
+    overview+='<p><strong>Research outcome:</strong> The shortlisted local audio models did not qualify as automatic labelers, and both class-balancing experiments are complete. The next useful work needs broader English training data and independent human-rated natural speech with documented reuse terms. Preserve human ratings and actor intent separately. No automatic labels enter training until a teacher passes evaluation. Phone testing and nudges are outside this research scope.</p>'
     html=html.replace('OVERVIEW_CHART_PLACEHOLDER',overview)
     (reports/'report.html').write_text(html)
     wrap=ROOT.parents[1]/'tmp/wrapups/20261105-emotion-eval.html';wrap.parent.mkdir(parents=True,exist_ok=True);wrap.write_text(html)

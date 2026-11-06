@@ -206,6 +206,213 @@
           }
         }
       }
+    },
+    {
+      "size": "small",
+      "device": "mps",
+      "best_epoch": 3,
+      "before": {
+        "n_total": 1476,
+        "n_single_label": 1353,
+        "n_tied": 123,
+        "accuracy": 0.7605321507760532,
+        "macro_f1": 0.5916829881446781,
+        "balanced_accuracy": 0.5743761316161557,
+        "kappa": 0.5780494706993238,
+        "brier_to_votes": 0.12111925722286696,
+        "cross_entropy_to_votes": 1.2189294811960103,
+        "expected_individual_vote_agreement": 0.5538558983172804,
+        "ece_10_bins": 0.12354962273341855,
+        "confusion_matrix": [
+          [
+            157,
+            17,
+            5,
+            2,
+            27,
+            2
+          ],
+          [
+            17,
+            31,
+            6,
+            1,
+            30,
+            5
+          ],
+          [
+            9,
+            1,
+            45,
+            2,
+            41,
+            2
+          ],
+          [
+            5,
+            4,
+            1,
+            33,
+            12,
+            1
+          ],
+          [
+            15,
+            17,
+            23,
+            15,
+            733,
+            24
+          ],
+          [
+            0,
+            2,
+            2,
+            0,
+            36,
+            30
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.7733990147783252,
+            "recall": 0.7476190476190476,
+            "f1": 0.7602905569007264,
+            "support": 210
+          },
+          "disgust": {
+            "precision": 0.4305555555555556,
+            "recall": 0.34444444444444444,
+            "f1": 0.38271604938271603,
+            "support": 90
+          },
+          "fear": {
+            "precision": 0.5487804878048781,
+            "recall": 0.45,
+            "f1": 0.4945054945054945,
+            "support": 100
+          },
+          "happiness": {
+            "precision": 0.6226415094339622,
+            "recall": 0.5892857142857143,
+            "f1": 0.6055045871559633,
+            "support": 56
+          },
+          "neutral": {
+            "precision": 0.8339021615472128,
+            "recall": 0.8863361547762999,
+            "f1": 0.8593200468933178,
+            "support": 827
+          },
+          "sadness": {
+            "precision": 0.46875,
+            "recall": 0.42857142857142855,
+            "f1": 0.44776119402985076,
+            "support": 70
+          }
+        }
+      },
+      "after": {
+        "n_total": 1476,
+        "n_single_label": 1353,
+        "n_tied": 123,
+        "accuracy": 0.7102734663710274,
+        "macro_f1": 0.5740361269490523,
+        "balanced_accuracy": 0.6057169248191013,
+        "kappa": 0.5396589120911837,
+        "brier_to_votes": 0.13388760667981245,
+        "cross_entropy_to_votes": 1.232370735289028,
+        "expected_individual_vote_agreement": 0.5313733296965004,
+        "ece_10_bins": 0.1433337887546704,
+        "confusion_matrix": [
+          [
+            157,
+            25,
+            8,
+            2,
+            15,
+            3
+          ],
+          [
+            21,
+            45,
+            6,
+            0,
+            13,
+            5
+          ],
+          [
+            13,
+            3,
+            57,
+            2,
+            23,
+            2
+          ],
+          [
+            4,
+            5,
+            3,
+            33,
+            11,
+            0
+          ],
+          [
+            18,
+            69,
+            41,
+            22,
+            637,
+            40
+          ],
+          [
+            0,
+            8,
+            5,
+            0,
+            25,
+            32
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.7370892018779343,
+            "recall": 0.7476190476190476,
+            "f1": 0.7423167848699763,
+            "support": 210
+          },
+          "disgust": {
+            "precision": 0.2903225806451613,
+            "recall": 0.5,
+            "f1": 0.3673469387755102,
+            "support": 90
+          },
+          "fear": {
+            "precision": 0.475,
+            "recall": 0.57,
+            "f1": 0.5181818181818182,
+            "support": 100
+          },
+          "happiness": {
+            "precision": 0.559322033898305,
+            "recall": 0.5892857142857143,
+            "f1": 0.5739130434782609,
+            "support": 56
+          },
+          "neutral": {
+            "precision": 0.8798342541436464,
+            "recall": 0.7702539298669892,
+            "f1": 0.8214055448098001,
+            "support": 827
+          },
+          "sadness": {
+            "precision": 0.3902439024390244,
+            "recall": 0.45714285714285713,
+            "f1": 0.42105263157894735,
+            "support": 70
+          }
+        }
+      }
     }
   ],
   "note": "Development only. CPU/MPS comparison is exploratory; class weighting changes the optimized distribution. Epoch zero means fallback to the original frozen-encoder head."
