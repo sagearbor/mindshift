@@ -1,0 +1,14 @@
+{
+  "hypothesis": "Training-only inverse-square-root emotion-frequency weights may improve rare-emotion recall",
+  "models": ["tiny", "small"],
+  "source_runs": ["tiny-all-v1", "small-all-v1"],
+  "balance_power": 0.5,
+  "max_epochs": 20,
+  "early_stop": "Maximum development macro F1, patience six",
+  "training_targets": "All original human soft vote distributions; no machine labels",
+  "weight_source": "Training split vote frequencies only; normalize expected training weight to one",
+  "comparison": "Existing all-clip unweighted fine-tunes on identical development speakers; report macro F1, each emotion recall and Brier score",
+  "test_policy": "No old English test or Italian diagnostic evaluation in this experiment",
+  "calibration_caveat": "Class weighting changes the optimized distribution; improved macro F1 alone cannot establish calibrated probabilities",
+  "device_policy": "Tiny CPU can overlap the separate GPU audio teacher; queue other heavy GPU training"
+}
