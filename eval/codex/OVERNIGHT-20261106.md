@@ -192,3 +192,40 @@ IN PROGRESS. Consult raw results and logs, not this document alone.
   assets. Browser visual rendering remains blocked; source and SVG checked only.
 - Continue work, not finished: complete active jobs, matched-device confirmation
   if justified, calibration comparison, report refresh, commit/push verified work.
+
+## Later continuation: MESS and weighted tiny (2026-11-06)
+
+- Found publisher MESS v5 https://zenodo.org/records/7378320. Unlike the old
+  description saying ratings are on request, its downloadable XLSX has human
+  A/C/H/S vote proportions for all 1,800 recordings, six actors. Publisher API
+  metadata declares CC BY 4.0. Both archive and spreadsheet MD5 match publisher.
+- Calm is deliberately NOT neutral in the paper. Frozen diagnostic selects
+  1,270 unique angry/happy/sad human-plurality clips, excluding 530 calm/tied.
+  All six model outputs remain possible; other predictions count wrong.
+  Protocol/model/cohort committed in 3a32962 BEFORE inference.
+- Completed `mess-small-int8-v1`: 230/1,270 correct (18.11%); three-target-class
+  macro F1 0.212916. Predictions: 933 neutral, 282 anger, 49 disgust, 6 happy.
+  This unchanged model transfers poorly to these selected acted English clips.
+  Not evidence of natural-conversation quality. No training/selection on MESS.
+- Independent reviewer verified all selected IDs, raw XLSX columns, archive
+  codes, full metric recomputation, correct 24,414 Hz resampling, matching
+  frontend settings. A 15-clip full-precision ONNX sanity check agrees with
+  int8 argmax on all 15, maximum probability difference .01835. This is an
+  implementation check, not another quality benchmark. Saved raw evidence.
+- Tiny balanced CPU training completed six epochs, no epoch beat starting
+  frozen encoder: best trained .521342 vs initial .528191. Epoch-zero fallback
+  is worse than existing fine-tune .544031. Preserve existing selected model;
+  no MPS confirmation needed merely to reject replacement. Do not claim a
+  universal causal failure of weighting (CPU versus earlier MPS differs).
+- New report adds per-emotion cross-corpus heatmap at top, MESS provenance and
+  explicit unsupported-emotion cells, balancing/calibration comparison, and
+  per-emotion columns for native local models. All original plots retained.
+- Latest targeted suite: 58 passed. Need refresh final HTML/hash and commit.
+- STILL ACTIVE: EmotionThinker session86949 (~80/120); do not rerun/overwrite.
+  Small balanced MPS is ALREADY QUEUED in session22306, log
+  `results/overnight-20261106/small-balanced-training.log`; it polls teacher
+  completion every30s, then runs small-balanced-finetuned-v3. Do not launch a
+  duplicate. Queue times out after one hour or aborts on teacher runtime error.
+- Next: finish both active jobs, compare small development macro F1/per-class
+  recall/Brier, refresh report and independent review, commit/push. Retain
+  heartbeat until these bounded experiments finish. No qualified teacher yet.

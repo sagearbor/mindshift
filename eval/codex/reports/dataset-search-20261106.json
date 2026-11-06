@@ -13,7 +13,7 @@
       "reported_ratings_per_clip": 5,
       "language": "Italian",
       "speech_type": "acted, not spontaneous",
-      "decision": "Download for separate cross-language evaluation; not an English natural-speech acceptance set. Counts pending local audit. Preserve attribution."
+      "decision": "Downloaded and verified: 6,902 recordings, five ratings per clip, 431 actors. Separate frozen Italian diagnostic completed; not natural English."
     },
     {
       "name": "Zaion Emotion Dataset",
@@ -30,6 +30,18 @@
       "publisher": "https://www.lab-msp.com/MSP/MSP-Podcast.html",
       "speech_type": "natural English with human ratings",
       "decision": "Access and commercial terms need a separate agreement; not treated as freely cleared data. No signature or outreach performed."
+    },
+    {
+      "name": "Morgan Emotional Speech Set",
+      "publisher": "https://zenodo.org/records/7378320",
+      "licence_source": "https://zenodo.org/api/records/7378320",
+      "declared_licence": "CC BY 4.0",
+      "language": "English",
+      "speech_type": "acted",
+      "verified_recordings": 1800,
+      "verified_actors": 6,
+      "human_ratings": "Downloadable XLSX contains all four-category human distributions, arousal and valence",
+      "decision": "Preserve calm separately from neutral; frozen three-shared-emotion diagnostic completed without model changes."
     }
   ],
   "limitation": "No independent natural-English commercially cleared acceptance corpus established yet. Public downloadability is recorded separately from reuse terms."

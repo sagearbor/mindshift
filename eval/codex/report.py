@@ -191,8 +191,9 @@ def build():
     svg=svg_path.read_text();svg=svg[svg.index('<svg'):]
     svg=svg.replace('<svg ', '<svg role="img" aria-label="Three before-and-after plots comparing training filters, encoder fine-tuning, and compression for Whisper tiny, base, and small" style="width:100%;height:auto;display:block" ',1)
     overview='<figure style="margin:24px 0">'+svg+'<figcaption><strong>Fine-tuning helped overall; compression cost little accuracy.</strong> Each panel is an independent comparison, not a sequence of three training steps. Filtering uses frozen encoders at float precision; fine-tuning uses all training clips at float precision; compression uses the same fine-tuned checkpoint. Macro F1 gives each emotion equal weight and is not overall percent correct. Passing the full provisional goal also requires every emotion’s recall to reach 60%.</figcaption></figure>'
-    from .overnight_report import build_section, native_section, external_section
-    overview+=build_section()+native_section()+external_section()
+    from .overnight_report import build_section, native_section, external_section, mess_section, balanced_section, transfer_chart
+    overview=transfer_chart()+overview
+    overview+=build_section()+native_section()+external_section()+mess_section()+balanced_section()
     overview+='<p><strong>Current research:</strong> Probe stronger local audio models and find existing human-rated natural speech with documented reuse terms. Preserve human ratings and actor intent separately. No automatic labels enter training until a teacher passes evaluation. Phone testing and nudges are outside this research scope.</p>'
     html=html.replace('OVERVIEW_CHART_PLACEHOLDER',overview)
     (reports/'report.html').write_text(html)

@@ -1,0 +1,313 @@
+{
+  "model": "Existing small int8, unchanged",
+  "rows": [
+    {
+      "dataset": "Original English test",
+      "cohort": "1,341 clips \u00b7 18 actors",
+      "scores": {
+        "n_total": 1476,
+        "n_single_label": 1341,
+        "n_tied": 135,
+        "accuracy": 0.7352721849366145,
+        "macro_f1": 0.6336319289928438,
+        "balanced_accuracy": 0.6158040447675112,
+        "kappa": 0.5979492714517001,
+        "brier_to_votes": 0.1303993047740119,
+        "cross_entropy_to_votes": 1.2255993764683613,
+        "expected_individual_vote_agreement": 0.5491362277439513,
+        "ece_10_bins": 0.09954400879513586,
+        "confusion_matrix": [
+          [
+            157,
+            19,
+            2,
+            1,
+            5,
+            0
+          ],
+          [
+            23,
+            55,
+            2,
+            2,
+            46,
+            3
+          ],
+          [
+            9,
+            4,
+            65,
+            6,
+            38,
+            11
+          ],
+          [
+            4,
+            2,
+            3,
+            52,
+            25,
+            0
+          ],
+          [
+            7,
+            31,
+            11,
+            20,
+            607,
+            22
+          ],
+          [
+            2,
+            4,
+            10,
+            0,
+            43,
+            50
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.7772277227722773,
+            "recall": 0.8532608695652174,
+            "f1": 0.8134715025906736,
+            "support": 184
+          },
+          "disgust": {
+            "precision": 0.4782608695652174,
+            "recall": 0.4198473282442748,
+            "f1": 0.44715447154471544,
+            "support": 131
+          },
+          "fear": {
+            "precision": 0.6989247311827957,
+            "recall": 0.48872180451127817,
+            "f1": 0.5752212389380531,
+            "support": 133
+          },
+          "happiness": {
+            "precision": 0.6419753086419753,
+            "recall": 0.6046511627906976,
+            "f1": 0.6227544910179641,
+            "support": 86
+          },
+          "neutral": {
+            "precision": 0.7945026178010471,
+            "recall": 0.8696275071633238,
+            "f1": 0.8303693570451436,
+            "support": 698
+          },
+          "sadness": {
+            "precision": 0.5813953488372093,
+            "recall": 0.45871559633027525,
+            "f1": 0.5128205128205128,
+            "support": 109
+          }
+        }
+      }
+    },
+    {
+      "dataset": "New Italian diagnostic",
+      "cohort": "953 clips \u00b7 86 actors",
+      "scores": {
+        "n_total": 953,
+        "accuracy": 0.36621196222455404,
+        "macro_f1": 0.2629379758152089,
+        "balanced_accuracy": 0.3150039877452509,
+        "kappa": 0.18542743648490123,
+        "confusion_matrix": [
+          [
+            50,
+            6,
+            6,
+            1,
+            101,
+            0
+          ],
+          [
+            11,
+            2,
+            3,
+            0,
+            94,
+            3
+          ],
+          [
+            5,
+            2,
+            47,
+            0,
+            39,
+            3
+          ],
+          [
+            15,
+            1,
+            21,
+            7,
+            100,
+            1
+          ],
+          [
+            7,
+            1,
+            1,
+            0,
+            229,
+            1
+          ],
+          [
+            5,
+            0,
+            34,
+            0,
+            143,
+            14
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.5376344086021505,
+            "recall": 0.3048780487804878,
+            "f1": 0.38910505836575876,
+            "support": 164
+          },
+          "disgust": {
+            "precision": 0.16666666666666666,
+            "recall": 0.017699115044247787,
+            "f1": 0.032,
+            "support": 113
+          },
+          "fear": {
+            "precision": 0.41964285714285715,
+            "recall": 0.4895833333333333,
+            "f1": 0.4519230769230769,
+            "support": 96
+          },
+          "happiness": {
+            "precision": 0.875,
+            "recall": 0.04827586206896552,
+            "f1": 0.0915032679738562,
+            "support": 145
+          },
+          "neutral": {
+            "precision": 0.3243626062322946,
+            "recall": 0.9581589958158996,
+            "f1": 0.4846560846560847,
+            "support": 239
+          },
+          "sadness": {
+            "precision": 0.6363636363636364,
+            "recall": 0.07142857142857142,
+            "f1": 0.12844036697247707,
+            "support": 196
+          }
+        }
+      }
+    },
+    {
+      "dataset": "New English diagnostic",
+      "cohort": "1,270 clips \u00b7 6 actors",
+      "scores": {
+        "n_total": 1270,
+        "accuracy": 0.18110236220472442,
+        "macro_f1": 0.21291597194331868,
+        "balanced_accuracy": 0.17044059861215619,
+        "confusion_matrix": [
+          [
+            224,
+            26,
+            0,
+            0,
+            200,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            3,
+            5,
+            0,
+            6,
+            429,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            55,
+            18,
+            0,
+            0,
+            304,
+            0
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.7943262411347518,
+            "recall": 0.49777777777777776,
+            "f1": 0.6120218579234973,
+            "support": 450
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0
+          },
+          "fear": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0
+          },
+          "happiness": {
+            "precision": 1.0,
+            "recall": 0.013544018058690745,
+            "f1": 0.026726057906458798,
+            "support": 443
+          },
+          "neutral": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0
+          },
+          "sadness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 377
+          }
+        },
+        "macro_average_labels": [
+          "anger",
+          "happiness",
+          "sadness"
+        ]
+      }
+    }
+  ],
+  "note": "Different corpora and rating tasks; descriptive transfer diagnostic, not a controlled before/after experiment."
+}

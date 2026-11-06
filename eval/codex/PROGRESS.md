@@ -22,3 +22,29 @@
 - Held-out cohort comparison reverses development: agreement-only beats all-vote frozen heads for tiny/base/small. Retain both training options and full labels; do not claim all-vote training universally wins. Selected fine-tuned all-vote small checkpoint still has highest measured F1 in this fixed set.
 - High-calibre goal remains incomplete: disgust/fear/sadness recall below provisional 60%; no natural-speech or real-device validation, no trustworthy automatic teacher, no mass pseudo-label pool. Next round requires stronger candidates and independent human natural-speech evidence, plus actual device measurements.
 - Final targeted suite: 46 passed. Frozen portable index verified for all 7,441 clips. Independent final review matched all nine reports to raw predictions/metrics; clarified distinct tiny-size versus small-accuracy cards. HTML structure checked; browser visual preview blocked by local-file URL policy, not bypassed. App file preview queued.
+
+## 2026-11-06 03:34 ET continuation (supersedes earlier stopping state)
+
+- Device testing remains excluded by user direction. New development experiments
+  are authorized; original frozen test reuse is explicitly regression evidence.
+- Agreement-only fine-tunes completed for tiny/base/small. All three were worse
+  on development than corresponding all-clip fine-tunes; old-test changes mixed.
+- Local native 120-clip screens: Qwen3-Omni MLX macro F1 .307907, Liquid .048309,
+  MERaLiON .569148. MERaLiON trained on CREMA-D, so its number is overlap-only.
+  No automatic teacher qualified. EmotionThinker still running.
+- Added existing human-rated Italian corpus: 6,902 recordings, five ratings each.
+  Frozen 953-clip diagnostic with unchanged small int8 scored .262938 macro F1.
+- Added MESS English: 1,800 recordings, six actors, human A/C/H/S distributions,
+  publisher CC BY 4.0. Three-shared-emotion protocol frozen in 3a32962 before
+  inference: 1,270 clips, exclude 530 calm/tied; no calm-to-neutral substitution.
+  Existing small int8: 230 correct (18.11%), macro F1 .212916. Full-precision
+  sanity check matched int8 choices on 15/15 fixed examples. Transfer is poor.
+- Independent review confirmed cohorts, raw metric recomputation, audio mapping,
+  resampling and frontend settings. Preserve actor intentions and all ratings.
+- Tiny balanced CPU run failed to improve even its starting classifier; retained
+  epoch-zero fallback, not promoted. Small weighted MPS run queued behind teacher.
+- Latest 58 targeted tests passed; three valid report SVGs and 16 collapsed
+  accordions. New top chart makes cross-corpus weakness explicit. Browser preview
+  still blocked; no browser-rendering claim. Main report path unchanged.
+- Full live job/session details and next work in OVERNIGHT-20261106.md. Research
+  remains incomplete: finish teacher and small balancing, review/report results.

@@ -1,17 +1,17 @@
 {
-  "tests": 55,
+  "tests": 58,
   "failures": 0,
   "errors": 0,
   "test_command": ".venv/bin/python -m pytest eval/codex/tests -q --junitxml=eval/codex/reports/tests-overnight.xml",
-  "test_xml_sha256": "5cb35e16b15676d7b53ac655f17e73633f0bed6d9ad77b7a1e1203c08fc80372",
+  "test_xml_sha256": "29eb2c693d36d6fada85b7f419b6df4c90edb875c76c265cbb5646462ef021a3",
   "requirements_sha256": "759c1ca2b296b95212a1b3b342e16229dd0ab065a2c9cb716777828541cf0473",
   "pretest_freeze_sha256": "7a1bb46d8669275feca3244104eb2dae2bf69e1fc1fca9422429297a03fa2309",
-  "html_structural_check": "16 collapsed accordions; two valid embedded SVGs; no external assets",
+  "html_structural_check": "16 collapsed accordions; three valid embedded SVGs; no external assets",
   "browser_visual_verification": "blocked: browser URL policy disallows local file URL; no workaround attempted",
   "phone_verified": false,
-  "independent_review": "Reviewer verified regression metrics, external cohort and labels, matched screening, class weights and specialist label mapping; active jobs remain incomplete",
+  "independent_review": "Reviewer verified MESS cohort, scoring, resampling, frontend matching and balancing fallback; active jobs remain incomplete",
   "report_comparison_check": "63 changes recomputed from frozen per-run metrics; human denominators recomputed from benchmark index",
-  "report_html_sha256": "3924a0577fb66312bb1118d6e889150250ee801186a280ca987cfc8a03894ae0",
-  "report_update_test_run": "55 targeted tests passed on 2026-11-06",
+  "report_html_sha256": "2ea18a0b95bd45ba5e82502848413503c18d41b86105c7276df5dda5d523ec23",
+  "report_update_test_run": "58 targeted tests passed on 2026-11-06",
   "overview_chart_check": "18 plotted coordinates verified against raw metrics; valid SVG; chart above first accordion; standalone PNG visually inspected"
 }
