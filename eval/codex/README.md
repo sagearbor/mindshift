@@ -41,6 +41,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/CheyneyComputerScience/CREMA-
 GIT_LFS_SKIP_SMUDGE=1 git -C eval/codex/data/crema-d checkout 1658cd342dff90010aa843eaeebd53610a08b1dc
 git -C eval/codex/data/crema-d lfs pull --include='AudioWAV/*' --exclude=''
 .venv/bin/python -m eval.codex.benchmark
+.venv/bin/python -m eval.codex.verify_benchmark
 ```
 
 Download only official pinned model files; these are local weights, not API calls:
@@ -53,6 +54,12 @@ On this Duke-managed Mac, Python downloads used
 `SSL_CERT_FILE=$HOME/.cache/macos-ca-bundle.pem` and
 `REQUESTS_CA_BUNDLE=$HOME/.cache/macos-ca-bundle.pem`. These point to the existing
 local certificate bundle; no TLS verification was disabled.
+
+The original manifest retains a machine-local path in its quarantined-file error
+message, so its whole-file checksum can differ on another computer. The portable
+frozen index has no absolute paths. `verify_benchmark` checks every retained label,
+vote, speaker, split and audio hash against that index. New runs bind to the local
+manifest checksum; preserved historical run hashes are never rewritten.
 
 Each model first passes a real-audio smoke test, then extracts resumable features:
 

@@ -1,0 +1,169 @@
+{
+  "created_utc": "2026-11-06T00:02:29.885158+00:00",
+  "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+  "benchmark_index_sha256": "2b7195c43ba96e99bb39cd1fcd8421625f2411ecd0e04148590e5de79f03bd7a",
+  "candidates": [
+    {
+      "run": "tiny-all-v1",
+      "dev_macro_f1": 0.5281914229959964,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "2adec0f9d320395ceaa061b73ef1c9d53a227b40687e86e78fce8ca0e9144688",
+        "head.npz": "10455227fee897d51214ca712d00671563062d7de7059885d2b3edd4b3cd02af",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+      }
+    },
+    {
+      "run": "tiny-agrees-v1",
+      "dev_macro_f1": 0.5049290458360762,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "007fe23b6a7c13044df814101cb0017fa2e44724aaddb4ed84521e434a134b46",
+        "head.npz": "197bae464b802670898178cb689ef0ca154b5909e252372fb74be350c5d34401",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+      }
+    },
+    {
+      "run": "base-all-v1",
+      "dev_macro_f1": 0.537938064917254,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "5b6fb0f32abffce929c2175829b94d392aa197da45e486fa202857a986b39ae9",
+        "head.npz": "4221cd6ac7fa71b0b7d266166d8af38c2383c9356f5c550450fba4eafe17e046",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+      }
+    },
+    {
+      "run": "base-agrees-v1",
+      "dev_macro_f1": 0.5275950522891646,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "ae3ca9ac0b47332b6ec7069a58ecc6aff0ddf4e804d1c0ac35010f3cbb003fdc",
+        "head.npz": "598aaf8f0fe7238922dbb5278308249821c86a8371bbb879bea9004991b2b920",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+      }
+    },
+    {
+      "run": "small-all-v1",
+      "dev_macro_f1": 0.5717327073563326,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": true,
+        "export/emotion-fp32.onnx": true,
+        "export/validation.json": true
+      },
+      "hashes": {
+        "selection.json": "1f6ecac2dce407a6680dec28e67c39b101d0864795f75eccbe93d9c27e9f0057",
+        "head.npz": "ace2c24ea7e39a6e4a67b1ad12f63b26ff9844f7b15b8598b26f86447286fe58",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d",
+        "export/emotion-int8.onnx": "ac5bf7e46d479a7b7199642525ca7433e0907ee799ee2fdb27a577a7bbc568d1",
+        "export/emotion-fp32.onnx": "2d7e89d768bde299ef3083581f488f406f2b1a027b03040541f4e0c6492cf1ee",
+        "export/validation.json": "d313643cff9d68f99a4a9e8e1d4a8999da9c0396fa10f4a4c4b0fff088f1b98a"
+      }
+    },
+    {
+      "run": "small-agrees-v1",
+      "dev_macro_f1": 0.5401060386197952,
+      "presence": {
+        "finetuned.pt": false,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "e4023034847c5661011d05ba1f5863e4653a27dfd14f6fc802e2afce0df6a7b9",
+        "head.npz": "894197edcd9a4cf3758b0c39b894dc486f5dab7d151ff439f32c827f00359562",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+      }
+    },
+    {
+      "run": "tiny-finetuned-v1",
+      "dev_macro_f1": 0.5440308135413686,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": true,
+        "export/emotion-fp32.onnx": true,
+        "export/validation.json": true
+      },
+      "hashes": {
+        "selection.json": "340689e1e99edcc66073c1535322181e6afa5dcdc31a88eb8bad86ab50e297fa",
+        "head.npz": "10455227fee897d51214ca712d00671563062d7de7059885d2b3edd4b3cd02af",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d",
+        "finetuned.pt": "0c20dfb3ed63f7897809f2289649f0d46ff4a8adbdc0c3cabd2215475fb56ed2",
+        "export/emotion-int8.onnx": "ae4d75f72b2b98b281ddff7c96e9ebe469e0f30d676c22186b45d3b7cea41b70",
+        "export/emotion-fp32.onnx": "649fd723fde61a48eb81c6558ed0a69a73e0927dd6d0b42e139497f667e903dc",
+        "export/validation.json": "7c207b44ca2377089e668b38ff50ab69bbf49b4af96c0a7560f607d7ed7263f2"
+      }
+    },
+    {
+      "run": "base-finetuned-v1",
+      "dev_macro_f1": 0.5489783471122817,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": true,
+        "export/emotion-fp32.onnx": true,
+        "export/validation.json": true
+      },
+      "hashes": {
+        "selection.json": "9cacee1f2e7952c90fe8fd5bde41cbb1ea8b1374b73de178fa392a16a0266b8a",
+        "head.npz": "4221cd6ac7fa71b0b7d266166d8af38c2383c9356f5c550450fba4eafe17e046",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d",
+        "finetuned.pt": "20fe05dd387826c5b6203007adfddcaf06881928ee687f422ae5c8118b55dbc6",
+        "export/emotion-int8.onnx": "2abfefcceb70b8f1c4398decbaeb6b980a7c6b8689934cd0d7a22ab60c13c89c",
+        "export/emotion-fp32.onnx": "28de44db8f448781508e43b85519a1e03cc9eb0770ec282f0abf1d091cfebed8",
+        "export/validation.json": "d8d84d1beec7e440eedae22166261589a0059467c33d1de10ccaff61c09d2430"
+      }
+    },
+    {
+      "run": "small-finetuned-v1",
+      "dev_macro_f1": 0.5916829881446781,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": true,
+        "export/emotion-fp32.onnx": true,
+        "export/validation.json": true
+      },
+      "hashes": {
+        "selection.json": "af08ac528095b1ae0cd2d53c393670e05cf2206375e9215644832b4d37517a30",
+        "head.npz": "ace2c24ea7e39a6e4a67b1ad12f63b26ff9844f7b15b8598b26f86447286fe58",
+        "transcript_head.npz": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d",
+        "finetuned.pt": "16658522e20641beeaa5c43949909c75d29c5e78b5d014c3b4184756ebbac3eb",
+        "export/emotion-int8.onnx": "62dadfe326f65e175b771a468318c17267402e401d131b41e344521c34c64855",
+        "export/emotion-fp32.onnx": "65401a8ad51e65596f7cc2d111d242f1df68c42a5d5c28d954c654185aa5af3d",
+        "export/validation.json": "8d52073727b5d9a9bc14111ad09a72dcc8b7cad9f28dbeee66a4308d4cfabac6"
+      }
+    }
+  ],
+  "selected_accuracy_candidate": "small-finetuned-v1",
+  "compact_comparators": [
+    "tiny-finetuned-v1",
+    "base-finetuned-v1"
+  ],
+  "selection_rule": "Highest development macro F1; final test cannot change training or candidate choice",
+  "export_rule": "Validate float numerical parity and int8 dev macro F1 drop <= 0.02; no test-driven export tuning",
+  "teacher_gate": {
+    "macro_f1_min": 0.75,
+    "every_class_recall_min": 0.6
+  },
+  "scope": "Experimental candidates only; no deployment, no new machine-label pool, no watch qualification"
+}

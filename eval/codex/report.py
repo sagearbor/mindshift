@@ -4,7 +4,7 @@ import shutil
 import re
 from html import escape
 from pathlib import Path
-from .benchmark import ROOT, LABELS, save_json, sha256
+from .benchmark import ROOT, LABELS, save_json, sha256, read_audio_votes, majority
 from .freeze import validate_run
 
 
@@ -21,6 +21,21 @@ def detail(number,title,good,body):
 def build():
     reports=ROOT/'reports';frozen=read(reports/'pretest-freeze.json')
     rows=read(ROOT/'data/manifest-v2.json')['rows']
+    source=ROOT/'data/crema-d'
+    meta=read(ROOT/'benchmarks/cremad-v2.meta.json')
+    for field,filename in [('ratings_sha256','finishedResponses.csv'),('timing_sha256','finishedEmoResponses.csv')]:
+        if sha256(source/filename)!=meta[field]:raise ValueError('Human source ratings changed')
+    source_votes=read_audio_votes(source/'finishedResponses.csv',source/'finishedEmoResponses.csv')
+    intended_codes=['ANG','DIS','FEA','HAP','NEU','SAD']
+    perception={code:[0]*7 for code in intended_codes}
+    for clip,votes in source_votes.items():
+        winner=majority(votes)
+        perception[clip.split('_')[2]][6 if winner is None else winner]+=1
+    save_json(reports/'actor-listener-audit.json',dict(
+        ratings_sha256=sha256(source/'finishedResponses.csv'),
+        timing_sha256=sha256(source/'finishedEmoResponses.csv'),
+        columns=LABELS+['tied'],counts_by_actor_intent=perception,
+        denominator='All original 7,442 source recordings, including the silent recording; unique-winner agreement excludes ties'))
     names=[r['run'] for r in frozen['candidates']]
     records={}
     for name in names:
@@ -78,9 +93,11 @@ def build():
     controls=record['test']['results']
     panels=[]
     panels.append(detail(1,'Both human label types preserved',True,
-        '<p>Every clip keeps the actor’s intended emotion and the complete audio-only listener vote counts. About 18.2% of intended-sadness clips with a unique listener winner were heard as sadness. This describes actor/listener agreement, not model accuracy. The original corpus has 7,442 clips; agreement excludes 644 ties. The usable benchmark has 7,441 after one silent training clip was removed.</p>'
+        '<p>Every clip keeps the actor’s intended emotion and the complete audio-only listener vote counts. Listeners heard sadness in 209 of 1,148 intended-sadness clips with a unique winner (18.2%); 123 intended-sadness clips with tied winners are excluded from that rate. This describes actor/listener agreement, not model accuracy. The original corpus has 7,442 clips; overall agreement excludes 644 ties. The usable benchmark has 7,441 after one silent training clip was removed.</p>'
         '<p>Original filtered corpus: 3,099 agreements among 6,798 unique winners (45.59%). Labels are listeners’ perception of the voice, not proof of an internal emotional state.</p>'
-        '<p>The frozen index is <code>eval/codex/benchmarks/cremad-v2.jsonl</code>. Actor, transcript, source hash, intended label, listener votes and split are retained.</p>'))
+        '<p>The frozen index is <code>eval/codex/benchmarks/cremad-v2.jsonl</code>. Actor, transcript, source hash, intended label, listener votes and split are retained.</p>'
+        +table(['Actor intended']+LABELS+['Tied'],[[LABELS[i]]+perception[code] for i,code in enumerate(intended_codes)])
+        +'<p>Counts above use all original source clips, including the quarantined silent file. Columns show the unique most-common listener label, not necessarily more than half the votes. Tied winners have their own column. This comparison does not establish that either actor intent or listener perception is universally the correct label.</p>'))
     panels.append(detail(2,'Reusable test set built',True,
         '<p>4,489 training clips from 55 actors; 1,476 development clips from 18 different actors; 1,476 test clips from another 18 actors. No actor or identical audio crosses partitions. All 7,442 reconstructed winner sets matched the publisher’s official audio summary before quarantine.</p>'
         '<p>Final single-label scores use 1,341 test clips, excluding 135 tied winners. Vote-distribution scores retain all 1,476. The same test can detect regressions, but tuning repeatedly against it would consume its independence.</p>'
@@ -111,7 +128,7 @@ def build():
         +f'<p>Selected-candidate controls: transcript-only test macro F1 {pct(controls["transcript"]["all"]["macro_f1"])}; training-prior baseline {pct(controls["prior"]["all"]["macro_f1"])}. These controls help expose class imbalance and text effects. They do not prove the encoder ignores spoken words.</p>'
         '<p>Full confusion matrices, vote-distribution error, calibration, per-emotion intervals and raw predictions are in <code>eval/codex/reports</code>. Generated-output empties and truncations are zero: these models use forward passes, not text generation. One silent source recording and one metadata-write failure were handled explicitly, not scored as model failures.</p>'))
     tiny=records['tiny-finetuned-v1']['export']['sizes_bytes']['int8']/1e6
-    cards=[('7,441','GOOD — usable labelled clips',True),('1,476','GOOD — held-out test clips',True),(f'{tiny:.1f} MB','GOOD — compact complete model',True),(pct(main['macro_f1']),'BAD — below 75% F1 target',False),('0','BAD — validated phone devices',False)]
+    cards=[('7,441','GOOD — usable labelled clips',True),('1,476','GOOD — held-out test clips',True),(f'{tiny:.1f} MB','GOOD — compact complete model',True),(pct(main['macro_f1']),'BAD — quality gate unmet',False),('0','BAD — validated phone devices',False)]
     html='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emotion model results</title><style>
     :root{color-scheme:light dark;--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd} @media(prefers-color-scheme:dark){:root{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}}[data-theme=dark]{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}[data-theme=light]{--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd}
     body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui;margin:30px auto;padding:0 20px;max-width:1100px}h1{font-size:2rem;line-height:1.2}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}.card{border:1px solid currentColor;background:var(--panel);padding:14px;border-radius:10px}.card b{display:block;font-size:2rem}.card small{display:block}.good{color:var(--good)}.bad{color:var(--bad)}.violet{color:var(--violet)}.chip{font-size:.76rem;border:1px solid currentColor;padding:3px 7px;border-radius:6px;white-space:nowrap}details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:12px 0}summary{cursor:pointer;font-weight:650;white-space:nowrap;overflow-x:auto}summary .chip{margin:0 9px}.callout{border-left:4px solid;padding:10px;margin:15px 0;font-weight:650}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:.88rem}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--line)}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:15px;border:1px solid var(--line);border-radius:6px}a{color:var(--good)}.recap{margin:22px 0}.recap p{margin:7px 0}</style><body>'''
