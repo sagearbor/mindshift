@@ -1,0 +1,15 @@
+{
+  "status": "experimental_prediction",
+  "emotion": "neutral",
+  "probabilities": {
+    "anger": 0.010421128012239933,
+    "disgust": 0.05188919976353645,
+    "fear": 0.012271801941096783,
+    "happiness": 0.00568901002407074,
+    "neutral": 0.903766393661499,
+    "sadness": 0.0159625131636858
+  },
+  "source_sha256": "bbad5c4b884e8f677ef8801219b215441cba92da832fb57dfb89494ebdff8e9c",
+  "model_sha256": "ae4d75f72b2b98b281ddff7c96e9ebe469e0f30d676c22186b45d3b7cea41b70",
+  "note": "Perceived-voice emotion estimate; not a verified inner emotional state or a nudge recommendation."
+}

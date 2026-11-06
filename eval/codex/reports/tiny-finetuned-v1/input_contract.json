@@ -1,0 +1,33 @@
+{
+  "labels": [
+    "anger",
+    "disgust",
+    "fear",
+    "happiness",
+    "neutral",
+    "sadness"
+  ],
+  "sample_rate": 16000,
+  "channels": 1,
+  "waveform": "float32 mono, no gain normalization; reject empty/nonfinite/silent input",
+  "pad_to_samples": 96000,
+  "fft_size": 400,
+  "hop_samples": 160,
+  "window": "periodic Hann",
+  "center_padding": "reflect, 200 samples each side",
+  "power_spectrum": true,
+  "mel_bins": 80,
+  "drop_last_stft_frame": true,
+  "log_mel": "log10(max(mel_power,1e-10)); max(log_mel, per-example max - 8); (log_mel + 4) / 4",
+  "valid_frames": "min(300, ceil(original_resampled_samples / 320))",
+  "input_shape": [
+    "batch",
+    80,
+    600
+  ],
+  "output_shape": [
+    "batch",
+    6
+  ],
+  "note": "Frontend must match model.py/WhisperFeatureExtractor. Encoder uses 6-second positional prefix. No silent truncation. Microphone collection delay is additional to inference."
+}

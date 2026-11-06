@@ -2,6 +2,7 @@
 import json
 import shutil
 import re
+import xml.etree.ElementTree as ET
 from html import escape
 from pathlib import Path
 from .benchmark import ROOT, LABELS, save_json, sha256, read_audio_votes, majority
@@ -72,14 +73,21 @@ def build():
         benchmark_clips=len(rows),test_clips=main['n_total'],single_label_test_clips=main['n_single_label'],
         test_macro_f1=main['macro_f1'],test_accuracy=main['accuracy'],
         machine_label_expansion='not run: teacher quality gate failed',
-        records=records,teacher=teacher)
+        selected_scores=scores,
+        candidates={name:dict(dev_macro_f1=r['selection']['winner']['dev_macro_f1'],
+            test={v:{k:s['all'][k] for k in ['macro_f1','accuracy','balanced_accuracy','kappa']} for v,s in r['test']['results'].items()},
+            evidence=f'{name}/final-test.json') for name,r in records.items()},
+        teacher_development=dict(audio_macro_f1=teacher_metrics['macro_f1'],
+            transcript_macro_f1=teacher['results']['transcript']['metrics']['macro_f1'],
+            evidence='qwen-development.json'))
     save_json(reports/'summary.json',summary)
     ci=scores['confidence_intervals']['intervals']['macro_f1']
-    cohort_rows=[]
+    cohort_rows=[];agreement_wins=0
     for size in ['tiny','base','small']:
         a=records[f'{size}-all-v1']['test']['results']['float']['all']
         b=records[f'{size}-agrees-v1']['test']['results']['float']['all']
-        cohort_rows.append([size,pct(a['macro_f1']),pct(b['macro_f1']),pct(a['macro_f1']-b['macro_f1'])])
+        agreement_wins+=int(b['macro_f1']>a['macro_f1'])
+        cohort_rows.append([size,pct(a['macro_f1']),pct(b['macro_f1']),f"{100*(a['macro_f1']-b['macro_f1']):+.1f} points"])
     candidate_rows=[];export_rows=[]
     for name,r in records.items():
         for v,s in r['test']['results'].items():
@@ -107,13 +115,15 @@ def build():
         +table(['Emotion','Precision','Recall','F1','Test examples'],emotion_rows)
         +'<p>Precision asks how often a predicted label matches the human winner; recall asks how many clips with that human winner were recovered. F1 balances both. Intervals resample 18 actors, not individual clips; limited actors and unknown pretraining exposure constrain generalization.</p>'
         +table(['Subset','Clips','Unique winners','Macro F1'],slice_rows)
+        +f'<p>Against actor intent instead of listener perception, the same predictions have macro F1 {pct(scores["actor_intent_secondary"]["macro_f1"])} and accuracy {pct(scores["actor_intent_secondary"]["accuracy"])}. This secondary view uses all 1,476 test recordings and answers a different question; it was not used for model selection.</p>'
         +'<p>Strong consensus means at least two-thirds of listeners chose the same label. Subsets are diagnostics, not replacement acceptance results. Acted English does not verify spontaneous conversation.</p>'))
     panels.append(detail(4,'Agreement-only training compared',True,
         '<p>We tested your idea directly: train on 1,849 clips where actor and unique listener winner agree, versus all 4,489 training clips using full listener distributions. Both use exactly the same broad test. This comparison changes both sample count and label mixture, so it does not isolate “nuance” as a causal mechanism.</p>'
         +table(['Encoder','All-vote test F1','Agreement-only test F1','All minus agreement'],cohort_rows)
-        +'<p>Recommendation: retain all labels and use full listener votes as the main training target. Keep actor-agreement subsets as a separate analysis and an optional curriculum, not the only truth.</p>'))
+        +f'<p>Agreement-only training scored higher in {agreement_wins} of the three held-out comparisons. This is a useful signal in favor of your proposed filter, while the opposite development ranking shows that actor sampling matters.</p>'
+        +'<p>Positive differences favor all-vote training; negative differences favor agreement-only training. Development favored all-vote training for all three encoders, but this does not guarantee the same direction on independent actors. Treat these as descriptive comparisons, not proof of a universal winning cohort. Recommendation: retain all labels and full listener distributions; keep agreement-only training as a supported option and comparison, rather than discarding ambiguous data permanently.</p>'))
     panels.append(detail(5,'Compact exports work locally',True,
-        '<p>These files include the full encoder and classifier. Dynamic 8-bit quantization reduces supported matrix weights; some operations remain floating point. Float export parity and quantized development quality were checked.</p>'
+        '<p>These files include the full encoder and classifier. The research file-size target was below 100 MB for a phone; this checks storage only. Dynamic 8-bit quantization reduces supported matrix weights; some operations remain floating point. Float export parity and quantized development quality were checked.</p>'
         +table(['Candidate','8-bit file','Mac median total','Mac 95th-percentile total','Phone'],export_rows)
         +'<p>Times include WAV reading, preprocessing and inference, one CPU thread, 30 repeats on this Mac. Audio collection time is additional. Input accepts up to six seconds and rejects longer recordings. Small files do not prove watch feasibility; no watch, phone battery, memory or streaming measurement was performed.</p>'
         '<p>A real WAV passed the exported tiny-model command-line smoke check. Silence returns no emotion. This is an experimental local runner, not a product integration.</p>'))
@@ -123,12 +133,17 @@ def build():
     panels.append(detail(7,'Commercial-use provenance recorded',True,
         '<p>Whisper weights and code: <a href="https://github.com/openai/whisper#license">MIT</a>. Qwen weights: <a href="https://huggingface.co/Qwen/Qwen2.5-Omni-7B">Apache 2.0</a>. CREMA-D: <a href="https://github.com/CheyneyComputerScience/CREMA-D/blob/master/LICENSE.txt">Open Database License and Database Contents License</a>. Commercial use comes with applicable attribution and database obligations; notices are retained. No paid inference was used.</p>'
         '<p>Unclear emotion2vec+ and WavLM weight terms were excluded. No raw audio or model binaries are included in Git. The derived benchmark index carries its source notices in <code>benchmarks/NOTICE.md</code>.</p>'))
+    suite=ET.parse(reports/'tests.xml').getroot().find('testsuite')
+    if suite is None or int(suite.attrib['tests'])<1 or int(suite.attrib['failures']) or int(suite.attrib['errors']):
+        raise ValueError('Missing or failed targeted-test evidence')
     panels.append(detail(8,'All candidate evidence retained',True,
         table(['Candidate','Variant','Float dev F1','Test F1','Test accuracy'],candidate_rows)
         +f'<p>Selected-candidate controls: transcript-only test macro F1 {pct(controls["transcript"]["all"]["macro_f1"])}; training-prior baseline {pct(controls["prior"]["all"]["macro_f1"])}. These controls help expose class imbalance and text effects. They do not prove the encoder ignores spoken words.</p>'
-        '<p>Full confusion matrices, vote-distribution error, calibration, per-emotion intervals and raw predictions are in <code>eval/codex/reports</code>. Generated-output empties and truncations are zero: these models use forward passes, not text generation. One silent source recording and one metadata-write failure were handled explicitly, not scored as model failures.</p>'))
+        '<p>Full confusion matrices, vote-distribution error, calibration, per-emotion intervals and raw predictions are in <code>eval/codex/reports</code>. Generated-output empties and truncations are zero: these models use forward passes, not text generation. One silent source recording and one metadata-write failure were handled explicitly, not scored as model failures.</p>'
+        +f'<p>{suite.attrib["tests"]} targeted tests passed. Independent review corrected audio/cache provenance checks, invalid teacher metrics, frozen-artifact integrity and report provenance. Saved command-line smoke evidence is <code>eval/codex/reports/inference-smoke.json</code>. The HTML structure was checked directly; browser visual verification was blocked by the browser policy for local file URLs.</p>'))
     tiny=records['tiny-finetuned-v1']['export']['sizes_bytes']['int8']/1e6
-    cards=[('7,441','GOOD — usable labelled clips',True),('1,476','GOOD — held-out test clips',True),(f'{tiny:.1f} MB','GOOD — compact complete model',True),(pct(main['macro_f1']),'BAD — quality gate unmet',False),('0','BAD — validated phone devices',False)]
+    small=record['export']['sizes_bytes']['int8']/1e6
+    cards=[('7,441','GOOD — usable labelled clips',True),('1,476','GOOD — held-out test clips',True),(f'{tiny:.1f} MB','GOOD — tiny model size',True),(f'{small:.1f} MB','GOOD — small model size',True),(pct(main['macro_f1']),'BAD — small model quality unmet',False),('0','BAD — validated phone devices',False)]
     html='''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emotion model results</title><style>
     :root{color-scheme:light dark;--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd} @media(prefers-color-scheme:dark){:root{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}}[data-theme=dark]{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}[data-theme=light]{--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd}
     body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui;margin:30px auto;padding:0 20px;max-width:1100px}h1{font-size:2rem;line-height:1.2}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}.card{border:1px solid currentColor;background:var(--panel);padding:14px;border-radius:10px}.card b{display:block;font-size:2rem}.card small{display:block}.good{color:var(--good)}.bad{color:var(--bad)}.violet{color:var(--violet)}.chip{font-size:.76rem;border:1px solid currentColor;padding:3px 7px;border-radius:6px;white-space:nowrap}details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:12px 0}summary{cursor:pointer;font-weight:650;white-space:nowrap;overflow-x:auto}summary .chip{margin:0 9px}.callout{border-left:4px solid;padding:10px;margin:15px 0;font-weight:650}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:.88rem}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--line)}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:15px;border:1px solid var(--line);border-radius:6px}a{color:var(--good)}.recap{margin:22px 0}.recap p{margin:7px 0}</style><body>'''
