@@ -62,9 +62,9 @@ Next recommendation:
 
 ## Manual Gemini upload files (local, ignored)
 
-- /Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-01.wav
-- /Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-02.wav
-- /Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-03.wav
+- eval/codex/data/gemini-manual-20261106/clip-01.wav
+- eval/codex/data/gemini-manual-20261106/clip-02.wav
+- eval/codex/data/gemini-manual-20261106/clip-03.wav
 
 Three different English speakers from MESS; deterministic selection without
 using model predictions. Filenames conceal labels. Do not upload the answer key:

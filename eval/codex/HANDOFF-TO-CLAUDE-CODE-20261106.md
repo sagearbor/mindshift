@@ -9,7 +9,7 @@ on another Mac can continue. Do these steps in order and report each at the end.
 - Do not touch `main`, do not merge, do not deploy. No paid services or API keys.
 - This repo `sagearbor/mindshift` is **PUBLIC**. Never commit: credentials, `.env`, audio
   (except the 9 CC-BY demo clips already tracked), model weights, absolute paths to the
-  Codex machine (`/Users/scb2/...`), or the phrase "Duke-managed" in anything NEW you push.
+  Codex machine (any absolute home-directory path), or employer/institution names for that machine, in anything NEW you push.
   Do NOT rewrite or scrub files already on this branch: Claude Code will do that after
   you are off this machine.
 - Answer keys: do not put labels in filenames or IDs that are public next to the audio.

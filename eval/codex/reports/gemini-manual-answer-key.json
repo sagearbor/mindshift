@@ -5,7 +5,7 @@
   "rows": [
     {
       "upload_filename": "clip-01.wav",
-      "absolute_path": "/Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-01.wav",
+      "absolute_path": "eval/codex/data/gemini-manual-20261106/clip-01.wav",
       "source_id": "HM2M09",
       "source_sha256": "d843cfebf0ade932923369589ad3db2381b85be8967e776fe40ed1be0272b59f",
       "human_distribution": [
@@ -25,7 +25,7 @@
     },
     {
       "upload_filename": "clip-02.wav",
-      "absolute_path": "/Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-02.wav",
+      "absolute_path": "eval/codex/data/gemini-manual-20261106/clip-02.wav",
       "source_id": "SF3V10",
       "source_sha256": "06b511464663af1d217ad63a70340b82e260d8571f9890ae75524cd71b31bf05",
       "human_distribution": [
@@ -45,7 +45,7 @@
     },
     {
       "upload_filename": "clip-03.wav",
-      "absolute_path": "/Users/scb2/PROJECTS/pgh/mindshift/eval/codex/data/gemini-manual-20261106/clip-03.wav",
+      "absolute_path": "eval/codex/data/gemini-manual-20261106/clip-03.wav",
       "source_id": "AF1V13",
       "source_sha256": "1cfc43eb3ed10d108a90d57d74a89c7ca04a64fa28ea159f2ec207f324df9779",
       "human_distribution": [

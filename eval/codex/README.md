@@ -50,7 +50,7 @@ Download only official pinned model files; these are local weights, not API call
 HF_HUB_DISABLE_IMPLICIT_TOKEN=1 .venv/bin/python -c "from huggingface_hub import snapshot_download; from eval.codex.model import REVISIONS, ROOT; [snapshot_download('openai/whisper-'+name, revision=revision, allow_patterns=['config.json','preprocessor_config.json','model.safetensors'], cache_dir=ROOT/'artifacts/hf') for name,revision in REVISIONS.items()]"
 ```
 
-On this Duke-managed Mac, Python downloads used
+On the original machine, Python downloads used
 `SSL_CERT_FILE=$HOME/.cache/macos-ca-bundle.pem` and
 `REQUESTS_CA_BUNDLE=$HOME/.cache/macos-ca-bundle.pem`. These point to the existing
 local certificate bundle; no TLS verification was disabled.
