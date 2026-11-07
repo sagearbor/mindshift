@@ -92,10 +92,14 @@ export async function pickAndImportModel(kind: ModelKind): Promise<ImportResult>
       src.copy(dest);
       safeDelete(src);
     }
-    const copied = dest.size ?? 0;
+    // Re-open the file: after a move the original handle can report a stale size (0 on the Pixel).
+    const fresh = new File(dir, MODEL_FILES[kind]);
+    const reported = fresh.exists ? (fresh.size ?? 0) : 0;
+    const copied = reported > 0 ? reported : (size ?? 0);
     const sizeProblem = checkModelSize(kind, copied);
     if (sizeProblem) {
-      safeDelete(dest);
+      // Only discard when the file really is wrong; an unreadable size is not evidence of that.
+      if (reported > 0) safeDelete(fresh);
       return { ok: false, message: sizeProblem };
     }
     return { ok: true, message: `${kind.toUpperCase()} model saved (${(copied / (1024 * 1024)).toFixed(1)} MB). Tap Check again.` };
