@@ -1,5 +1,27 @@
 # English-first emotion research handoff
 
+## Latest handoff — 2026-11-06, moving to Claude Code
+
+Read `GEMINI-SETUP.md` first. The analyzer, pinned dependencies, five validation
+tests, nine small WAV samples and attribution are now included in this branch.
+Create a local repository-root `.env` with GEMINI_API_KEY and recreate the Python
+3.12 virtual environment. No local environment or key is transferred through Git.
+The replacement key was confirmed by the user as free-tier and successfully
+analyzed clip-01; its neutral prediction disagreed with the human happy majority,
+but the user also heard neutral. Clip-02 failed with provider 503 high demand;
+clip-03 was skipped. Clips 04–09 are untested easy examples with unanimous human
+ratings (04–05 anger, 06–07 happiness, 08–09 sadness). Original clips are unchanged.
+Reports preserve the exact results and selection provenance. No new training,
+model qualification or deployment occurred. Existing overnight work is complete;
+the recovery automation remains paused. No job needs this computer kept awake.
+
+Continue with a small Gemini test on the easy clips, then a predeclared broader
+English human-rated sample if worthwhile. Do not treat easy-case accuracy as a
+representative benchmark. Add bounded transient-error retries and full raw
+response/usage capture before larger runs. No paid service, nudge work or phone
+testing is authorized. Earlier manual-upload instructions below are background;
+the API script is now the preferred route.
+
 User clarification, 2026-11-06: English is the priority. Italian may be a minority
 augmentation experiment only if it helps English validation. All custom training
 so far used English CREMA-D only (4,489 training clips, or 1,849 in agreement-only

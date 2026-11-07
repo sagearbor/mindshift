@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-06",
+  "model_requested": "gemini-3.8-flash",
+  "billing_basis": "User confirmed replacement key belongs to a free-tier project",
+  "purpose": "Audio API functionality smoke test, not a quality benchmark",
+  "completed": 1,
+  "provider_failures": 1,
+  "not_attempted": 1,
+  "completed_empty_responses": 0,
+  "completed_truncated_responses": 0,
+  "rows": [
+    {
+      "filename": "clip-01.wav",
+      "status": "complete",
+      "primary_emotion": "neutral",
+      "alternative_emotion": null,
+      "confidence": 90,
+      "audible_evidence": "The speaker uses a steady pitch, uniform volume, and a measured, flat cadence without strong affective modulation.",
+      "human_majority": "happiness",
+      "human_majority_share": 0.7,
+      "matches_human_majority": false
+    },
+    {
+      "filename": "clip-02.wav",
+      "status": "provider_failure",
+      "http_status": 503,
+      "provider_status": "UNAVAILABLE",
+      "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+    },
+    {
+      "filename": "clip-03.wav",
+      "status": "not_attempted",
+      "reason": "Batch aborted on provider failure"
+    }
+  ],
+  "limitations": [
+    "One completed prediction cannot establish labeling accuracy",
+    "Provider failures are excluded from emotion scoring",
+    "Only parsed output was retained; full raw provider response and usage metadata were not retained"
+  ]
+}

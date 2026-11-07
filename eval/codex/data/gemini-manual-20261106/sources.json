@@ -1,0 +1,47 @@
+[
+  {
+    "filename": "clip-01.wav",
+    "source_id": "HM2M09",
+    "sha256": "d843cfebf0ade932923369589ad3db2381b85be8967e776fe40ed1be0272b59f"
+  },
+  {
+    "filename": "clip-02.wav",
+    "source_id": "SF3V10",
+    "sha256": "06b511464663af1d217ad63a70340b82e260d8571f9890ae75524cd71b31bf05"
+  },
+  {
+    "filename": "clip-03.wav",
+    "source_id": "AF1V13",
+    "sha256": "1cfc43eb3ed10d108a90d57d74a89c7ca04a64fa28ea159f2ec207f324df9779"
+  },
+  {
+    "filename": "clip-04.wav",
+    "source_id": "AF2V16",
+    "sha256": "bfc7eb7527130a49d509eb27462d6a8f3281f8dcc45c3c5415ac0299abda4f90"
+  },
+  {
+    "filename": "clip-05.wav",
+    "source_id": "AM1T21",
+    "sha256": "ef8eb8d2e3e71e900bf798b136eb7c528bd5912f5582bd6a4f4ae41b1adf9938"
+  },
+  {
+    "filename": "clip-06.wav",
+    "source_id": "HF2M19",
+    "sha256": "7f6889e0e88dd59b33898af3952824f1988e5f825afb94f839ecb354e393ae9e"
+  },
+  {
+    "filename": "clip-07.wav",
+    "source_id": "HM3M16",
+    "sha256": "db9fdd10c98dc145fded6f1fe51cb54e0875d093e35d5585a62b289fa9763faa"
+  },
+  {
+    "filename": "clip-08.wav",
+    "source_id": "SF1M28",
+    "sha256": "378c60cd9fb18b4ca0e38d0ea670e703bfc2184559e8f6f2a3a01a1aaf2b47f3"
+  },
+  {
+    "filename": "clip-09.wav",
+    "source_id": "SM3M27",
+    "sha256": "944b167bbc7d5a75c1b34fdfc43395846b0cb8338fbbfee9c45f4a51e9c683fd"
+  }
+]

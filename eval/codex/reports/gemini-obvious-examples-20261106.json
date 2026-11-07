@@ -1,0 +1,98 @@
+{
+  "purpose": "Easy listening examples selected by unanimous human ratings; not a representative benchmark",
+  "source": "https://zenodo.org/records/7378320",
+  "license": "CC BY 4.0",
+  "selection": "Two per emotion, one male and one female voice; unanimous publisher ratings; highest arousal for anger/happiness, lowest valence for sadness; at most six seconds. No model predictions used.",
+  "human_category_order": [
+    "angry",
+    "calm",
+    "happy",
+    "sad"
+  ],
+  "rows": [
+    {
+      "filename": "clip-04.wav",
+      "emotion": "anger",
+      "source_id": "AF2V16",
+      "speaker": "F2",
+      "human_distribution": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "duration_seconds": 2.681125583681494,
+      "sha256": "bfc7eb7527130a49d509eb27462d6a8f3281f8dcc45c3c5415ac0299abda4f90"
+    },
+    {
+      "filename": "clip-05.wav",
+      "emotion": "anger",
+      "source_id": "AM1T21",
+      "speaker": "M1",
+      "human_distribution": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "duration_seconds": 2.6744900466945194,
+      "sha256": "ef8eb8d2e3e71e900bf798b136eb7c528bd5912f5582bd6a4f4ae41b1adf9938"
+    },
+    {
+      "filename": "clip-06.wav",
+      "emotion": "happiness",
+      "source_id": "HF2M19",
+      "speaker": "F2",
+      "human_distribution": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "duration_seconds": 2.4509707544851316,
+      "sha256": "7f6889e0e88dd59b33898af3952824f1988e5f825afb94f839ecb354e393ae9e"
+    },
+    {
+      "filename": "clip-07.wav",
+      "emotion": "happiness",
+      "source_id": "HM3M16",
+      "speaker": "M3",
+      "human_distribution": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "duration_seconds": 1.8683951830916687,
+      "sha256": "db9fdd10c98dc145fded6f1fe51cb54e0875d093e35d5585a62b289fa9763faa"
+    },
+    {
+      "filename": "clip-08.wav",
+      "emotion": "sadness",
+      "source_id": "SF1M28",
+      "speaker": "F1",
+      "human_distribution": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "duration_seconds": 3.0585729499467518,
+      "sha256": "378c60cd9fb18b4ca0e38d0ea670e703bfc2184559e8f6f2a3a01a1aaf2b47f3"
+    },
+    {
+      "filename": "clip-09.wav",
+      "emotion": "sadness",
+      "source_id": "SM3M27",
+      "speaker": "M3",
+      "human_distribution": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "duration_seconds": 2.3292782829524046,
+      "sha256": "944b167bbc7d5a75c1b34fdfc43395846b0cb8338fbbfee9c45f4a51e9c683fd"
+    }
+  ]
+}
