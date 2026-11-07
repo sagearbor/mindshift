@@ -184,6 +184,11 @@ def create_watch_test_app(
     # module docstring for the I2/I3 controller ruling this preserves.
     app.include_router(make_groups_router(resolved_store, strict_auth_dep))
 
+    # Emotion dev tester bridge (watch/emotion_bridge.py): plain auth_dep, like the WS.
+    from watch.emotion_bridge import make_emotion_router
+
+    app.include_router(make_emotion_router(auth_dep))
+
     # Task B7: captures router — always mounted (like REST and groups
     # above). `blobs` defaults to None, which is a legitimate runtime state
     # the router itself handles (503 on upload/download/delete) rather than

@@ -22,6 +22,7 @@ import {
 import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/webSpeech";
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop, SpeakerBinding } from "../live/fastLoop";
+import { emotionDevHub } from "../emotion/hub";
 import { formatLatencyLog } from "../live/fastLoop";
 import { LIVE_COACH_FLAGS } from "../live/liveCoachFlags";
 import { PleasantnessTracker, type Scoreboard } from "../live/pleasantness";
@@ -1355,6 +1356,7 @@ export function useAudioStream(
   };
 
   const stopFastLoop = useCallback(async () => {
+    emotionDevHub.sessionEnded(); // finish any pending Emotion-dev flag clips
     const loop = fastLoopRef.current;
     // The kept audio is settled by the SAME call that posts the session (the
     // first one — later calls find no loop): taken here so a re-entrant stop
@@ -1855,6 +1857,9 @@ export function useAudioStream(
       }
       // …and the kept-audio WAV is the third consumer of the same frames.
       keeperRef.current?.append(int16);
+      // …and the Emotion dev tester (Settings → Advanced; OFF by default) is
+      // the fourth: a no-op unless the owner enabled it. It copies what it keeps.
+      emotionDevHub.pushPcm(int16);
       pendingRef.current = concatInt16(pendingRef.current, int16);
       flushAudioFrames();
     },

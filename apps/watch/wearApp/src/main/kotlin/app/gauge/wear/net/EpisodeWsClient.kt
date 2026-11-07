@@ -4,6 +4,8 @@ import app.gauge.shared.NudgeEvent
 import app.gauge.shared.PositiveEvent
 import app.gauge.shared.VectorEvent
 import app.gauge.shared.wireJson
+import app.gauge.wear.emotion.EmotionFrame
+import app.gauge.wear.emotion.parseEmotionFrame
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -61,6 +63,10 @@ class EpisodeWsClient(
         /** Something the wearer did well. Default no-op so an older listener
          *  keeps compiling and simply ignores praise. */
         fun onPositive(p: PositiveEvent) {}
+
+        /** Emotion dev tester: the phone's latest emotion state (+ whether it came with a buzz).
+         *  Default no-op so every older listener keeps compiling and ignores it. */
+        fun onEmotion(e: EmotionFrame) {}
         fun onEpisodeSaved(id: String)
 
         /** The server's `live_session_saved` frame, WITH its `status` — "captured" for a mic
@@ -165,6 +171,7 @@ class EpisodeWsClient(
                     val status = obj["status"]?.jsonPrimitive?.content
                     if (id != null) listener.onEpisodeSaved(id, status)
                 }
+                "emotion" -> parseEmotionFrame(obj)?.let { listener.onEmotion(it) }
                 "companion_ack" -> listener.onCompanionAck()
                 "error" -> {
                     // Logged HERE as well as dispatched: a listener may not be wired (tests, an
@@ -221,6 +228,10 @@ class EpisodeWsClient(
     fun sendHeartbeat() {
         webSocket?.send("""{"type":"heartbeat"}""")
     }
+
+    /** Emotion dev tester: one `emotion_ctl` text frame (pause/resume/flag, see EmotionCtl).
+     *  Returns whether OkHttp accepted it for sending — false when there is no open socket. */
+    fun sendEmotionCtl(json: String): Boolean = webSocket?.send(json) ?: false
 
     /** Cancels the underlying connection immediately, releasing OkHttp resources. */
     fun cancel() {

@@ -60,6 +60,7 @@ from watch.models import (
 from watch.nudge_policy import WINDOW_S as NUDGE_WINDOW_S, NudgePolicy
 from watch.post_session import analyze_live_session
 from watch import heat_judge
+from watch import emotion_bridge
 from watch.relay import LiveWatchSession, register_live_session, unregister_live_session
 from watch.store import LiveSessionStore
 from watch.vectors import VectorEngine
@@ -280,6 +281,11 @@ def make_ws_router(
             own side."""
             await websocket.send_json({"type": "positive", "code": code, "t": t})
 
+        async def send_raw(frame: dict) -> None:
+            """Emotion dev tester (watch/emotion_bridge.py): a ready-made JSON
+            frame for the wrist. Not a nudge, not recorded, not policy-gated."""
+            await websocket.send_json(frame)
+
         # Track 1 (2026-08-24): expose THIS connection's engine + emit to the
         # phone->watch relay (watch/relay.py) for as long as the socket is
         # open, so a hostile-tone self turn the PHONE heard can escalate the
@@ -293,6 +299,7 @@ def make_ws_router(
             engine=engine,
             emit=emit,
             send_positive=send_positive,
+            send_raw=send_raw,
             loop=asyncio.get_running_loop(),
         )
         register_live_session(relay_session)
@@ -389,6 +396,14 @@ def make_ws_router(
                     # synchronize on it); idempotent.
                     companion = True
                     await websocket.send_json({"type": "companion_ack"})
+                    continue
+
+                if msg_type == "emotion_ctl":
+                    # Emotion dev tester: the wrist's pause/resume/flag verbs,
+                    # queued for the phone to drain (watch/emotion_bridge.py).
+                    # Malformed -> the same error frame as any bad frame.
+                    if not emotion_bridge.push_ctl(account, payload):
+                        await websocket.send_json({"type": "error", "detail": "malformed_json"})
                     continue
 
                 if msg_type == "heartbeat":

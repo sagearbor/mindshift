@@ -36,6 +36,7 @@ import { useAuthStore } from "../store/authStore";
 import LanguageSettings from "../components/LanguageSettings";
 import { useAvatarStore } from "../store/avatarStore";
 import { useDevModeStore } from "../store/devModeStore";
+import { EmotionDevPanel } from "../components/EmotionDevPanel";
 import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
 import { expoHaptics } from "../live/defaultDeps";
 
@@ -836,6 +837,7 @@ export default function AdvancedScreen({
           />
         </View>
       </View>
+      <EmotionDevPanel userId={experimentalUid} />
       </>
       ) : null}
 

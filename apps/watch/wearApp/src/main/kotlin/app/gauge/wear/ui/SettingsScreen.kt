@@ -2,6 +2,7 @@ package app.gauge.wear.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,9 +45,10 @@ import kotlinx.coroutines.launch
  * `Center:` label prefix.)
  */
 @Composable
-fun SettingsScreen(modifier: Modifier = Modifier) {
+fun SettingsScreen(modifier: Modifier = Modifier, onOpenEmotion: () -> Unit = {}) {
     val context = LocalContext.current
     val listState = rememberScalingLazyListState()
+    val emotionActive by app.gauge.wear.emotion.EmotionDevBus.model.state.collectAsState()
 
     var pulseInterval by remember { mutableStateOf(GaugePrefs.pulseIntervalMs(context)) }
     var centerDisplay by remember { mutableStateOf(GaugePrefs.centerDisplay(context)) }
@@ -68,6 +70,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth(),
         state = listState,
     ) {
+        // Emotion dev tester entry: only once the phone has actually sent a frame this process,
+        // so the normal Settings screen is unchanged for everyone not running the tester.
+        if (emotionActive.active) {
+            item {
+                Chip(
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Emotion dev tester") },
+                    colors = ChipDefaults.primaryChipColors(),
+                    onClick = onOpenEmotion,
+                )
+            }
+        }
         item { Text(text = "Feel the buzzes", style = MaterialTheme.typography.caption1) }
         for ((level, label) in DEMO_NUDGE_LEVELS) {
             item {

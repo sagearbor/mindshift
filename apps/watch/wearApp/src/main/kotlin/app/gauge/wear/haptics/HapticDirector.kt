@@ -196,6 +196,15 @@ open class HapticDirector(
     }
 
     /**
+     * Emotion dev tester: the buzz that accompanies a phone-detected emotion. A fixed double tap,
+     * deliberately NOT one of the vocabulary cues (it means "the experimental model has an opinion",
+     * not "you are escalating"), touching no dedupe/reminder state. Fail-soft like every play path.
+     */
+    fun playEmotionNudge() {
+        runCatching { vibrator.vibrate(EMOTION_NUDGE_TIMINGS, EMOTION_NUDGE_AMPLITUDES) }
+    }
+
+    /**
      * P4-3: fires a single local proportional pulse (channel A's pulse train — see [PulseEngine]
      * KDoc), completely independent of [onNudge]'s channel/level dedupe above. Falls back to a
      * fixed max amplitude when the device has no amplitude control (honest degradation — see
@@ -265,6 +274,8 @@ open class HapticDirector(
 
     private companion object {
         const val FIXED_AMPLITUDE_NO_CONTROL = 255
+        val EMOTION_NUDGE_TIMINGS = longArrayOf(0L, 90L, 70L, 90L)
+        val EMOTION_NUDGE_AMPLITUDES = intArrayOf(0, 255, 0, 255)
         const val TAG = "HapticDirector"
         /** The lane PRD §6's repeat schedule applies to — the wearer's own escalation. */
         const val REMINDER_CHANNEL = "A"
