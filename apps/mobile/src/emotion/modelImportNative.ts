@@ -42,8 +42,9 @@ export async function pickAndImportModel(kind: ModelKind): Promise<ImportResult>
   if (Platform.OS === "web") return { ok: false, message: "Model files can only be added in the native app." };
   let picked: DocumentPicker.DocumentPickerResult;
   try {
-    // copyToCacheDirectory:false keeps the 95 MB file from being duplicated into cache first.
-    picked = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: false, multiple: false });
+    // copyToCacheDirectory:true lets the picker do the (native) copy and hands back a plain file:// path;
+    // copying straight from a content:// URI failed on device ("FileSystemFile.delete ... does not exist").
+    picked = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true, multiple: false });
   } catch (e) {
     return { ok: false, message: `Could not open the file picker: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -74,27 +75,32 @@ export async function pickAndImportModel(kind: ModelKind): Promise<ImportResult>
   }
 
   const dir = new Directory(`${Paths.document.uri.replace(/\/$/, "")}/emotion-models`);
-  const part = new File(dir, `${MODEL_FILES[kind]}.part`);
   const dest = new File(dir, MODEL_FILES[kind]);
+  const safeDelete = (f: File) => {
+    try {
+      f.delete();
+    } catch {
+      // already gone / not deletable: nothing to clean
+    }
+  };
   try {
     if (!dir.exists) dir.create({ intermediates: true });
-    if (part.exists) part.delete();
-    src.copy(part); // native copy; never enters JS memory
-    const copied = part.size ?? 0;
+    safeDelete(dest);
+    try {
+      src.move(dest); // same-filesystem rename of the picker's cache copy: no second 95 MB copy
+    } catch {
+      src.copy(dest);
+      safeDelete(src);
+    }
+    const copied = dest.size ?? 0;
     const sizeProblem = checkModelSize(kind, copied);
     if (sizeProblem) {
-      part.delete();
+      safeDelete(dest);
       return { ok: false, message: sizeProblem };
     }
-    if (dest.exists) dest.delete();
-    part.move(dest);
     return { ok: true, message: `${kind.toUpperCase()} model saved (${(copied / (1024 * 1024)).toFixed(1)} MB). Tap Check again.` };
   } catch (e) {
-    try {
-      if (part.exists) part.delete();
-    } catch {
-      // best effort
-    }
+    safeDelete(dest);
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, message: /space|ENOSPC/i.test(msg) ? `Out of storage while copying: ${msg}` : `Copy failed: ${msg}` };
   }
