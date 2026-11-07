@@ -10,17 +10,19 @@ import { DEFAULT_USER_SETTINGS, type EmotionDevUserSettings } from "../emotion/c
 import { loadEmotionDevSettings, saveEmotionDevSettings } from "../emotion/devPrefs";
 import type { DevStatus } from "../emotion/devHub";
 import { emotionDevHub } from "../emotion/hub";
+import type { ModelKind, ModelStatus } from "../emotion/modelFiles";
+import { describePrerequisites } from "../emotion/modelImport";
 
 export function describeStatus(s: DevStatus): string {
   switch (s.state) {
     case "off":
-      return "Off.";
+      return "Off. Turn on the switch above to start the tester.";
     case "starting":
       return "Loading the models…";
     case "waiting-for-audio":
-      return "On. Waiting for a Live Coach session to supply microphone audio.";
+      return "On, but idle: start a Live Coach session (it supplies the microphone audio). Models are checked when audio first arrives.";
     case "models-missing":
-      return s.message;
+      return `${s.message}. Use Choose TINY / SMALL model file below, then Check again.`;
     case "error":
       return `Error — ${s.message}`;
     case "running": {
@@ -62,6 +64,41 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
     },
     [userId],
   );
+
+  const [models, setModels] = useState<{ tiny: ModelStatus; small: ModelStatus } | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importing, setImporting] = useState<ModelKind | null>(null);
+
+  const refreshModels = useCallback(async () => {
+    try {
+      const m = (await import("../emotion/modelImportNative")).probeModels();
+      setModels(m);
+    } catch {
+      setModels(null);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshModels();
+  }, [refreshModels]);
+
+  const chooseModel = async (kind: ModelKind) => {
+    setImporting(kind);
+    setImportMsg(`Copying the ${kind.toUpperCase()} model… (the SMALL file can take a minute; keep the app open)`);
+    try {
+      const r = await (await import("../emotion/modelImportNative")).pickAndImportModel(kind);
+      setImportMsg(r.message);
+    } catch (e) {
+      setImportMsg(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImporting(null);
+      await refreshModels();
+    }
+  };
+
+  const checkAgain = async () => {
+    emotionDevHub.retry();
+    await refreshModels();
+  };
 
   const paused = status.state === "running" && status.snapshot.paused;
   const running = status.state === "running";
@@ -108,8 +145,34 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
         {describeStatus(status)}
       </Text>
 
+      <Text style={styles.sub} testID="emotion-dev-prereqs">
+        {describePrerequisites({
+          enabled: settings.enabled,
+          tiny: models?.tiny ?? null,
+          small: models?.small ?? null,
+          liveSessionActive: status.state === "running",
+        }).join("\n")}
+      </Text>
+
       {settings.enabled ? (
         <>
+          <View style={styles.buttons}>
+            <TouchableOpacity testID="emotion-dev-pick-tiny" disabled={importing !== null} style={[styles.btn, importing !== null && styles.btnOff]} onPress={() => void chooseModel("tiny")}>
+              <Text style={styles.btnText}>Choose TINY model file</Text>
+            </TouchableOpacity>
+            <TouchableOpacity testID="emotion-dev-pick-small" disabled={importing !== null} style={[styles.btn, importing !== null && styles.btnOff]} onPress={() => void chooseModel("small")}>
+              <Text style={styles.btnText}>Choose SMALL model file</Text>
+            </TouchableOpacity>
+            <TouchableOpacity testID="emotion-dev-retry" style={styles.btn} onPress={() => void checkAgain()}>
+              <Text style={styles.btnText}>Check again</Text>
+            </TouchableOpacity>
+          </View>
+          {importMsg ? (
+            <Text style={styles.status} testID="emotion-dev-import-msg">
+              {importMsg}
+            </Text>
+          ) : null}
+
           <View style={styles.line}>
             <Text style={styles.label}>Buzzes per hour (max)</Text>
             <View style={styles.stepper}>
@@ -156,11 +219,6 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
             <TouchableOpacity testID="emotion-dev-delete" style={[styles.btn, styles.btnDanger]} onPress={confirmDelete}>
               <Text style={styles.btnText}>Delete all</Text>
             </TouchableOpacity>
-            {status.state === "models-missing" ? (
-              <TouchableOpacity testID="emotion-dev-retry" style={styles.btn} onPress={() => emotionDevHub.retry()}>
-                <Text style={styles.btnText}>Check again</Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
         </>
       ) : null}
