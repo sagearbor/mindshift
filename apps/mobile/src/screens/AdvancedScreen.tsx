@@ -30,6 +30,7 @@ import { getMe } from "../api/me";
 import { deleteAccount, DELETE_CONFIRMATION } from "../api/account";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
 import TherapistLinkCard from "../components/TherapistLinkCard";
+import AccordionSection, { useAccordionState } from "../components/AccordionSection";
 import PlanCard from "../components/PlanCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
@@ -221,6 +222,7 @@ export default function AdvancedScreen({
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
+  const { open: openSections, toggle: toggleSection } = useAccordionState(user?.uid ?? null);
   // Task N6: the selfie avatar shown in the top bar — this row previews and
   // manages the same store.
   const avatarUri = useAvatarStore((s) => s.uri);
@@ -531,9 +533,15 @@ export default function AdvancedScreen({
       </Text>
       <PlanCard />
 
-      <Text style={styles.sectionHeading} testID="section-therapist">
-        Therapist
-      </Text>
+      <LanguageSettings userId={user?.uid ?? null} />
+
+      <AccordionSection
+        sectionId="section-therapist"
+        title="Therapist"
+        subtitle="Link your therapist, therapist dashboard"
+        expanded={!!openSections.therapist}
+        onToggle={() => toggleSection("therapist")}
+      >
       {/* Two-sided setup: name your therapist's account; sessions are then
           shared with them automatically (per-episode grants — the same
           "Share with…" Replay offers, revocable there one by one). */}
@@ -553,8 +561,7 @@ export default function AdvancedScreen({
           For therapists: the sessions your patients have shared with you, with tone trends and export.
         </Text>
       </TouchableOpacity>
-
-      <LanguageSettings userId={user?.uid ?? null} />
+      </AccordionSection>
 
       <Text style={styles.sectionHeading} testID="section-appearance">
         Appearance
@@ -574,13 +581,14 @@ export default function AdvancedScreen({
 
       {profile && profile.available && profile.storage_enabled ? (
         <>
-          <Text
-            style={styles.sectionHeading}
-            testID="section-voice"
+          <AccordionSection
+            sectionId="section-voice"
+            title="Voice"
+            subtitle="Voice profile, people, voice training"
+            expanded={!!openSections.voice || initialSection === "voice"}
+            onToggle={() => toggleSection("voice")}
             onLayout={handleSectionLayout("voice")}
           >
-            Voice
-          </Text>
           {onOpenPeople ? (
             <TouchableOpacity
               testID="advanced-people"
@@ -707,12 +715,17 @@ export default function AdvancedScreen({
               </TouchableOpacity>
             )}
           </View>
+          </AccordionSection>
         </>
       ) : null}
 
-      <Text style={styles.sectionHeading} testID="section-about">
-        About
-      </Text>
+      <AccordionSection
+        sectionId="section-about"
+        title="About"
+        subtitle="Version, updates, privacy policy"
+        expanded={!!openSections.about}
+        onToggle={() => toggleSection("about")}
+      >
       <View style={styles.aboutCard} testID="about-section">
         <Text style={styles.aboutAppName} testID="about-app-name">
           MindShift
@@ -758,7 +771,15 @@ export default function AdvancedScreen({
           />
         ) : null}
       </View>
+      </AccordionSection>
 
+      <AccordionSection
+        sectionId="section-diagnostics"
+        title="Diagnostics"
+        subtitle="Developer mode, send diagnostics"
+        expanded={!!openSections.diagnostics}
+        onToggle={() => toggleSection("diagnostics")}
+      >
       {devMode ? (
       <>
       {/* "Feel the patterns" — the eight nudge cues, playable on demand.
@@ -841,9 +862,6 @@ export default function AdvancedScreen({
       </>
       ) : null}
 
-      <Text style={styles.sectionHeading} testID="section-diagnostics">
-        Diagnostics
-      </Text>
       {/* Developer mode: the clean-vs-full switch itself lives here so a
           tester can be walked to it in one breath ("Settings → Diagnostics →
           Developer mode"). Everything it reveals existed before it did. */}
@@ -915,9 +933,15 @@ export default function AdvancedScreen({
         ) : null}
       </TouchableOpacity>
 
-      <Text style={styles.sectionHeading} testID="section-account">
-        Account
-      </Text>
+      </AccordionSection>
+
+      <AccordionSection
+        sectionId="section-account"
+        title="Account"
+        subtitle="Profile photo, log out, delete account"
+        expanded={!!openSections.account}
+        onToggle={() => toggleSection("account")}
+      >
 
       <View style={styles.row} testID="advanced-profile-photo-card">
         <View style={styles.profilePhotoRow}>
@@ -1071,6 +1095,7 @@ export default function AdvancedScreen({
           </Text>
         </TouchableOpacity>
       )}
+      </AccordionSection>
     </ScrollView>
   );
 }
