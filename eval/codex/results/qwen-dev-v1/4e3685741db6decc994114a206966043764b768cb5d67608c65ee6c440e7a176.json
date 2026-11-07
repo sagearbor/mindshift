@@ -1,0 +1,17 @@
+{
+  "id": "1016_TAI_DIS_XX",
+  "audio_sha256": "2dbb8e7442adf22e29005b02cfde70c5d6f4d500c8f1d928ef01cdf8b9c790ed",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.7286672425266235,
+    0.04658213834611632,
+    0.0016967542652260193,
+    0.007143602281634538,
+    0.20876666029876517,
+    0.007143602281634538
+  ],
+  "allowed_choice_mass": 0.99679575573727,
+  "label_source": "machine",
+  "approved_for_training": false
+}

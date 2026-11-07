@@ -1,0 +1,228 @@
+{
+  "config": {
+    "revision": "ae9e1690543ffd5c0221dc27f79834d0294cba00",
+    "prompt": "Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.",
+    "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+    "method": "single forward pass, six forced-choice next-token scores; no generation/token cap",
+    "contamination": "CREMA-D exposure during publisher pretraining unknown",
+    "n": 6,
+    "device": "mps"
+  },
+  "results": {
+    "audio": {
+      "metrics": {
+        "n_total": 6,
+        "n_single_label": 6,
+        "n_tied": 0,
+        "accuracy": 0.16666666666666666,
+        "macro_f1": 0.16666666666666666,
+        "balanced_accuracy": 0.16666666666666666,
+        "kappa": 0.0,
+        "brier_to_votes": 0.2981749747927788,
+        "cross_entropy_to_votes": 1.8814055150712357,
+        "expected_individual_vote_agreement": 0.2625,
+        "ece_10_bins": 0.5465899811102692,
+        "confusion_matrix": [
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "fear": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 1
+          },
+          "happiness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "neutral": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "sadness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          }
+        }
+      },
+      "low_choice_mass_count": 0,
+      "mean_choice_mass": 0.9837812774145883
+    },
+    "transcript": {
+      "metrics": {
+        "n_total": 6,
+        "n_single_label": 6,
+        "n_tied": 0,
+        "accuracy": 0.16666666666666666,
+        "macro_f1": 0.047619047619047616,
+        "balanced_accuracy": 0.16666666666666666,
+        "kappa": 0.0,
+        "brier_to_votes": 0.7864524033792791,
+        "cross_entropy_to_votes": 3.734855946104787,
+        "expected_individual_vote_agreement": 0.26944444444444443,
+        "ece_10_bins": 0.7896005710005277,
+        "confusion_matrix": [
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "fear": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "happiness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          },
+          "neutral": {
+            "precision": 0.16666666666666666,
+            "recall": 1.0,
+            "f1": 0.2857142857142857,
+            "support": 1
+          },
+          "sadness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 1
+          }
+        }
+      },
+      "low_choice_mass_count": 0,
+      "mean_choice_mass": 0.9952686044085229
+    }
+  },
+  "elapsed_seconds": 4.570523458532989,
+  "empty_outputs": 0,
+  "nonfinite_outputs": 0,
+  "finish_reason_length": 0,
+  "note": "Choice probabilities are conditional scores, not calibrated truth. Development diagnostic only."
+}

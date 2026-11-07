@@ -1,0 +1,17 @@
+{
+  "id": "1057_IWL_SAD_XX",
+  "audio_sha256": "6129ec72ea2eceb93550ba1eb64d0cc9bf7183a250dd16fa64b60f889bb78bda",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.053316659932659126,
+    0.002200641373807087,
+    0.22447152268884477,
+    0.016260662564688378,
+    0.6101768611316191,
+    0.09357365230838195
+  ],
+  "allowed_choice_mass": 0.9924790544924457,
+  "label_source": "machine",
+  "approved_for_training": false
+}

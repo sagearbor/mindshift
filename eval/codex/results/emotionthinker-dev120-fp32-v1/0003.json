@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is positive and upbeat. Starting with pitch level, while described as \"normal,\" this neutrality does not detract from the overall impression of enthusiasm because the energy level is notably high. High energy often correlates with excitement or joy, especially when paired with normal speech speed, which avoids any sense of urgency or tension.\n\nThe intonation contour being \"expressive\" further reinforces this interpretation. Expressiveness typically involves dynamic pitch variation and melodic shifts, both of which can convey liveliness and positivity. This aligns well with how people naturally sound when they are happy or engaged. Additionally, stress on specific words like \u201cIt\u2019s,\u201d \u201celeven,\u201d and \u201co\u2019clock!\u201d adds emphasis to key parts of the phrase, suggesting the speaker is drawing attention to these details in a way that feels celebratory rather than neutral or serious.\n\nSemantically, the transcription\u2014\u201cIt\u2019s eleven o\u2019clock!\u201d\u2014is straightforward but could be interpreted as marking a significant time, such as lunchtime or a special occasion. While the content alone doesn\u2019t strongly imply happiness, the prosodic features dominate the emotional perception. Taken together, the combination of high energy, expressive intonation, and strategic word stress strongly points toward a joyful or excited tone.</think>\n<answer>D</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1001_IEO_HAP_HI",
+  "audio_sha256": "c7a8de9867f3fe4bfab59aa81a9ac32d058d0ebd814b7fb292913f7c59420690",
+  "seconds": 17.323104583658278,
+  "label_source": "machine",
+  "approved_for_training": false
+}

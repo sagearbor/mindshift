@@ -1,0 +1,17 @@
+{
+  "id": "1087_WSI_NEU_XX",
+  "audio_sha256": "f07115e2d1a0576f02908364d1437a08a9a2c889ccca6538bc2e2e93603cfcc6",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.014812089138385082,
+    0.001377738905349705,
+    0.0033050238215806813,
+    0.002271507438721169,
+    0.9754936797115918,
+    0.002739960984370249
+  ],
+  "allowed_choice_mass": 0.997712366797218,
+  "label_source": "machine",
+  "approved_for_training": false
+}

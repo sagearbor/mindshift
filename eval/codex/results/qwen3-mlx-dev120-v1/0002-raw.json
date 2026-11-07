@@ -1,0 +1,10 @@
+{
+  "id": "1001_DFA_FEA_XX",
+  "audio_sha256": "cc84aa476b106f71364c079ac3cf08448d2bc0b5ac79deb7ec10cbe69c19d74c",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14199925027787685,
+  "peak_memory_gb": 21.991393333,
+  "approved_for_training": false
+}

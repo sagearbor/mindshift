@@ -1,0 +1,10 @@
+{
+  "id": "1001_TSI_HAP_XX",
+  "audio_sha256": "db01b15d9488f7d03d29fa59b94c15cbc7386bb0aaf1203ecffc2b7178a0fc50",
+  "text": "<answer>C</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19817420840263367,
+  "peak_memory_gb": 22.001694658,
+  "approved_for_training": false
+}

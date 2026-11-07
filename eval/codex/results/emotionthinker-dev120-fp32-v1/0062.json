@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is heightened and urgent. While the pitch level remains normal, the energy of the speech is notably high, which often signals intensity or agitation. This elevated energy contrasts with the slower-than-usual speech rate, creating a sense of deliberation mixed with urgency\u2014possibly reflecting internal tension or apprehension.\n\nThe transcription, \u201cIt\u2019s eleven o\u2019clock,\u201d carries semantic weight tied to time pressure or an impending event. However, the lack of stressed words implies the speaker may be attempting to maintain composure despite underlying anxiety. For a middle-aged male speaker, this combination of controlled stress patterns and heightened energy could indicate an effort to suppress panic while still conveying concern.\n\nAdditionally, the intonation contour being uncertain adds to the impression of unease. Uncertainty in tone often aligns with fear or worry, as the speaker seems unsure or unsettled about what lies ahead. Taken together, these prosodic cues\u2014high energy, slow pace, and uncertain intonation\u2014strongly suggest the speaker is experiencing fear or apprehension, even if subtly expressed.</think>\n<answer>C</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1057_IEO_FEA_HI",
+  "audio_sha256": "2a78118be355b4c9fbb0bca571d82bc911177972549778b17aff515eadcc090e",
+  "seconds": 15.43043183349073,
+  "label_source": "machine",
+  "approved_for_training": false
+}

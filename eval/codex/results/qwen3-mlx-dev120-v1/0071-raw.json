@@ -1,0 +1,10 @@
+{
+  "id": "1003_WSI_SAD_XX",
+  "audio_sha256": "6a55d03bc2903451c27da19f97c0e752128dc8a8f407ac37aa528334b678abd8",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.20502670761197805,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

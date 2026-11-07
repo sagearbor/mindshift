@@ -1,0 +1,10 @@
+{
+  "id": "1001_IWL_FEA_XX",
+  "audio_sha256": "2bc22e4fb6d3195ee4dca4f690d2cb674157a95e0c605176f39780629177cf24",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.1470787925645709,
+  "peak_memory_gb": 22.001694658,
+  "approved_for_training": false
+}

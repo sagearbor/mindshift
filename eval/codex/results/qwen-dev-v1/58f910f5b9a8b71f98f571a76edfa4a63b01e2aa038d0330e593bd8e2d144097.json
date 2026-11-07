@@ -1,0 +1,17 @@
+{
+  "id": "1016_TSI_SAD_XX",
+  "audio_sha256": "15993dad5d2ac553614de1ca8064d8f3e1f78a6bff85df4d20c530810739c943",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.11564972449200488,
+    0.14849718568066905,
+    0.35622622995300174,
+    0.07948481573848466,
+    0.22999694044411897,
+    0.07014510369172001
+  ],
+  "allowed_choice_mass": 0.9841796576796291,
+  "label_source": "machine",
+  "approved_for_training": false
+}

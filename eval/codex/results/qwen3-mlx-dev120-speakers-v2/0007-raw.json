@@ -1,0 +1,10 @@
+{
+  "id": "1003_IEO_DIS_HI",
+  "audio_sha256": "e2b22d5db58242c14df44add33d3d1d010c4f9fc4e4ec4b5c4aaa3514b2b88ad",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19632541574537754,
+  "peak_memory_gb": 22.000459714,
+  "approved_for_training": false
+}

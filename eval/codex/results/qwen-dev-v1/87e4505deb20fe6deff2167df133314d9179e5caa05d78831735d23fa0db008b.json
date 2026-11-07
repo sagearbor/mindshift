@@ -1,0 +1,17 @@
+{
+  "id": "1003_IEO_ANG_HI",
+  "audio_sha256": "bbea3944d9bfa4b59f9747828647f1eef8f4ae8c64d672d8aefd102971c1cde0",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.937324202227172,
+    0.0031757036271324794,
+    0.0019261616160164655,
+    0.003830629778243124,
+    0.04118315125686857,
+    0.012560151494566118
+  ],
+  "allowed_choice_mass": 0.9965763587181363,
+  "label_source": "machine",
+  "approved_for_training": false
+}

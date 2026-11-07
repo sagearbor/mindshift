@@ -1,0 +1,17 @@
+{
+  "id": "1088_DFA_HAP_XX",
+  "audio_sha256": "e3f0cdc5c4c1da2d8614248115757718755510bc8d39784e7a62d7a62635f2ff",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.07292252579810157,
+    0.011183031526016306,
+    0.028556871414020607,
+    0.2545246243597333,
+    0.6105728330828203,
+    0.022240113819308665
+  ],
+  "allowed_choice_mass": 0.9480821146593771,
+  "label_source": "machine",
+  "approved_for_training": false
+}

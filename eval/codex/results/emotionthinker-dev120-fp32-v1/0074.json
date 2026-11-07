@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is heightened and intense. While the pitch level remains normal, the energy of the speech stands out as notably high, which often correlates with emotions such as fear or anxiety. This elevated energy could reflect urgency or distress, even if the overall tone isn\u2019t overtly panicked.\n\nThe transcription, \u201cIt\u2019s eleven o\u2019clock,\u201d carries semantic content that might imply time pressure or concern depending on context. However, the prosodic features dominate the interpretation here. For instance, the stress placed on \"eleven\" and \"o'clock\" emphasizes these words, potentially signaling their importance to the speaker. Stress patterns like this can indicate an attempt to draw attention to something critical, aligning with feelings of apprehension or unease.\n\nAdditionally, the speaker profile\u2014a middle-aged male\u2014may lend itself to a more restrained expression of fear compared to younger individuals who might exhibit more overt vocal fluctuations. Despite the normal speed level, the combination of high energy and stressed words creates a sense of urgency that feels emotionally charged. Taken together, these cues suggest the speaker may be experiencing fear or anxiety, even though the intonation contour is uncertain.</think>\n<answer>C</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1067_IEO_FEA_HI",
+  "audio_sha256": "f04124901a055036ecfb37bea398c46378c87d1bc43e39718d24c35ccf179409",
+  "seconds": 15.948658832348883,
+  "label_source": "machine",
+  "approved_for_training": false
+}

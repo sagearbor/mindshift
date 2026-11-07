@@ -1,0 +1,10 @@
+{
+  "id": "1057_IWL_ANG_XX",
+  "audio_sha256": "df5926b563deb5f3b333f11cdb75a2441a6bc146dc7cdd01cf44558972a62e69",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19905208237469196,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

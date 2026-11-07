@@ -1,0 +1,10 @@
+{
+  "completed": false,
+  "empty_outputs": 0,
+  "finish_reason_length": 0,
+  "invalid_outputs": 0,
+  "runtime_errors": 1,
+  "error_type": "KeyboardInterrupt",
+  "error": "",
+  "elapsed_seconds": 106.77401974983513
+}

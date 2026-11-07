@@ -1,0 +1,17 @@
+{
+  "id": "1042_IOM_FEA_XX",
+  "audio_sha256": "29f4686e5ab496c661dea5f8cc27e8583afeb47dd4ad523c89bd47e658190fae",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.2804883207590336,
+    0.0018899154391368524,
+    0.08036124936072277,
+    0.15981742770611534,
+    0.4344288096046005,
+    0.04301427713039126
+  ],
+  "allowed_choice_mass": 0.9809364166905504,
+  "label_source": "machine",
+  "approved_for_training": false
+}

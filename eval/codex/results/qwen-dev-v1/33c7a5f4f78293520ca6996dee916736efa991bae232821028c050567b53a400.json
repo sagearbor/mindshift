@@ -1,0 +1,17 @@
+{
+  "id": "1047_MTI_SAD_XX",
+  "audio_sha256": "3348abee8b3174c21828d196de3c98eef321f2c0855c1e865a66ca685295a236",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.025654976527150125,
+    0.00609359103860345,
+    0.002878408592718651,
+    0.039735204955997604,
+    0.9043690963182888,
+    0.02126872256724214
+  ],
+  "allowed_choice_mass": 0.9939906102604522,
+  "label_source": "machine",
+  "approved_for_training": false
+}

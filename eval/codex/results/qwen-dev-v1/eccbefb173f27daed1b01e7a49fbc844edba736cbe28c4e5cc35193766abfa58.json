@@ -1,0 +1,17 @@
+{
+  "id": "1050_ITH_HAP_XX",
+  "audio_sha256": "3e4375a13c5189a0e2af631f7488568321a07399eb7b92ff4df511f9b5f8533b",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.04058229535237506,
+    0.003546041448665467,
+    0.009055134061166327,
+    0.01800828439953234,
+    0.9236487848745736,
+    0.005159459863688543
+  ],
+  "allowed_choice_mass": 0.9960292364065523,
+  "label_source": "machine",
+  "approved_for_training": false
+}

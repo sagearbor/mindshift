@@ -1,0 +1,17 @@
+{
+  "id": "1087_IOM_SAD_XX",
+  "audio_sha256": "4338e965c83a4f72dde7b7a3da178885acbcb0f0b27afd28833b00b64fcd42ff",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.016049208380083953,
+    0.01330526107083449,
+    0.01935904062731796,
+    0.01330526107083449,
+    0.9327708137511855,
+    0.005210415099742558
+  ],
+  "allowed_choice_mass": 0.9941666355455699,
+  "label_source": "machine",
+  "approved_for_training": false
+}

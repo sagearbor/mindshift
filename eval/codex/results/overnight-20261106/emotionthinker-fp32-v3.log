@@ -1,0 +1,13 @@
+The image processor of type `Qwen2VLImageProcessor` is now loaded as a fast processor by default, even if the model checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To continue using the slow processor, instantiate this class with `use_fast=False`. Note that this behavior will be extended to all models in a future release.
+`torch_dtype` is deprecated! Use `dtype` instead!
+Unrecognized keys in `rope_scaling` for 'rope_type'='default': {'mrope_section'}
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:00<00:01,  2.04it/s]Loading checkpoint shards:  50%|█████     | 2/4 [00:00<00:00,  2.38it/s]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:01<00:00,  1.82it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:06<00:00,  2.43s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:06<00:00,  1.72s/it]
+WARNING:root:System prompt modified, audio output may not work as expected. Audio output mode only works when using default system prompt 'You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.'
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+<think>The speaker’s tone conveys a sense of urgency and intensity that suggests an emotional state beyond neutrality. While the pitch level is described as "normal," the energy level being "high" stands out as a key indicator of heightened emotional engagement. High energy often correlates with emotions such as frustration, anger, or excitement, especially when paired with specific stress patterns.
+
+The transcription, “Don’t forget a jacket,” carries a directive quality, which could imply concern or insistence. However, the prosodic features—particularly the stressed emphasis on “jacket”—suggest the speaker is fixated on this detail, possibly due to irritation or impatience. Stressing a single word can signal frustration, as if the speaker feels the need to emphasize something they perceive as important but perhaps overlooked.
+
+Additionally, the speech rate being "normal" does not detract from the emotional interpretation, as anger can manifest without rapid speech, particularly when controlled or simmering rather than explosive. For a middle-aged male speaker, the combination of high energy, normal pitch, and deliberate stress creates a vocal profile consistent with someone expressing frustration or anger, even though the semantic content itself might seem neutral at first glance.</think>
+<answer>A</answer><|im_end|>
+emotionthinker generate: 1/1 16.80s

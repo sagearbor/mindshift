@@ -1,0 +1,17 @@
+{
+  "id": "1074_IEO_NEU_XX",
+  "audio_sha256": "562388f6b5ee26c695dbb1a49413274d57a3260512673fb3ab1218c78e4a42e7",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.06882151985100055,
+    0.004683363201159779,
+    0.009313979881809322,
+    0.011959386898761455,
+    0.8924910490814832,
+    0.012730701085786413
+  ],
+  "allowed_choice_mass": 0.9953704933549494,
+  "label_source": "machine",
+  "approved_for_training": false
+}

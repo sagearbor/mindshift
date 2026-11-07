@@ -1,0 +1,10 @@
+{
+  "id": "1016_ITH_FEA_XX",
+  "audio_sha256": "d0548cc895c3e66c70ecfee3a176957c811c87bdeb4999285e15713dfeab5b06",
+  "text": "<answer>F</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.1955062923952937,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

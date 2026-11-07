@@ -1,0 +1,10 @@
+{
+  "completed": false,
+  "empty_outputs": 0,
+  "finish_reason_length": 0,
+  "invalid_outputs": 0,
+  "runtime_errors": 1,
+  "error_type": "TypeError",
+  "error": "tuple indices must be integers or slices, not tuple",
+  "elapsed_seconds": 5.348592083901167
+}

@@ -1,0 +1,147 @@
+{
+  "config": {
+    "revision": "7e3ee6fa4534dea8316e8ca43e377e2fbb58496b",
+    "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+    "model_path": "eval/codex/artifacts/meralion-ser",
+    "model_config_sha256": "f8008a982be09d7d9b0c65e9a2b856480b45849ecc951cbe4b6818e7b69f0826",
+    "ids": [
+      "1001_DFA_ANG_XX",
+      "1001_DFA_DIS_XX",
+      "1001_DFA_FEA_XX",
+      "1001_IEO_HAP_HI",
+      "1001_DFA_HAP_XX",
+      "1003_IOM_FEA_XX",
+      "1003_DFA_ANG_XX",
+      "1003_IEO_DIS_HI",
+      "1003_ITS_DIS_XX",
+      "1003_IEO_HAP_HI",
+      "1003_DFA_DIS_XX",
+      "1016_DFA_SAD_XX"
+    ],
+    "split": "development",
+    "precision": "float32",
+    "device": "cpu",
+    "labels": [
+      "anger",
+      "disgust",
+      "fear",
+      "happiness",
+      "neutral",
+      "sadness",
+      "surprise"
+    ],
+    "note": "Unchanged specialist. Extra surprise predictions count as incorrect on six-label benchmark; no renormalization."
+  },
+  "metrics": {
+    "n": 12,
+    "accuracy": 0.6666666666666666,
+    "macro_f1": 0.5444444444444444,
+    "balanced_accuracy": 0.6666666666666666,
+    "surprise_predictions": 0,
+    "confusion_matrix": [
+      [
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "per_emotion": {
+      "anger": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "disgust": {
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6666666666666666,
+        "support": 2
+      },
+      "fear": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0,
+        "f1": 0.8,
+        "support": 2
+      },
+      "happiness": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0,
+        "f1": 0.8,
+        "support": 2
+      },
+      "neutral": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "sadness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      }
+    }
+  },
+  "qualified_teacher": false,
+  "note": "Balanced development screen only; no automatic training-label admission"
+}

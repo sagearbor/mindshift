@@ -1,0 +1,10 @@
+{
+  "id": "1020_DFA_DIS_XX",
+  "audio_sha256": "cbe5b0ccc0dd35b5623336b0316a4d6163068c540fdabc35cdaaeea828e2ff84",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14672695845365524,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

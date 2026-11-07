@@ -1,0 +1,17 @@
+{
+  "id": "1074_ITS_SAD_XX",
+  "audio_sha256": "b686f65e65388fb409d53ec9f95f9d860b2b1d51a8ac9b14edf8c5e9faedc0e9",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.062330346703111175,
+    0.062330346703111175,
+    0.24652130337704434,
+    0.029442771003300897,
+    0.3369546707633601,
+    0.2624205614500723
+  ],
+  "allowed_choice_mass": 0.9865783877915928,
+  "label_source": "machine",
+  "approved_for_training": false
+}

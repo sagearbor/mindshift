@@ -1,0 +1,17 @@
+{
+  "id": "1062_ITH_SAD_XX",
+  "audio_sha256": "0738382f095e546986213434575c902d7dd262ddd0f715b10b45c559d9ea4ec6",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.0396440683226995,
+    0.010670056237824872,
+    0.4829636229190025,
+    0.01652610638927329,
+    0.3118247514559301,
+    0.13837139467527027
+  ],
+  "allowed_choice_mass": 0.992405098620046,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1020_IOM_ANG_XX",
+  "audio_sha256": "8827ccaaa4f6b45d8d796c726670902a915fb98e8c49f2e633d9ea8753e3210d",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.02738983401717579,
+    0.0003906949991496602,
+    0.0011305134649476464,
+    0.004200367087592087,
+    0.9655249308923387,
+    0.0013636595387975766
+  ],
+  "allowed_choice_mass": 0.9979103259591834,
+  "label_source": "machine",
+  "approved_for_training": false
+}

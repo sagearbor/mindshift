@@ -1,0 +1,10 @@
+{
+  "id": "1020_TIE_HAP_XX",
+  "audio_sha256": "f7daf75d474e97ea2501b07dd53b1213a3be74c84c50f366ea8b94a62dab949f",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.15383808314800262,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

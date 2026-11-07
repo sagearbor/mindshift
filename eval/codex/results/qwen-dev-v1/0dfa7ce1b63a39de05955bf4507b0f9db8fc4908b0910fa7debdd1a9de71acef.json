@@ -1,0 +1,17 @@
+{
+  "id": "1047_IWL_HAP_XX",
+  "audio_sha256": "8b4875eac49aab9dd8b2a453ae65a6d4c2f12442c85622bef3d28c1980c31de9",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.04999907354051741,
+    0.0004901736691019194,
+    0.001509841194463704,
+    0.15400798874979343,
+    0.7821171019447668,
+    0.011875820901357742
+  ],
+  "allowed_choice_mass": 0.9889134537870818,
+  "label_source": "machine",
+  "approved_for_training": false
+}

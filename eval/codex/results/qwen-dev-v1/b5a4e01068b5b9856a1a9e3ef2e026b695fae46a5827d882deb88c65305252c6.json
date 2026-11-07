@@ -1,0 +1,17 @@
+{
+  "id": "1057_MTI_HAP_XX",
+  "audio_sha256": "b96009810f913bf8ebb9bdaa05e874182c5c549ac0e3bfbdc2e797b418fc04ae",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.0759685333999378,
+    0.03371083234702707,
+    0.16082538646970884,
+    0.11053356387804557,
+    0.5273261409141276,
+    0.09163554299115306
+  ],
+  "allowed_choice_mass": 0.9755812554916269,
+  "label_source": "machine",
+  "approved_for_training": false
+}

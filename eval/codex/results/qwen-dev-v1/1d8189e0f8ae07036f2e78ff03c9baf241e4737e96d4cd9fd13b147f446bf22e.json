@@ -1,0 +1,17 @@
+{
+  "id": "1088_TIE_SAD_XX",
+  "audio_sha256": "b01ccbd318001f2bc31cc25633158c24d0a6696c2c703e0180e04fc1deb1cbce",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.03357897948014943,
+    0.0018943963907465872,
+    0.49343950140300097,
+    0.011604584789311626,
+    0.2992861863142351,
+    0.16019635162255813
+  ],
+  "allowed_choice_mass": 0.9955029287619269,
+  "label_source": "machine",
+  "approved_for_training": false
+}

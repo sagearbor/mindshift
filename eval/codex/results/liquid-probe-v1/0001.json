@@ -1,0 +1,16 @@
+{
+  "probabilities": [
+    0.9998744597858543,
+    9.609958618401301e-05,
+    4.637312565014911e-06,
+    3.3927303488755493e-06,
+    2.0782993038368704e-05,
+    6.27592009442996e-07
+  ],
+  "allowed_choice_mass": 0.0010323455945947249,
+  "id": "1001_DFA_DIS_XX",
+  "audio_sha256": "c992e624c48a6119b5635ef7b606aea28d45d02c397b9bd85f7e5a2c2656ac65",
+  "seconds": 0.4182497914880514,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1074_TIE_NEU_XX",
+  "audio_sha256": "5b8d1c5c77ac4856cc5aeba4687be23d646a6b4724849949dd8c4386bb5c9200",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.07815071788303439,
+    0.0028466396908026314,
+    0.023834622316724726,
+    0.022390555551556796,
+    0.840199398461836,
+    0.03257806609604704
+  ],
+  "allowed_choice_mass": 0.9935473784373958,
+  "label_source": "machine",
+  "approved_for_training": false
+}

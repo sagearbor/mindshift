@@ -1,0 +1,17 @@
+{
+  "id": "1067_TSI_ANG_XX",
+  "audio_sha256": "80800cf1a67b15cf98f7568c8481b286b4bf2f162673ed91d4598c976fcd1f92",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.10416031709580628,
+    0.0070881985338854874,
+    0.003145369032732339,
+    0.009688418690687161,
+    0.8721236573740159,
+    0.0037940392728737582
+  ],
+  "allowed_choice_mass": 0.9946068788139025,
+  "label_source": "machine",
+  "approved_for_training": false
+}

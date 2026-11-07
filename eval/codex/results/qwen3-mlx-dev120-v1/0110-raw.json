@@ -1,0 +1,10 @@
+{
+  "id": "1016_TSI_FEA_XX",
+  "audio_sha256": "afa38d832190de1e5172099ebf57ac5e78d4956de736528e4102a330a78e30de",
+  "text": "C",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.1452097501605749,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

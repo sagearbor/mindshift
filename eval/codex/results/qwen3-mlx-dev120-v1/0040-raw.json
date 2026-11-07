@@ -1,0 +1,10 @@
+{
+  "id": "1001_IEO_FEA_LO",
+  "audio_sha256": "f60f9b4631023f02eb962750414ccfa73bcee72e19cd487b5a67ba500db26c76",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14644187502563,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

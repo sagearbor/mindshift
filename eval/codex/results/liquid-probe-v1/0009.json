@@ -1,0 +1,16 @@
+{
+  "probabilities": [
+    0.9998935333883071,
+    9.610141937945551e-05,
+    1.2287889436432195e-06,
+    2.0902404050148814e-06,
+    6.747378679519711e-06,
+    2.9878428694190293e-07
+  ],
+  "allowed_choice_mass": 0.0003353841314457274,
+  "id": "1001_ITS_HAP_XX",
+  "audio_sha256": "261f83de5d3f64ab2cbf3d22f610723b3da9904839cd4f0b46eb15d07c455245",
+  "seconds": 0.04671366699039936,
+  "label_source": "machine",
+  "approved_for_training": false
+}

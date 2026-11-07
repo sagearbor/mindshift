@@ -1,0 +1,340 @@
+{
+  "device": "Mac17,6 Apple Silicon CPU, one ORT thread; NOT phone measurement",
+  "sizes_bytes": {
+    "float": 349132009,
+    "int8": 94862824
+  },
+  "hashes": {
+    "float": "2d7e89d768bde299ef3083581f488f406f2b1a027b03040541f4e0c6492cf1ee",
+    "int8": "ac5bf7e46d479a7b7199642525ca7433e0907ee799ee2fdb27a577a7bbc568d1"
+  },
+  "parameters": 87232512,
+  "float_max_probability_error": 8.702278137207031e-06,
+  "int8_max_probability_error": 0.08444327116012573,
+  "float_parity_passed": true,
+  "quantization_gate_passed": true,
+  "scores": {
+    "pytorch": {
+      "n_total": 1476,
+      "n_single_label": 1353,
+      "n_tied": 123,
+      "accuracy": 0.753880266075388,
+      "macro_f1": 0.5717327073563326,
+      "balanced_accuracy": 0.5502779697126734,
+      "kappa": 0.5619009002176159,
+      "brier_to_votes": 0.11587797973067787,
+      "cross_entropy_to_votes": 1.1986201552105773,
+      "expected_individual_vote_agreement": 0.5521549212606124,
+      "ece_10_bins": 0.18196747927249848,
+      "confusion_matrix": [
+        [
+          146,
+          16,
+          12,
+          0,
+          33,
+          3
+        ],
+        [
+          18,
+          30,
+          6,
+          0,
+          32,
+          4
+        ],
+        [
+          5,
+          1,
+          57,
+          3,
+          33,
+          1
+        ],
+        [
+          3,
+          2,
+          5,
+          31,
+          15,
+          0
+        ],
+        [
+          13,
+          19,
+          25,
+          12,
+          738,
+          20
+        ],
+        [
+          0,
+          4,
+          4,
+          0,
+          44,
+          18
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.7891891891891892,
+          "recall": 0.6952380952380952,
+          "f1": 0.739240506329114,
+          "support": 210
+        },
+        "disgust": {
+          "precision": 0.4166666666666667,
+          "recall": 0.3333333333333333,
+          "f1": 0.37037037037037035,
+          "support": 90
+        },
+        "fear": {
+          "precision": 0.5229357798165137,
+          "recall": 0.57,
+          "f1": 0.5454545454545454,
+          "support": 100
+        },
+        "happiness": {
+          "precision": 0.6739130434782609,
+          "recall": 0.5535714285714286,
+          "f1": 0.6078431372549019,
+          "support": 56
+        },
+        "neutral": {
+          "precision": 0.8245810055865922,
+          "recall": 0.8923821039903265,
+          "f1": 0.8571428571428571,
+          "support": 827
+        },
+        "sadness": {
+          "precision": 0.391304347826087,
+          "recall": 0.2571428571428571,
+          "f1": 0.3103448275862069,
+          "support": 70
+        }
+      }
+    },
+    "float": {
+      "n_total": 1476,
+      "n_single_label": 1353,
+      "n_tied": 123,
+      "accuracy": 0.753880266075388,
+      "macro_f1": 0.5717327073563326,
+      "balanced_accuracy": 0.5502779697126734,
+      "kappa": 0.5619009002176159,
+      "brier_to_votes": 0.11587812588834225,
+      "cross_entropy_to_votes": 1.198620371018804,
+      "expected_individual_vote_agreement": 0.5521549212606124,
+      "ece_10_bins": 0.18196809288535576,
+      "confusion_matrix": [
+        [
+          146,
+          16,
+          12,
+          0,
+          33,
+          3
+        ],
+        [
+          18,
+          30,
+          6,
+          0,
+          32,
+          4
+        ],
+        [
+          5,
+          1,
+          57,
+          3,
+          33,
+          1
+        ],
+        [
+          3,
+          2,
+          5,
+          31,
+          15,
+          0
+        ],
+        [
+          13,
+          19,
+          25,
+          12,
+          738,
+          20
+        ],
+        [
+          0,
+          4,
+          4,
+          0,
+          44,
+          18
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.7891891891891892,
+          "recall": 0.6952380952380952,
+          "f1": 0.739240506329114,
+          "support": 210
+        },
+        "disgust": {
+          "precision": 0.4166666666666667,
+          "recall": 0.3333333333333333,
+          "f1": 0.37037037037037035,
+          "support": 90
+        },
+        "fear": {
+          "precision": 0.5229357798165137,
+          "recall": 0.57,
+          "f1": 0.5454545454545454,
+          "support": 100
+        },
+        "happiness": {
+          "precision": 0.6739130434782609,
+          "recall": 0.5535714285714286,
+          "f1": 0.6078431372549019,
+          "support": 56
+        },
+        "neutral": {
+          "precision": 0.8245810055865922,
+          "recall": 0.8923821039903265,
+          "f1": 0.8571428571428571,
+          "support": 827
+        },
+        "sadness": {
+          "precision": 0.391304347826087,
+          "recall": 0.2571428571428571,
+          "f1": 0.3103448275862069,
+          "support": 70
+        }
+      }
+    },
+    "int8": {
+      "n_total": 1476,
+      "n_single_label": 1353,
+      "n_tied": 123,
+      "accuracy": 0.745750184774575,
+      "macro_f1": 0.5590989706033067,
+      "balanced_accuracy": 0.5416450260071783,
+      "kappa": 0.5502311985118256,
+      "brier_to_votes": 0.11693162151741442,
+      "cross_entropy_to_votes": 1.200240626071714,
+      "expected_individual_vote_agreement": 0.5484194930333142,
+      "ece_10_bins": 0.17746946663875893,
+      "confusion_matrix": [
+        [
+          146,
+          16,
+          14,
+          1,
+          30,
+          3
+        ],
+        [
+          20,
+          27,
+          5,
+          0,
+          34,
+          4
+        ],
+        [
+          6,
+          1,
+          56,
+          2,
+          34,
+          1
+        ],
+        [
+          4,
+          2,
+          5,
+          31,
+          14,
+          0
+        ],
+        [
+          12,
+          19,
+          26,
+          13,
+          731,
+          26
+        ],
+        [
+          0,
+          4,
+          5,
+          0,
+          43,
+          18
+        ]
+      ],
+      "per_emotion": {
+        "anger": {
+          "precision": 0.776595744680851,
+          "recall": 0.6952380952380952,
+          "f1": 0.7336683417085427,
+          "support": 210
+        },
+        "disgust": {
+          "precision": 0.391304347826087,
+          "recall": 0.3,
+          "f1": 0.33962264150943394,
+          "support": 90
+        },
+        "fear": {
+          "precision": 0.5045045045045045,
+          "recall": 0.56,
+          "f1": 0.5308056872037915,
+          "support": 100
+        },
+        "happiness": {
+          "precision": 0.6595744680851063,
+          "recall": 0.5535714285714286,
+          "f1": 0.6019417475728155,
+          "support": 56
+        },
+        "neutral": {
+          "precision": 0.8250564334085779,
+          "recall": 0.8839177750906893,
+          "f1": 0.8534734384121424,
+          "support": 827
+        },
+        "sadness": {
+          "precision": 0.34615384615384615,
+          "recall": 0.2571428571428571,
+          "f1": 0.29508196721311475,
+          "support": 70
+        }
+      }
+    }
+  },
+  "timings": {
+    "float": {
+      "inference_p50_ms": 97.23079204559326,
+      "inference_p95_ms": 113.49572078324853,
+      "wav_read_preprocess_inference_p50_ms": 98.12512481585145,
+      "wav_read_preprocess_inference_p95_ms": 116.33520061150193
+    },
+    "int8": {
+      "inference_p50_ms": 97.24477119743824,
+      "inference_p95_ms": 101.86914764344692,
+      "wav_read_preprocess_inference_p50_ms": 98.32208324223757,
+      "wav_read_preprocess_inference_p95_ms": 104.5924938749522
+    }
+  },
+  "n_dev": 1476,
+  "failures": 0,
+  "real_phone_latency_verified": false,
+  "real_phone_battery_verified": false,
+  "observation_window_seconds": 6
+}

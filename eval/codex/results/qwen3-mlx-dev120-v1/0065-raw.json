@@ -1,0 +1,10 @@
+{
+  "id": "1003_WSI_HAP_XX",
+  "audio_sha256": "7cf68678ad9b62a67e4be16073484c730445fe178aaa767055cfda6ce8623304",
+  "text": "F",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14989379234611988,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

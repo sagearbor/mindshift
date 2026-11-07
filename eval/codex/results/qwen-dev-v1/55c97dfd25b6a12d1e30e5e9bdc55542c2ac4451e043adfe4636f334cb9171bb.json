@@ -1,0 +1,17 @@
+{
+  "id": "1050_DFA_NEU_XX",
+  "audio_sha256": "f43ea6046a1154b961a9b9cc4210566b020fc1a0d086a33466164d587a6b7e9f",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.041656655587358135,
+    0.005637615282605138,
+    0.018485028863864158,
+    0.036761869527876835,
+    0.89065856864982,
+    0.006800262088476328
+  ],
+  "allowed_choice_mass": 0.9907533021652045,
+  "label_source": "machine",
+  "approved_for_training": false
+}

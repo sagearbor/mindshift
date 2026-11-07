@@ -1,0 +1,132 @@
+{
+  "config": {
+    "revision": "93b3cbddd65ed4babff8f22fba491cdba7a21778",
+    "model_path": "eval/codex/artifacts/qwen3-omni-mlx",
+    "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+    "model_config_sha256": "3ef3ad3ce6d7cbe62c73206e42e8e4a138c53578a4be097d951b51da8d924fb2",
+    "ids": [
+      "1001_DFA_ANG_XX",
+      "1001_DFA_DIS_XX",
+      "1001_DFA_FEA_XX",
+      "1001_IEO_HAP_HI",
+      "1001_DFA_HAP_XX",
+      "1003_IOM_FEA_XX",
+      "1001_IEO_DIS_HI",
+      "1001_IEO_ANG_HI",
+      "1001_IEO_FEA_MD",
+      "1001_ITS_HAP_XX",
+      "1001_DFA_NEU_XX",
+      "1003_IOM_SAD_XX"
+    ],
+    "prompt": "<|im_start|>user\n<|audio_start|><|audio_pad|><|audio_end|>Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Put exactly one letter A, B, C, D, E, or F inside <answer>...</answer>.<|im_end|>\n<|im_start|>assistant\n",
+    "split": "development",
+    "max_tokens": 40000,
+    "temperature": 0,
+    "precision": "publisher MLX 4-bit conversion",
+    "note": "Machine predictions, never approved automatically as training labels"
+  },
+  "n": 12,
+  "metrics": {
+    "n_total": 12,
+    "n_single_label": 12,
+    "n_tied": 0,
+    "accuracy": 0.16666666666666666,
+    "macro_f1": 0.047619047619047616,
+    "balanced_accuracy": 0.16666666666666666,
+    "kappa": 0.0,
+    "brier_to_votes": 0.8963800356256163,
+    "cross_entropy_to_votes": 20.51742868469391,
+    "expected_individual_vote_agreement": 0.25744949494949493,
+    "ece_10_bins": 0.8333333333333334,
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ]
+    ],
+    "per_emotion": {
+      "anger": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "disgust": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "fear": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "happiness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "neutral": {
+        "precision": 0.16666666666666666,
+        "recall": 1.0,
+        "f1": 0.2857142857142857,
+        "support": 2
+      },
+      "sadness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      }
+    }
+  },
+  "qualified_teacher": false,
+  "note": "Development screening only. One-hot predictions are not calibrated probabilities."
+}

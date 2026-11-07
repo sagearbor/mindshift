@@ -1,0 +1,10 @@
+{
+  "id": "1075_MTI_SAD_XX",
+  "audio_sha256": "2cdf664ad97ed123d90aaefc2f18bdb4a23f5ee11f6c72a64fb23f55d5a976bf",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19356724992394447,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

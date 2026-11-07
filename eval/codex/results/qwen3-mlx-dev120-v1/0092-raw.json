@@ -1,0 +1,10 @@
+{
+  "id": "1016_MTI_FEA_XX",
+  "audio_sha256": "03e888604ae97f732620279c4bca233be5d2069dd9975053087f5c22b87604db",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.20274345763027668,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

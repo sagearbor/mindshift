@@ -1,0 +1,17 @@
+{
+  "id": "1074_TAI_HAP_XX",
+  "audio_sha256": "42c9034a0151d3f106b25c92ef37261cf9fbeb8052e3500b79fec4479e1baf78",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.23675256555006227,
+    0.017150298325682205,
+    0.16271750002881466,
+    0.1267245164418622,
+    0.41551369271593513,
+    0.041141426937644325
+  ],
+  "allowed_choice_mass": 0.9854173380620872,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1016_IOM_DIS_XX",
+  "audio_sha256": "87c0ca755cd310bd593311e279b998092595dfc041a56eb6917eef9bad2cdcb3",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.0621000006016233,
+    0.04268066462640862,
+    0.024318709652228286,
+    0.040094773879609295,
+    0.6271877882784914,
+    0.20361806296163848
+  ],
+  "allowed_choice_mass": 0.9920162584199079,
+  "label_source": "machine",
+  "approved_for_training": false
+}

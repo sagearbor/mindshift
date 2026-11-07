@@ -1,0 +1,17 @@
+{
+  "id": "1075_ITS_ANG_XX",
+  "audio_sha256": "97e3479df3a9c22c6f47e2cb20e357b674542df669fe49eafa319089f564a0b0",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.8559628515241785,
+    0.05140456477900532,
+    0.00145823525832821,
+    0.006139399754015475,
+    0.07961694741782445,
+    0.005418001266647284
+  ],
+  "allowed_choice_mass": 0.9984695195133763,
+  "label_source": "machine",
+  "approved_for_training": false
+}

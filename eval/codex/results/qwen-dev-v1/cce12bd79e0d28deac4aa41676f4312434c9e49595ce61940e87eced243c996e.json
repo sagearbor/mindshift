@@ -1,0 +1,17 @@
+{
+  "id": "1062_TSI_NEU_XX",
+  "audio_sha256": "e7a27dde0cef006ab1b2bc5364eb30e99f9caed91b5a23a68d8e5d121aace067",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.011555000103359733,
+    0.0015637992117872785,
+    0.003993301181747109,
+    0.0037513592938817238,
+    0.9771285822746948,
+    0.002007957934531122
+  ],
+  "allowed_choice_mass": 0.9972802974774245,
+  "label_source": "machine",
+  "approved_for_training": false
+}

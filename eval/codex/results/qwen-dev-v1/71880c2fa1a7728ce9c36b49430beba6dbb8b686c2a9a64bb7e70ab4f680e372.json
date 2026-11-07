@@ -1,0 +1,17 @@
+{
+  "id": "1047_IEO_SAD_LO",
+  "audio_sha256": "59b66decc59120a72236c5854ff7681d57fe6f84f482234f872bb00ae5e499e5",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.021881044017013584,
+    0.002306245071997253,
+    0.4128650119685911,
+    0.003571982243585003,
+    0.19502362245098115,
+    0.36435209424783355
+  ],
+  "allowed_choice_mass": 0.9860203080908563,
+  "label_source": "machine",
+  "approved_for_training": false
+}

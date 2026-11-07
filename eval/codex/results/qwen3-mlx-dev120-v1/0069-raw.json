@@ -1,0 +1,10 @@
+{
+  "id": "1020_IEO_HAP_MD",
+  "audio_sha256": "4bc5a52fc31d241b070d5efb1b1d4030a39285012b180843f2452a0eb62d5b05",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.1966498326510191,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

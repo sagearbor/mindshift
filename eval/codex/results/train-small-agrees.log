@@ -1,0 +1,9 @@
+small C0.01-balancedFalse dev macro F1 0.5401
+small C0.1-balancedFalse dev macro F1 0.4972
+small C1-balancedFalse dev macro F1 0.3852
+small C10-balancedFalse dev macro F1 0.3484
+small C0.01-balancedTrue dev macro F1 0.4661
+small C0.1-balancedTrue dev macro F1 0.4288
+small C1-balancedTrue dev macro F1 0.3609
+small C10-balancedTrue dev macro F1 0.3309
+selected C0.01-balancedFalse saved eval/codex/results/small-agrees-v1

@@ -1,0 +1,17 @@
+{
+  "id": "1074_TAI_FEA_XX",
+  "audio_sha256": "607c863c3d19878f4de7512d238c7ba0bbc9a1a761c684743541f15a075fd18f",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.11056799859933297,
+    0.0017871652469846507,
+    0.46550866160029697,
+    0.046091599207928435,
+    0.2340724548716181,
+    0.14197212047383814
+  ],
+  "allowed_choice_mass": 0.9846896782381344,
+  "label_source": "machine",
+  "approved_for_training": false
+}

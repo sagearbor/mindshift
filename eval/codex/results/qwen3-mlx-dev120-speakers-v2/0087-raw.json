@@ -1,0 +1,10 @@
+{
+  "id": "1075_DFA_HAP_XX",
+  "audio_sha256": "64da7295648aa6b64f5f05e9374ffc5d712ebe6bb7e3ea171b8d9a7c127f85a3",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19670941680669785,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

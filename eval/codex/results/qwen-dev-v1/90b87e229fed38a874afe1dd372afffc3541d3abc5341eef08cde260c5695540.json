@@ -1,0 +1,17 @@
+{
+  "id": "1073_DFA_FEA_XX",
+  "audio_sha256": "b338c0dbe93f92f662b30759194514b8da8e926c581467477105cb3d48797684",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.07125701948266644,
+    0.0024382811231945718,
+    0.5265221144000166,
+    0.011632388661389579,
+    0.20618902256881175,
+    0.1819611737639216
+  ],
+  "allowed_choice_mass": 0.9914627378196428,
+  "label_source": "machine",
+  "approved_for_training": false
+}

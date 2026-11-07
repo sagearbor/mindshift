@@ -1,0 +1,17 @@
+{
+  "id": "1041_TAI_ANG_XX",
+  "audio_sha256": "c9a771a5972539c887952f42c8143702f2fd91d8615e8daa12de43549318ca1b",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.8294723492422865,
+    0.005588940726401437,
+    0.009214605456300274,
+    0.0063330995384039725,
+    0.14414068111093697,
+    0.005250323925671746
+  ],
+  "allowed_choice_mass": 0.9968418429639091,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,12 @@
+Waiting for completed EmotionThinker GPU run
+Starting small balanced training
+epoch 1: dev macro F1 0.5578, loss 1.2151, elapsed 91.6s
+epoch 2: dev macro F1 0.5406, loss 1.1193, elapsed 182.2s
+epoch 3: dev macro F1 0.5740, loss 1.0649, elapsed 276.4s
+epoch 4: dev macro F1 0.5467, loss 1.0359, elapsed 371.4s
+epoch 5: dev macro F1 0.5618, loss 1.0119, elapsed 465.5s
+epoch 6: dev macro F1 0.5625, loss 1.0042, elapsed 557.4s
+epoch 7: dev macro F1 0.5394, loss 0.9902, elapsed 652.3s
+epoch 8: dev macro F1 0.5308, loss 0.9822, elapsed 745.1s
+epoch 9: dev macro F1 0.5365, loss 0.9792, elapsed 837.6s
+best epoch 3 dev macro F1 0.5740361269490523

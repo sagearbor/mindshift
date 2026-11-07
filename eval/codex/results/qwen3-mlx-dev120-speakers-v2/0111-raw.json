@@ -1,0 +1,10 @@
+{
+  "id": "1020_ITS_HAP_XX",
+  "audio_sha256": "fd423474930adaa27266395a701f75d31b14a793b9e770359bd6eb6a4f1abd60",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14635129272937775,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

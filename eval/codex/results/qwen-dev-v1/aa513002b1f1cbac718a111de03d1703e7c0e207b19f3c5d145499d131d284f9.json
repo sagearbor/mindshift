@@ -1,0 +1,17 @@
+{
+  "id": "1047_DFA_ANG_XX",
+  "audio_sha256": "746866932846a12a7bfe7088252e9c32c7a11ddedf82cb1db0dad5ed31be9627",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.9120057918751702,
+    0.001210031437643251,
+    0.001553711120925142,
+    0.006145046688513868,
+    0.07486199417106107,
+    0.004223424706685548
+  ],
+  "allowed_choice_mass": 0.9957318414740722,
+  "label_source": "machine",
+  "approved_for_training": false
+}

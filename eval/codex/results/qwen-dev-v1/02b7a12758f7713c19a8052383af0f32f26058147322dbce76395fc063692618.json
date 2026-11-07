@@ -1,0 +1,17 @@
+{
+  "id": "1075_MTI_NEU_XX",
+  "audio_sha256": "0b6764cce06b800b275aaee66b7949bf8a94baf7cd45ff476a45cc8fde34370d",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.010884212934596335,
+    0.00021220836880968326,
+    0.005141338143214434,
+    0.0024285961751860916,
+    0.9797656248363961,
+    0.0015680195417973148
+  ],
+  "allowed_choice_mass": 0.9976001245163737,
+  "label_source": "machine",
+  "approved_for_training": false
+}

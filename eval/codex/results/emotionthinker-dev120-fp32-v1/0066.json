@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of urgency and intensity that suggests an emotional state beyond neutrality. While the pitch level is described as \"normal,\" the energy level being \"high\" stands out as a key indicator of heightened emotional engagement. High energy often correlates with emotions such as frustration, irritation, or anger, especially when paired with normal speech speed, which avoids the rushed quality typical of panic but still maintains a firm delivery.\n\nThe stress placed on the word \u201cjacket\u201d further amplifies this impression. By emphasizing this specific word, the speaker draws attention to its importance, potentially signaling impatience or exasperation\u2014perhaps because they feel the listener has forgotten something crucial. This stress pattern aligns well with how anger can manifest vocally through deliberate emphasis on key points.\n\nAdditionally, the semantic content of the phrase, \u201cDon\u2019t forget a jacket,\u201d could imply annoyance if delivered with sharpness or forcefulness. For a middle-aged male speaker, this combination of high energy, stressed focus, and firm delivery might reflect frustration or irritation rather than concern or casual advice. Taken together, these prosodic cues strongly suggest an emotionally charged response consistent with anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1062_DFA_ANG_XX",
+  "audio_sha256": "fff0f44770baf4db62775030fb84b919a2b8af9d0112bcd46de40c688483bc47",
+  "seconds": 15.9419315000996,
+  "label_source": "machine",
+  "approved_for_training": false
+}

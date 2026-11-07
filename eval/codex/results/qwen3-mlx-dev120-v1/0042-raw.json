@@ -1,0 +1,10 @@
+{
+  "id": "1001_TIE_ANG_XX",
+  "audio_sha256": "77cc1eb44c2182f24f82a88db3947d4b2b499beb959c81a6dc606bb4d2f4791f",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.1488388329744339,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

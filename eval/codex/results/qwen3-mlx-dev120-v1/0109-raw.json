@@ -1,0 +1,10 @@
+{
+  "id": "1016_TSI_SAD_XX",
+  "audio_sha256": "15993dad5d2ac553614de1ca8064d8f3e1f78a6bff85df4d20c530810739c943",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14440612494945526,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is heightened and urgent. The transcription, \"It's eleven o'clock,\" carries no inherently emotional content, but its prosodic features provide strong clues to the underlying feeling. The pitch level is notably high, which often signals heightened arousal or tension. This elevated pitch could reflect an attempt to draw attention or convey urgency, especially given the normal energy level\u2014while not overly forceful, it avoids sounding flat or disengaged.\n\nThe stress placed on every word further amplifies this sense of urgency. By emphasizing each part of the phrase, the speaker creates a rhythmic pattern that feels deliberate and intense, as if trying to ensure clarity under pressure. Additionally, the speech rate remains normal, which might indicate controlled panic rather than frantic agitation. For a middle-aged male speaker, such vocal patterns can suggest an effort to maintain composure while experiencing inner distress.\n\nWhile the semantic content itself does not directly imply fear, the prosodic cues\u2014high pitch, stressed delivery, and controlled pacing\u2014combine to evoke a sense of unease or apprehension. These elements collectively point toward an emotional state consistent with fear or anxiety.</think>\n<answer>C</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1026_IEO_FEA_HI",
+  "audio_sha256": "52a3f55f6ec326906ae1c7cac9691e49a5c6beeb6c6e98f737e1b08a69fa7e63",
+  "seconds": 16.879465540871024,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,10 @@
+{
+  "id": "1001_IOM_HAP_XX",
+  "audio_sha256": "54a8162c71d91fb536700f476dfec833f53bd579c83cab131e12ff4b98cb0af2",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19549008272588253,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

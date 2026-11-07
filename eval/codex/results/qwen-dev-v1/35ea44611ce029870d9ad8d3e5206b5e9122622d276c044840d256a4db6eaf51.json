@@ -1,0 +1,17 @@
+{
+  "id": "1020_TSI_HAP_XX",
+  "audio_sha256": "86cf2538365736fb03a79f879259a2d9e299254160fd864addc614379b81d793",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.1787108466480478,
+    0.16788330380763197,
+    0.2442687656978437,
+    0.07930245748238358,
+    0.2946443741734651,
+    0.03519025219062692
+  ],
+  "allowed_choice_mass": 0.9900151603952827,
+  "label_source": "machine",
+  "approved_for_training": false
+}

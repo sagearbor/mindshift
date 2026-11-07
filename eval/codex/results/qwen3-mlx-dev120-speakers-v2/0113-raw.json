@@ -1,0 +1,10 @@
+{
+  "id": "1026_IOM_SAD_XX",
+  "audio_sha256": "67c8d32ca3a4ceb40c01bedd72235bd15c75c483142b073ba03f327588daf623",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19711016677320004,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

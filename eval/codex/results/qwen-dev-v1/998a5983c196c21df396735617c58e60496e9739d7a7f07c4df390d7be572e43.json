@@ -1,0 +1,17 @@
+{
+  "id": "1001_IEO_DIS_HI",
+  "audio_sha256": "d774cbef209040c3820368e8d973801cb30fb41013bccbf9483a23d634072cfe",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.21317975564552075,
+    0.017498859948805654,
+    0.004156343548277025,
+    0.057376552854971535,
+    0.6989895086416744,
+    0.008798979360750445
+  ],
+  "allowed_choice_mass": 0.9886091212252492,
+  "label_source": "machine",
+  "approved_for_training": false
+}
