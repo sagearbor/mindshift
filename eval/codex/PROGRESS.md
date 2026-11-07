@@ -1,5 +1,13 @@
 # Execution ledger — eval/codex/PLAN.md
 
+> **2026-11-07 transfer summary.** The Codex machine is retired and everything it held is now in GitHub
+> (see `TRANSFER-COMPLETE.md`). The private repo `sagearbor/mindshift-emotion-private` holds all trained weights,
+> 80 head/frontend-constant files, full run evidence and feature caches. Every file was hash-verified from a fresh clone.
+> This branch adds `INVENTORY.md`/`inventory.json` (datasets, licences, hashes, every run's test metrics),
+> `REPRODUCE.md`, `OPEN-QUESTIONS.md`, and the previously ignored prediction/report evidence. Weights are not on this branch.
+> The best phone candidate is still small-finetuned-v1 int8 (73.53% CREMA-D test accuracy vs 52.05% always-neutral,
+> macro-F1 0.634). It transfers poorly to MESS (mostly a missing-"neutral" label-space artefact) and has not been tested on natural English speech.
+
 - 2026-11-05: Created codex/emotion-eval from refreshed origin/docs/emotion-nudge-plan. Clean starting checkout. 128 GiB Apple Silicon Mac; 2.7 TiB free. Fresh clone lacks old ignored data/models.
 - Ruling: native execution with final independent review; no implementation delegation needed. User explicitly requested autonomous work, so no extra design gate.
 - Ruling: begin with transparent MIT Whisper encoders and official CREMA-D audio-only human ratings. Broad model audit informs alternatives; do not delay a runnable baseline for a catalogue.
