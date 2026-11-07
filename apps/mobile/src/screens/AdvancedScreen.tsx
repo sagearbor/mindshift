@@ -528,10 +528,15 @@ export default function AdvancedScreen({
         </Text>
       </TouchableOpacity>
 
-      <Text style={styles.sectionHeading} testID="section-plan">
-        Plan
-      </Text>
+      <AccordionSection
+        sectionId="section-plan"
+        title="Plan"
+        subtitle="Your plan, redeem a code"
+        expanded={!!openSections["plan"]}
+        onToggle={() => toggleSection("plan")}
+      >
       <PlanCard />
+      </AccordionSection>
 
       <LanguageSettings userId={user?.uid ?? null} />
 
@@ -773,13 +778,6 @@ export default function AdvancedScreen({
       </View>
       </AccordionSection>
 
-      <AccordionSection
-        sectionId="section-diagnostics"
-        title="Diagnostics"
-        subtitle="Developer mode, send diagnostics"
-        expanded={!!openSections.diagnostics}
-        onToggle={() => toggleSection("diagnostics")}
-      >
       {devMode ? (
       <>
       {/* "Feel the patterns" — the eight nudge cues, playable on demand.
@@ -788,9 +786,13 @@ export default function AdvancedScreen({
           sitting. The waveforms come from the shared contract
           (src/live/nudgeVocabulary.ts), so what you feel here is byte-for-byte
           what a real nudge plays. */}
-      <Text style={styles.sectionHeading} testID="section-haptics">
-        Feel the patterns
-      </Text>
+      <AccordionSection
+        sectionId="section-haptics"
+        title="Feel the patterns"
+        subtitle="Play each nudge cue"
+        expanded={!!openSections["haptics"]}
+        onToggle={() => toggleSection("haptics")}
+      >
       <View style={styles.row} testID="haptic-vocabulary">
         <Text style={styles.rowSub}>
           Tap a level to feel that cue. The rhythm is what tells you WHICH
@@ -838,9 +840,15 @@ export default function AdvancedScreen({
         </Text>
       </View>
 
-      <Text style={styles.sectionHeading} testID="section-experimental">
-        Experimental
-      </Text>
+      </AccordionSection>
+
+      <AccordionSection
+        sectionId="section-experimental"
+        title="Experimental"
+        subtitle="Experimental voice engine"
+        expanded={!!openSections["experimental"]}
+        onToggle={() => toggleSection("experimental")}
+      >
       <View style={styles.row} testID="experimental-voice-engine-row">
         <View style={styles.switchRow}>
           <View style={styles.switchText}>
@@ -858,9 +866,27 @@ export default function AdvancedScreen({
           />
         </View>
       </View>
+      </AccordionSection>
+
+      <AccordionSection
+        sectionId="section-emotion-dev"
+        title="Emotion dev tester"
+        subtitle="Phone models, watch controls, server bridge"
+        expanded={!!openSections["emotion-dev"]}
+        onToggle={() => toggleSection("emotion-dev")}
+      >
       <EmotionDevPanel userId={experimentalUid} />
+      </AccordionSection>
       </>
       ) : null}
+
+      <AccordionSection
+        sectionId="section-diagnostics"
+        title="Diagnostics"
+        subtitle="Developer mode, send diagnostics"
+        expanded={!!openSections.diagnostics}
+        onToggle={() => toggleSection("diagnostics")}
+      >
 
       {/* Developer mode: the clean-vs-full switch itself lives here so a
           tester can be walked to it in one breath ("Settings → Diagnostics →
