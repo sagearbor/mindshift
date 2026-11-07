@@ -54,6 +54,7 @@ MAIN = Path("/Users/sagearbor/projects/githubs/mindshift")
 RECORDINGS = Path(os.getenv("MINDSHIFT_RECORDINGS_DIR") or (MAIN / "tmp" / "recordings"))
 CLI_TS = REPO / "apps" / "mobile" / "src" / "live" / "replay" / "recordingReplay.ts"
 ALERT_CODES = {None, "H", "C", "A"}
+JUDGE_MIN_S = 1.5
 WIN_BEFORE, WIN_AFTER = score_mod.MOMENT_PRE_S, score_mod.MOMENT_WINDOW_S
 
 
@@ -75,6 +76,8 @@ def run_item(name: str, out: Path, speaker_opts: str | None) -> dict | None:
         cmd += ["--speaker-opts", speaker_opts]
     env = dict(os.environ)
     env["PATH"] = "/opt/homebrew/bin:" + env.get("PATH", "")
+    # fastLoop -> languagePrefs imports react-native; stub it for node.
+    env.setdefault("TSX_TSCONFIG_PATH", str(REPO / "scripts" / "recreplay" / "tsconfig.replay.json"))
     if not out.exists():
         p = subprocess.run(cmd, cwd=str(REPO), env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if p.returncode != 0:
@@ -105,6 +108,9 @@ def score_item(name: str, phone: dict) -> dict:
     ph = score_mod.identity(bundle, [], segs)["phone"]
     rows = ph["rows"]
     other = [r for r in rows if r["truth"] is False]
+    dur_of = lambda r: max(0.0, float(r["end"]) - float(r["start"]))  # noqa: E731
+    wear = [r for r in rows if r["truth"] is True]
+    wear15 = [r for r in wear if dur_of(r) >= JUDGE_MIN_S]
     corpus = json.loads((RECORDINGS / "inbox" / name / f"{name}.corpus.json").read_text())
     dur = float(bundle["audio"]["duration_s"])
     alerts = [h["atSec"] for h in phone.get("haptics") or [] if h.get("code") in ALERT_CODES]
@@ -116,6 +122,11 @@ def score_item(name: str, phone: dict) -> dict:
         "honest": (RECORDINGS / "inbox" / name / f"{name}.voiceprint.json").exists(),
         "turns": len(rows), "decided": ph["decided"], "correct": ph["correct"],
         "wearer_turns": ph["wearer_turns"],
+        # Wearer-rule views: turns the rule is allowed to judge (>= 1.5 s) and
+        # seconds-weighted recall (long turns count for more).
+        "wearer15_turns": len(wear15), "wearer15_hits": sum(1 for r in wear15 if r["pred"] is True),
+        "wearer_sec": round(sum(dur_of(r) for r in wear), 2),
+        "wearer_sec_hit": round(sum(dur_of(r) for r in wear if r["pred"] is True), 2),
         "wearer_hits": sum(1 for r in rows if r["truth"] is True and r["pred"] is True),
         "other_turns": len(other), "false_self": ph["false_self"],
         "first_confirmed_s": ph["first_confirmed_s"],
@@ -137,6 +148,8 @@ def aggregate(items: list[dict]) -> dict:
             "wearer_recall": round(sum(i["wearer_hits"] for i in honest) / wt, 3) if wt else None,
             "false_self_rate": round(sum(i["false_self"] for i in honest) / ot, 3) if ot else None,
             "coverage": round(sum(i["decided"] for i in honest) / tt, 3) if tt else None,
+            "recall_turns_ge1.5s": round(sum(i["wearer15_hits"] for i in honest) / max(1, sum(i["wearer15_turns"] for i in honest)), 3),
+            "recall_seconds": round(sum(i["wearer_sec_hit"] for i in honest) / max(1e-9, sum(i["wearer_sec"] for i in honest)), 3),
             "accuracy": round(sum(i["correct"] for i in honest) / max(1, sum(i["decided"] for i in honest)), 3),
             "time_to_confirm_s": round(statistics.median(ttc), 1),
             # time_to_confirm minus the first moment it was possible

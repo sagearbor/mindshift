@@ -107,6 +107,11 @@ export const ECAPA_DIM = 192;
  */
 export const MIN_CLUSTER_SECONDS = 1.5;
 
+/** The wearer rule's judge floor (2026-11-05): turns shorter than this are not judged
+ *  (opt in with minJudgeSeconds; OFF by default - it costs replay.nudgeReport a pinned
+ *  scene_meeting4 hit, see docs/research/2026-11-05-wearer-identity-rule.md). */
+export const MIN_JUDGE_SECONDS = 1.5;
+
 export interface EnrolledPerson {
   personId: string;
   displayName: string;
@@ -469,7 +474,32 @@ export interface SpeakerLabelerOptions {
     otherCeiling: number;
     minFrac: number;
     maxWindows: number;
+    /** Overlap exclusion: when set, a full-turn owner match is dropped to
+     *  undecided as soon as this fraction of the windows is clearly someone
+     *  else, however many owner windows there are (the wearer talking over
+     *  another voice is not a clean turn). Unset = the older rule (veto only
+     *  when most windows are someone else AND owner windows are scarce). */
+    vetoOtherFrac?: number;
   } | null;
+  /**
+   * Wearer decision rule (2026-11-05): a turn shorter than this is not judged
+   * at all - no match, no cluster, no is_self claim either way (a sub-1.5 s
+   * embedding is not evidence of who spoke). Default 0 (OFF): at 1.5 s the
+   * replay.nudgeReport gate loses a pinned scene_meeting4 hit, and on DEV it
+   * changed no recall / false-self number. A short owner MATCH still counts.
+   * Callers that pass no `seconds` are never guarded.
+   */
+  minJudgeSeconds?: number;
+  /**
+   * Seconds-weighted wearer estimate per unknown cluster. Every judged turn
+   * that lands in a cluster adds its duration and (duration x cosine to the
+   * owner's print). Once the cluster holds >= `minSeconds` of audio over
+   * >= `minTurns` turns and the seconds-weighted mean cosine is
+   * >= `meanScore`, the cluster IS the owner (basis "session"). One long
+   * consistent stretch beats many fragments; an abstained or overlapped
+   * turn adds nothing. Null/absent = off.
+   */
+  clusterSelfVote?: { minSeconds: number; meanScore: number; minTurns?: number } | null;
 }
 
 export class SpeakerLabeler {
@@ -489,6 +519,10 @@ export class SpeakerLabeler {
   private readonly sticky: SpeakerLabelerOptions["sticky"];
   private readonly shortUndecidedSeconds: number;
   private readonly windowVote: SpeakerLabelerOptions["windowVote"];
+  private readonly minJudgeSeconds: number;
+  private readonly clusterSelfVote: SpeakerLabelerOptions["clusterSelfVote"];
+  /** cluster index -> {seconds, seconds x selfScore, turns} for clusterSelfVote. */
+  private clusterEvidence: Map<number, { sec: number; weighted: number; turns: number }> = new Map();
   /** Running mean of the owner's print-vouched turns this session. */
   private sessionSelf: Float32Array | null = null;
   private sessionSelfCount = 0;
@@ -513,6 +547,8 @@ export class SpeakerLabeler {
     this.sticky = o.sticky ?? null;
     this.shortUndecidedSeconds = o.shortUndecidedSeconds ?? 0;
     this.windowVote = o.windowVote ?? null;
+    this.minJudgeSeconds = o.minJudgeSeconds ?? 0;
+    this.clusterSelfVote = o.clusterSelfVote ?? null;
     this.people = people.map((person) => ({
       person,
       vec: l2Normalize(person.embedding),
@@ -637,13 +673,46 @@ export class SpeakerLabeler {
   /** `windows`: sub-turn embeddings (see `windowVote`); ignored when off. */
   label(embedding: ArrayLike<number> | null, seconds?: number, windows?: readonly ArrayLike<number>[]): SpeakerVerdict {
     if (embedding === null || embedding.length === 0) return { ...NO_IDENTITY };
+    if (seconds !== undefined && seconds < this.minJudgeSeconds) {
+      // Too short to JUDGE: only a clear voiceprint hit counts (a shout is
+      // short, and an absolute match has no clean-turn false accepts); a miss
+      // is silence, not "someone else", and never founds or joins a cluster.
+      return this.shortTurnVerdict(embedding);
+    }
     const vote = this.voteWindows(windows);
     const v = this.labelFull(embedding, seconds, vote);
     // Overlap veto: the full turn says owner, the windows say mostly not.
-    if (v.isSelf === true && vote && vote.selfFrac < vote.minFrac && vote.otherFrac >= 0.5) {
+    const veto = this.windowVote?.vetoOtherFrac;
+    if (
+      v.isSelf === true &&
+      vote &&
+      (veto !== undefined ? vote.otherFrac >= veto : vote.selfFrac < vote.minFrac && vote.otherFrac >= 0.5)
+    ) {
       return { ...NO_IDENTITY, selfScore: v.selfScore ?? null };
     }
     return v;
+  }
+
+  private shortTurnVerdict(embedding: ArrayLike<number>): SpeakerVerdict {
+    let best: { person: EnrolledPerson; score: number } | null = null;
+    let selfScore: number | null = null;
+    for (const { person, vec } of this.people) {
+      const score = cosine(embedding, vec);
+      if (person.isSelf) selfScore = score;
+      if (best === null || score > best.score) best = { person, score };
+    }
+    if (best && best.score >= this.matchThreshold) {
+      return {
+        speaker: best.person.displayName,
+        personId: best.person.personId,
+        displayName: best.person.displayName,
+        isSelf: best.person.isSelf,
+        score: best.score,
+        basis: "absolute",
+        selfScore,
+      };
+    }
+    return { ...NO_IDENTITY, selfScore };
   }
 
   private voteWindows(windows: readonly ArrayLike<number>[] | undefined): {
@@ -785,6 +854,8 @@ export class SpeakerLabeler {
     // contrast rule needs every other cluster's score, and a person may move
     // to the cluster that now beats the rest by the margin).
     this.reidentify();
+    const voted = this.clusterVote(idx, seconds, selfScore);
+    if (voted) return voted;
     const identity = this.identities.get(idx) ?? null;
     const person = identity ? this.personById(identity.personId) : null;
     if (identity && person) {
@@ -813,7 +884,30 @@ export class SpeakerLabeler {
     };
   }
 
+  /** clusterSelfVote: fold this judged turn into its cluster's evidence. */
+  private clusterVote(idx: number, seconds: number | undefined, selfScore: number | null): SpeakerVerdict | null {
+    const v = this.clusterSelfVote;
+    const self = this.people.find((p) => p.person.isSelf)?.person;
+    if (!v || !self || selfScore === null || seconds === undefined) return null;
+    const ev = this.clusterEvidence.get(idx) ?? { sec: 0, weighted: 0, turns: 0 };
+    ev.sec += seconds;
+    ev.weighted += seconds * selfScore;
+    ev.turns += 1;
+    this.clusterEvidence.set(idx, ev);
+    if (ev.sec < v.minSeconds || ev.turns < (v.minTurns ?? 2) || ev.weighted / ev.sec < v.meanScore) return null;
+    return {
+      speaker: unknownLabel(idx),
+      personId: self.personId,
+      displayName: self.displayName,
+      isSelf: true,
+      score: ev.weighted / ev.sec,
+      basis: "session",
+      selfScore,
+    };
+  }
+
   reset() {
+    this.clusterEvidence = new Map();
     this.centroids = [];
     this.counts = [];
     this.identities = new Map();
