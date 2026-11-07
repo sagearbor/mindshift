@@ -17,6 +17,8 @@ import app.gauge.shared.signals.MovementTracker
 import app.gauge.shared.signals.SignalAvailability
 import app.gauge.shared.signals.SignalKind
 import app.gauge.shared.signals.SpeakingRateTracker
+import app.gauge.wear.emotion.EmotionDevBus
+import app.gauge.wear.emotion.EmotionFrame
 import app.gauge.wear.haptics.HapticDirector
 import app.gauge.wear.haptics.HapticPatterns
 import app.gauge.wear.haptics.Pulse
@@ -166,6 +168,18 @@ class SentinelController(
     // (onEpisodeSaved/onFailure) on OkHttp's thread.
     private var ws: EpisodeWs? = null
     private var online: Boolean = true
+
+    /** Emotion dev tester: send a pause/resume/flag frame up the current socket. True only if a
+     *  live socket accepted it — the screen reports a false honestly. */
+    fun sendEmotionCtl(json: String): Boolean = synchronized(lock) {
+        val client = ws
+        if (client != null && online) client.sendEmotionCtl(json) else false
+    }
+
+    init {
+        // The screen sends through the process-wide model; the live controller is its only route to a socket.
+        EmotionDevBus.model.sender = { json -> sendEmotionCtl(json) }
+    }
     // 2026-09-25 protocol parity: the three server frames the client used to drop. All three are
     // written by WS listener callbacks (OkHttp's thread) and read by the state getter, so they
     // live under `lock` with `ws`/`online`. See ControllerState's own KDoc for each.
@@ -1042,6 +1056,20 @@ class SentinelController(
                 }
             } catch (t: Throwable) {
                 diag.log("error", "SentinelController", "onNudge failed: $t")
+            }
+        }
+
+        override fun onEmotion(e: EmotionFrame) {
+            // Emotion dev tester: the PHONE decided; the watch only shows it and, when the phone
+            // says so, buzzes. Same threading/fail-soft rules as onNudge (OkHttp's reader thread,
+            // HapticDirector unsynchronized). Touches no channel level, dedupe or reminder state.
+            try {
+                synchronized(lock) {
+                    if (wsListenerGeneration.get() != token) return
+                    if (EmotionDevBus.model.onFrame(e)) haptics.playEmotionNudge()
+                }
+            } catch (t: Throwable) {
+                diag.log("error", "SentinelController", "onEmotion failed: $t")
             }
         }
 

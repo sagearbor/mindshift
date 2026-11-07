@@ -90,6 +90,10 @@ interface EpisodeWs {
     /** Companion mode: the tiny `{"type":"heartbeat"}` keepalive. Default no-op, same rationale
      *  as [sendCompanionHello]. */
     fun sendHeartbeat() {}
+
+    /** Emotion dev tester: send one `emotion_ctl` frame. Returns true only if a live socket took
+     *  it. Default false so every pre-existing fake compiles untouched. */
+    fun sendEmotionCtl(json: String): Boolean = false
 }
 
 /** Production [EpisodeWs]: delegates straight through to a real [EpisodeWsClient]. [token] is the
@@ -105,6 +109,7 @@ class RealEpisodeWs(baseWsUrl: String, account: String, token: String? = null) :
     override fun cancel() = client.cancel()
     override fun sendCompanionHello() = client.sendCompanionHello()
     override fun sendHeartbeat() = client.sendHeartbeat()
+    override fun sendEmotionCtl(json: String): Boolean = client.sendEmotionCtl(json)
 }
 
 /**

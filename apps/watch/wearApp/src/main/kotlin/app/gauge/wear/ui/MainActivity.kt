@@ -181,7 +181,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable(ROUTE_SETTINGS) {
-                        SettingsScreen()
+                        SettingsScreen(onOpenEmotion = { navController.navigate(ROUTE_EMOTION) })
+                    }
+                    composable(ROUTE_EMOTION) {
+                        EmotionDevScreen()
                     }
                     composable(ROUTE_SIGN_IN) {
                         SignInScreen(onSignedIn = { navController.popBackStack() })
@@ -401,6 +404,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SIGN_IN = "sign_in"
         const val ROUTE_COUPLES = "couples"
+        const val ROUTE_EMOTION = "emotion_dev"
         const val STEP_INTERVAL_MS = 1000L
         const val TAG = "MainActivity"
     }

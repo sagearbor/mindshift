@@ -522,6 +522,8 @@ class SentinelService : Service() {
         handlerThread?.quitSafely()
         handlerThread = null
         handler = null
+        // Emotion dev tester: no controller, no socket — controls must report "not sent", not pretend.
+        app.gauge.wear.emotion.EmotionDevBus.model.sender = null
         controller = null
         micReader = null
         hrSource = null

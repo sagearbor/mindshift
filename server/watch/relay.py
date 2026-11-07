@@ -339,6 +339,11 @@ class LiveWatchSession:
     # None for a session opened before this existed (and in tests that don't
     # care) — ``push_positive`` then reports False rather than guessing.
     send_positive: SendPositive | None = None
+    # Emotion dev tester (watch/emotion_bridge.py): send one already-built
+    # JSON frame to the wrist, outside the NudgePolicy machine. Same loop
+    # rules as the others (scheduled on the socket's own loop). None for a
+    # session that predates it — push_emotion then reports False.
+    send_raw: Callable[[dict], Awaitable[None]] | None = None
     # Phone-side loudness history for the no-enrollment fallback baseline.
     # Deliberately SEPARATE from engine._rms_db_history: the phone's mic
     # gain is not the watch's, so mixing the two would corrupt the watch's

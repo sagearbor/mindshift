@@ -52,6 +52,7 @@ from watch.blobs import get_blob_store
 from watch.config import Settings
 from watch.diarize import DiarizationService, LazyDiarizationService
 from watch.pairing_store import get_pairing_store
+from watch.emotion_bridge import make_emotion_router
 from watch.routers.captures import make_captures_router
 from watch.routers.groups import make_groups_router
 from watch.routers.live_sessions import make_live_sessions_router
@@ -202,4 +203,5 @@ def build_watch_routers(
             diarizer=diarizer,
         ),
         make_live_sessions_router(store, auth_dep, transcriber, llm, diarizer=diarizer),
+        make_emotion_router(auth_dep),
     ]
