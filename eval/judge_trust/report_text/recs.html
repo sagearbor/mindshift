@@ -1,0 +1,27 @@
+<h3>Nudge-quality judges</h3>
+<ul>
+<li><b>Panel to use from now on:</b> majority vote of <b>Claude Haiku 5.5 + GPT-6.1 Terra + Gemini 3.8 Flash</b>, one per vendor, about $0.005 per line. Keep each judge's P(helpful) and report the panel mean as the soft label. Reasons: they agree with each other 92-97% of the time; each matched the majority of the other two at kappa 0.74-0.76 on the 17 hard lines; all were 100% right on the rule cases; this is the cheapest 3-vendor combination tested.</li>
+<li><b>Drop gpt-5-mini as a judge.</b> It is lenient (37% helpful on held-out lines, against 3-10% from the others; 88% on the 17) and unstable (kappa 0.39 against its own earlier run on identical input). Most of the old kappa 0.14 came from pairing it with Sonnet. <b>Drop Gemini 3.5 Flash-Lite</b> for the same reason (lenient, 19%).</li>
+<li><b>Claude Sonnet 5.5</b> is consistent (same answers twice) and agrees 90%+ of the time, but it almost never says "helpful" (0 of 93 held-out lines). It is useful as a strict veto, not as a voter. The open-weight <b>Qwen3.5-9B</b> (Apache-2.0, $0, ~30 s per line on this Mac) agreed with the core majority on 98% of the lines it finished. Use it as a free fourth judge or a licence-clean stand-in.</li>
+<li><b>Status: provisional, not confirmed.</b> On fresh lines the point estimate passed (Fleiss 0.67, agreement 94-97%), but the CI did not, because so few lines were judged helpful. Until a positive-rich set exists, trust the panel for <i>"is this line bad / should it have been silent?"</i> (false-positive rate, rule violations). Do not yet trust it for <i>"is the new prompt's good line really good?"</i>.</li>
+<li><b>Always report percent agreement and AC1 next to kappa.</b> With about 5% positives, kappa reads near 0 even when judges agree 95% of the time.</li>
+<li><b>The crux item is "is there a real trigger?"</b> (checklist Fleiss 0.27, the lowest after the binary verdict). Compute it from diarization (overlap, wearer floor time, dropped question) instead of asking an LLM. The checklist-derived verdict already agreed better than the holistic one (Fleiss 0.21 vs 0.13).</li>
+<li><b>Next ($0-1):</b> build a positive-enriched frozen set, e.g. lines from the Opus prompt with a SILENT option, which scored above silence (+9.5 U/h), plus lines the core panel rates 2-3 of 3. Re-run PREREG B2 on it. Then use the panel to compare prompt v3 against the baseline.</li>
+</ul>
+<h3>Emotion labellers</h3>
+<ul>
+<li><b>Do not use Gemini 3.8 Flash, Gemini 3.5 Flash-Lite or GPT-audio-1.5 as emotion teachers.</b> None reaches "usable" on any of the six CREMA-D emotions, and CREMA-D is the easy case: acted, clean, words with no emotion. GPT-audio-1.5 and Flash-Lite mostly read the transcript. GPT outputs are off-limits for training anyway.</li>
+<li><b>Narrow uses that hold up.</b> Gemini 3.8 Flash as a high-precision, low-recall anger flag (precision 0.79, recall 0.30). Gemini 3.8 Flash P(conflict) on Greek debates ranks heated windows above calm ones about as well as loudness (AUC 0.74 vs 0.72), so it adds little over loudness.</li>
+<li><b>Two-labeller agreement</b> (Gemini 3.8 Flash and emotion2vec+ give the same label): 80% correct and kappa 0.74 on the 21% of clips where they agree. This is the best seed-labelling recipe found, but emotion2vec+'s licence is ambiguous and it is probably trained on CREMA-D. Treat it as evaluation-only evidence, not a labelling pipeline.</li>
+<li><b>RAVDESS cross-check</b> (acted, stronger delivery, intended labels): Gemini 3.8 Flash and Flash-Lite each reach kappa 0.35 (46% correct), GPT-audio-1.5 0.20. Every API model gets 0% on disgust. emotion2vec+ gets 94%, which again points to training-set overlap.</li>
+<li><b>Text leakage is real and measurable.</b> Any labelling prompt that includes a transcript must be checked with the contradicting-transcript test (eval/judge_trust, condition "contradict"). Label from audio only.</li>
+<li><b>Untested, and the next candidate:</b> Qwen3-Omni-30B-A3B (Apache-2.0). Its 4-bit MLX build is 21.8 GB and does not fit this 24 GB Mac. Qwen2.5-Omni-3B is non-commercial (qwen-research) and was skipped. A rented GPU for about 1 hour (~$1-2, needs the owner's OK) would answer whether a licence-clean audio labeller exists. Also untested: gpt-realtime-2.1 (websocket only; judge-only anyway).</li>
+</ul>
+<h3>What could not be verified</h3>
+<ul>
+<li>No IEMOCAP on disk (eval-only access pending), so there is no natural-speech human reference. CREMA-D and RAVDESS are acted. Natural speech will be harder (crowd kappa ~0.36).</li>
+<li>One labelling prompt per model, with low thinking. A different prompt might reduce Gemini's neutral bias. We did not tune it, to avoid overfitting the eval set.</li>
+<li>The flat-TTS leakage test is confounded: macOS voices add prosody to exclamations, and even the audio-only emotion2vec+ followed the words 55% of the time. The contradicting-transcript test is the clean one.</li>
+<li>The owner-card anchor (6/7 for every judge) is contaminated, because rubric v4 was written from those cards.</li>
+<li>Costs are estimates from token counts and public price pages, not billing exports.</li>
+</ul>
