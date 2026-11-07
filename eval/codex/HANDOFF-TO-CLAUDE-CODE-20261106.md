@@ -9,8 +9,9 @@ on another Mac can continue. Do these steps in order and report each at the end.
 - Do not touch `main`, do not merge, do not deploy. No paid services or API keys.
 - This repo `sagearbor/mindshift` is **PUBLIC**. Never commit: credentials, `.env`, audio
   (except the 9 CC-BY demo clips already tracked), model weights, absolute paths to the
-  Codex machine (`/Users/scb2/...`), or the phrase "Duke-managed". Scrub those from files
-  already committed on this branch (replace with relative paths / neutral wording).
+  Codex machine (`/Users/scb2/...`), or the phrase "Duke-managed" in anything NEW you push.
+  Do NOT rewrite or scrub files already on this branch: Claude Code will do that after
+  you are off this machine.
 - Answer keys: do not put labels in filenames or IDs that are public next to the audio.
 
 ## 1. Inventory (write `eval/codex/INVENTORY.md` + `eval/codex/inventory.json`)
@@ -31,14 +32,21 @@ mentioned in the docs (the owner believes there is much more audio than the 9 cl
 - Confirm a fresh clone can reproduce splits and metrics: add `eval/codex/REPRODUCE.md`
   with exact commands, Python version and pinned requirements.
 
-## 3. Data and weights (do NOT put in this public repo)
-- Public corpora (CREMA-D, MESS, Emozionalmente, etc.): provide download scripts + hashes
-  only.
-- Anything NOT re-downloadable (custom clips, anything the owner recorded, derived
-  features, trained weights): list it in the inventory and STOP. The owner will name a
-  private location (private repo / private cloud bucket). Do not pick one yourself.
-- The 9.9 MB tiny int8 export and the 94.9 MB small export: record SHA-256 and exact
-  export command so the model can be rebuilt; do not publish the files.
+## 3. Weights and non-redownloadable data -> a PRIVATE repo (highest priority)
+Target: `github.com/sagearbor/mindshift-emotion-private` (private; the owner creates it).
+If it does not exist or is not private, STOP and tell the owner; do not push weights
+anywhere else. Push into it, NOT into the public `mindshift` repo:
+- ALL trained checkpoints and exports: tiny int8 (9.9 MB), small int8 (94.9 MB, just under
+  GitHub's 100 MB per-file limit), v1/v2/agreement-only checkpoints, fine-tuned encoders,
+  classifier heads, with a `SHA256SUMS` file and the exact export command per file.
+  If a single file is over 95 MB, split it (`split -b 90m`) and document the join command.
+- Any audio, features, embeddings or ratings that CANNOT be re-downloaded from a public
+  source (owner recordings, custom clips, derived caches that took hours to compute).
+- Public corpora (CREMA-D, MESS, Emozionalmente, etc.): download script + hashes only,
+  in the public repo's inventory. Do not copy them.
+- If the non-redownloadable material exceeds roughly 800 MB total, push the weights and the
+  inventory first, then STOP and list what remains with sizes; the owner will pick storage.
+- Do the weights FIRST, before anything else in this file. They are the most important item.
 
 ## 4. Open questions to leave in `eval/codex/OPEN-QUESTIONS.md`
 - The CREMA-D -> MESS drop is mostly a label-space artefact (MESS has no "neutral";
