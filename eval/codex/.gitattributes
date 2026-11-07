@@ -1,0 +1,3 @@
+# Keep the review focused on executable code; raw generated evidence remains available.
+reports/** linguist-generated=true
+benchmarks/*.jsonl linguist-generated=true

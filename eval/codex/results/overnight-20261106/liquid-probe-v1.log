@@ -1,0 +1,18 @@
+W1106 01:46:44.100000 35734 eval/codex/artifacts/lfm3-runtime/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+Loading weights:   0%|          | 0/203 [00:00<?, ?it/s]Loading weights: 100%|██████████| 203/203 [00:00<00:00, 23981.63it/s]
+[transformers] The tokenizer you are loading from 'eval/codex/artifacts/lfm3-audio-2b' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
+Loading weights:   0%|          | 0/527 [00:00<?, ?it/s]Loading weights: 100%|██████████| 527/527 [00:00<00:00, 9675.97it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+liquid forward: 1/12 8.30s
+liquid forward: 2/12 0.42s
+liquid forward: 3/12 0.59s
+liquid forward: 4/12 0.19s
+liquid forward: 5/12 0.80s
+liquid forward: 6/12 0.32s
+liquid forward: 7/12 0.05s
+liquid forward: 8/12 0.04s
+liquid forward: 9/12 0.71s
+liquid forward: 10/12 0.05s
+liquid forward: 11/12 0.05s
+liquid forward: 12/12 0.41s

@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of urgency and frustration, which becomes evident through several prosodic features. First, the speech rate is notably fast, suggesting heightened emotional arousal or agitation. Rapid delivery often correlates with emotions like anger or anxiety, as speakers tend to rush their words when under stress or trying to emphasize importance.\n\nThe intonation contour is expressive, further reinforcing this impression. Expressive intonation typically involves dynamic pitch variation that adds emphasis and intensity to the message. While the pitch level itself remains normal, the combination of expressiveness and speed creates an impression of someone who feels strongly about what they\u2019re saying. This aligns well with the semantic content of the phrase, \u201cDon\u2019t forget a jacket,\u201d which could be interpreted as a warning or reprimand depending on how it is delivered.\n\nAdditionally, the stress placed on \"jacket\" draws attention to its significance, potentially signaling irritation or impatience toward the listener for forgetting something important. For a middle-aged female speaker, such vocal cues might reflect frustration or annoyance rather than neutrality, especially if the urgency in her tone contrasts with the calmness implied by her energy and pitch levels.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1073_DFA_ANG_XX",
+  "audio_sha256": "b74cd2762a8fd280395d894d65e437828ae4ef7db8c475713a7e380653cc87fb",
+  "seconds": 15.555354166775942,
+  "label_source": "machine",
+  "approved_for_training": false
+}

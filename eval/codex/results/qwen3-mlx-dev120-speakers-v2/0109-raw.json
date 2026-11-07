@@ -1,0 +1,10 @@
+{
+  "id": "1001_IEO_ANG_HI",
+  "audio_sha256": "a6a173a924668940761223ce19a99045785f5c55a8689c7123ae8fcd9230c39a",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14199229050427675,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

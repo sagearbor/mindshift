@@ -1,0 +1,10 @@
+{
+  "id": "1020_IWL_HAP_XX",
+  "audio_sha256": "8a7d3bce65549edbd1f4700aa8ab620f9d150761ff6ad46a8a9d581f21d4e1f5",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.146375791169703,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

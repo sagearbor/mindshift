@@ -1,0 +1,17 @@
+{
+  "id": "1001_ITH_NEU_XX",
+  "audio_sha256": "2e5f117c4cdb75bd40f20be6fc1eefd9fc6c8c58116213728a9798d4e892e81d",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.028018368221076062,
+    0.005517143822900042,
+    0.014088520304774543,
+    0.016993999361200746,
+    0.9278409267859957,
+    0.007541041504052421
+  ],
+  "allowed_choice_mass": 0.9966631487923708,
+  "label_source": "machine",
+  "approved_for_training": false
+}

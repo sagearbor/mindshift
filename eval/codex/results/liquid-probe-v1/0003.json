@@ -1,0 +1,16 @@
+{
+  "probabilities": [
+    0.9996981764332837,
+    0.00011957678159387672,
+    1.3416143073263242e-05,
+    9.913263379962194e-05,
+    6.813279638879172e-05,
+    1.565211860325299e-06
+  ],
+  "allowed_choice_mass": 0.00029603659585505904,
+  "id": "1001_IEO_HAP_HI",
+  "audio_sha256": "c7a8de9867f3fe4bfab59aa81a9ac32d058d0ebd814b7fb292913f7c59420690",
+  "seconds": 0.1931174173951149,
+  "label_source": "machine",
+  "approved_for_training": false
+}

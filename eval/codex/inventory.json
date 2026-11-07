@@ -1,0 +1,797 @@
+{
+ "generated": "2026-11-07",
+ "machine": "Codex Mac (being retired)",
+ "paths_relative_to": "eval/codex/ in sagearbor/mindshift",
+ "private_repo": "github.com/sagearbor/mindshift-emotion-private (paths mirror eval/codex/)",
+ "datasets": [
+  {
+   "name": "CREMA-D",
+   "source_url": "https://github.com/CheyneyComputerScience/CREMA-D",
+   "source_commit": "1658cd342dff90010aa843eaeebd53610a08b1dc",
+   "licence": "Open Database License (ODbL-1.0) for the database; Database Contents License (DbCL-1.0) for contents (see licenses/CREMA-D-LICENSE.txt)",
+   "hours": 5.26,
+   "clips": 7441,
+   "quarantined": 1,
+   "languages": [
+    "en"
+   ],
+   "speakers": 91,
+   "human_rated": true,
+   "raters_per_clip": {
+    "min": 4,
+    "mean": 9.21,
+    "max": 12
+   },
+   "rating_filter": "Original first-response time <= 10000 ms, audio-only queryType=1",
+   "label_set": [
+    "anger",
+    "disgust",
+    "fear",
+    "happiness",
+    "neutral",
+    "sadness"
+   ],
+   "ratings_file": "data/crema-d/finishedResponses.csv (+ finishedEmoResponses.csv); per-clip votes in data/manifest-v2.json",
+   "local_path": "data/crema-d (git clone incl. LFS)",
+   "size_mb": 1242.4,
+   "sha256": {
+    "manifest_v1": "bd942c2d28c44639b5e8da49a4933036da99de4e80c4b395baf3b998fad58878",
+    "manifest_v2": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+    "frozen_index": "benchmarks/cremad-v2.jsonl 2b7195c43ba96e99bb39cd1fcd8421625f2411ecd0e04148590e5de79f03bd7a",
+    "per_clip": "sha256 of every WAV in manifest-v2.json rows[].sha256 and benchmarks/cremad-v2.jsonl"
+   },
+   "redownload": "GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/CheyneyComputerScience/CREMA-D.git eval/codex/data/crema-d && GIT_LFS_SKIP_SMUDGE=1 git -C eval/codex/data/crema-d checkout 1658cd342dff90010aa843eaeebd53610a08b1dc && git -C eval/codex/data/crema-d lfs pull --include='AudioWAV/*' --exclude='' && .venv/bin/python -m eval.codex.benchmark && .venv/bin/python -m eval.codex.verify_benchmark",
+   "downloaded": "2026-11-05",
+   "splits": {
+    "train": "4489 clips/55 speakers",
+    "dev": "1476/18",
+    "test": "1476/18",
+    "algorithm": "sha256(mindshift-emotion-v1:actor), first 20% test, next 20% dev, remainder train"
+   },
+   "use": "training (train), tuning/selection (dev), evaluation once after freeze (test)"
+  },
+  {
+   "name": "MESS (Morgan Emotional Speech Set)",
+   "source_url": "https://zenodo.org/records/7378320",
+   "licence": "CC BY 4.0 (\"license\": {\"id\": \"cc-by-4.0\"} in Zenodo record metadata)",
+   "hours": null,
+   "clips": "1800 original; 1270 used",
+   "languages": [
+    "en"
+   ],
+   "speakers": 6,
+   "human_rated": true,
+   "raters_per_clip": "see reports/mess-human-ratings.json human_distribution (proportions, 10-rater granularity in source xlsx)",
+   "label_set": [
+    "angry",
+    "calm",
+    "happy",
+    "sad"
+   ],
+   "ratings_file": "data/mess/ratings.xlsx (Zenodo 'Coded stimuli - final MESS.xlsx'); parsed: reports/mess-human-ratings.json",
+   "local_path": "data/mess",
+   "size_mb": 336.6,
+   "sha256": {
+    "audio.zip": "1de2336f97854a7c1891b64de32056ecf28e3257795611f233e7ecf0db37af13",
+    "ratings.xlsx": "c541bb4ec078985187abbc8deccc2d57c7292595d8e9081aea61a76353759098"
+   },
+   "redownload": "mkdir -p eval/codex/data/mess && curl -L -o eval/codex/data/mess/audio.zip 'https://zenodo.org/api/records/7378320/files/MESS%20compressed.zip/content' && curl -L -o eval/codex/data/mess/ratings.xlsx 'https://zenodo.org/api/records/7378320/files/Coded%20stimuli%20-%20final%20MESS.xlsx/content' && curl -L -o eval/codex/data/mess/source-metadata.json https://zenodo.org/api/records/7378320 && .venv/bin/python -m eval.codex.mess_data   # mess_data checks the md5s; it refuses to overwrite frozen protocols",
+   "downloaded": "2026-11-06",
+   "splits": "evaluation only (external transfer test); calm-plurality/tied clips excluded (530)",
+   "use": "evaluation only"
+  },
+  {
+   "name": "Emozionalmente",
+   "source_url": "https://zenodo.org/records/12616095",
+   "licence": "CC BY 4.0 (per https://openslr.org/161/)",
+   "attribution": "Fabio Catania, Jan W. Wilke and Franca Garzotto; DOI 10.1109/TASLPRO.2025.3540662",
+   "hours": null,
+   "clips": "6902 samples; 953 test clips evaluated",
+   "languages": [
+    "it"
+   ],
+   "speakers": 431,
+   "human_rated": true,
+   "raters_per_clip": 5,
+   "ratings_total": 34510,
+   "label_set": "anger, disgust, fear, happiness, neutral, sadness, surprise (surprise-plurality excluded)",
+   "ratings_file": "inside data/emozionalmente/emozionalmente.zip; protocol: reports/emozionalmente-protocol.json",
+   "local_path": "data/emozionalmente",
+   "size_mb": 630.5,
+   "sha256": {
+    "emozionalmente.zip": "6a1fed885668374e2802ae4cfd27c6cdf1db652b8856c6e91e74fe61add3d2b9"
+   },
+   "redownload": "UNVERIFIED file name: curl -s https://zenodo.org/api/records/12616095 | python3 -c 'import json,sys;[print(f[\"key\"],f[\"links\"][\"self\"]) for f in json.load(sys.stdin)[\"files\"]]'  then curl -L -o eval/codex/data/emozionalmente/emozionalmente.zip <that link>; verify sha256 6a1fed885668374e2802ae4cfd27c6cdf1db652b8856c6e91e74fe61add3d2b9; then .venv/bin/python -m eval.codex.external_data",
+   "downloaded": "2026-11-06",
+   "splits": "official speaker splits; test only used",
+   "use": "evaluation only"
+  },
+  {
+   "name": "Gemini manual demo clips (9 MESS clips)",
+   "source_url": "https://doi.org/10.5281/zenodo.7378320",
+   "licence": "CC BY 4.0",
+   "clips": 9,
+   "languages": [
+    "en"
+   ],
+   "local_path": "data/gemini-manual-20261106 (tracked in public repo)",
+   "size_mb": 1.1,
+   "note": "byte-for-byte copies of MESS clips, renamed; answer keys in reports/gemini-manual-answer-key.json",
+   "use": "manual smoke test only"
+  }
+ ],
+ "non_redownloadable_audio": "None found. All audio on this machine is from public corpora above (CREMA-D, MESS, Emozionalmente) or repo test fixtures already tracked in git. No owner recordings exist under eval/codex/.",
+ "public_pretrained_models": {
+  "note": "Downloaded public weights, NOT copied anywhere; re-download from Hugging Face. Hashes per file: reports/local-model-weight-inventory.json",
+  "local_dirs": {
+   "emotionthinker": 17049.9,
+   "gemini-runtime": 82.6,
+   "hf": 45372.0,
+   "lfm3-audio-2b": 3976.9,
+   "lfm3-runtime": 1052.7,
+   "meralion-runtime": 1041.6,
+   "meralion-ser": 2939.7,
+   "mlx-runtime": 889.6,
+   "qwen3-omni": 0.1,
+   "qwen3-omni-mlx": 20827.9
+  },
+  "revisions": {
+   "lfm3-audio-2b": "2d6c1f99c129b3ef07a8d168bc0ff08e2bdb93f1",
+   "qwen3-omni-mlx": "93b3cbddd65ed4babff8f22fba491cdba7a21778",
+   "emotionthinker": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850",
+   "meralion-ser": "7e3ee6fa4534dea8316e8ca43e377e2fbb58496b"
+  },
+  "whisper": "openai/whisper-{tiny,base,small} via HF cache artifacts/hf"
+ },
+ "derived_caches": [
+  {
+   "path": "artifacts/features-base",
+   "size_mb": 30.0,
+   "sha256": null,
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base-smoke.json",
+   "size_mb": 0.0,
+   "sha256": "87de664113dab930941b42557dce974c4e442a3210dd3c241dba9eca67405c68",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base-smoke.npz",
+   "size_mb": 0.02,
+   "sha256": "05023e599ee2141844268e5d41a0aac3fd8d493518a77aa9b1ea5e90750ef25d",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base-smoke.pre-review.json",
+   "size_mb": 0.0,
+   "sha256": "6648317f9e6fff49e80ab5c4e451f73e4c5fe0190d2207c79c8f34f479045c2a",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base.json",
+   "size_mb": 0.0,
+   "sha256": "2c8e2d2455cfdb9579895b2beff50b69233a877b9418a263bdb4cf18308a14cb",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base.npz",
+   "size_mb": 29.49,
+   "sha256": "a4a7275402fa1aa57afbc962aca1df68612bb22793dac33e1864aa8f9b873076",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-base.pre-review.json",
+   "size_mb": 0.0,
+   "sha256": "74cfdd965b576506ea015d28c72619fd3008383f8e1a58743635dd040c53be09",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size base",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-small",
+   "size_mb": 44.5,
+   "sha256": null,
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size small",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-small-smoke.json",
+   "size_mb": 0.0,
+   "sha256": "a391bb2d5a0af403084d20c7b4010f01311e623813a0081f6ac700977abae150",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size small",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-small-smoke.npz",
+   "size_mb": 0.04,
+   "sha256": "a3ba16cda63f3bfec831d5e486d32e0c03daacf4d7fc705e9cbfead786c7f516",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size small",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-small.json",
+   "size_mb": 0.0,
+   "sha256": "c7ece4644b34e409fcff346be0d6eb2866062bb2470f354ef72fbd6e9ce4ee1b",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size small",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-small.npz",
+   "size_mb": 44.03,
+   "sha256": "20275047ce2eb65501b8dca9166397b0a4a5f473b09d8f3cc193b46017f06ecd",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size small",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny",
+   "size_mb": 22.7,
+   "sha256": null,
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny-smoke.json",
+   "size_mb": 0.0,
+   "sha256": "b50804f3f92310a5258d84e50c2b144cee2ebb321f563deee277868df79b8046",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny-smoke.npz",
+   "size_mb": 0.02,
+   "sha256": "36d5a7ec00eb61724046fc6940f3d8bff7b00f525f90aec111d21d6450e754cc",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny-smoke.pre-review.json",
+   "size_mb": 0.0,
+   "sha256": "aff641da84d23b5b47072b71edfd577f31f9a11424698df7f5387aba1b15a550",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny.json",
+   "size_mb": 0.0,
+   "sha256": "6291c12efe96635d3646c1baed099fed394b4d7a39915d16c216ca91e964a4f4",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny.npz",
+   "size_mb": 22.23,
+   "sha256": "f56161795c7e1d5668838a6d0bad036dcc74e5d76d4e6373e0ea528bd55f0525",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  },
+  {
+   "path": "artifacts/features-tiny.pre-review.json",
+   "size_mb": 0.0,
+   "sha256": "8a47d54e515825eebd9d7278cd6ff3bcaeb205a248437ffba40ab8626b518526",
+   "regenerate": "HF_HUB_OFFLINE=1 .venv/bin/python -m eval.codex.model --size tiny",
+   "stored": "private repo"
+  }
+ ],
+ "trained_runs": [
+  {
+   "run": "results/base-agrees-finetuned-v2",
+   "weights": [
+    {
+     "path": "results/base-agrees-finetuned-v2/finetuned.pt",
+     "size_mb": 76.26,
+     "sha256": "215a6efd073e8776d786602310b3210aea0ae18c89cff5e391d24d98ad26036f"
+    },
+    {
+     "path": "results/base-agrees-finetuned-v2/head.npz",
+     "size_mb": 0.04,
+     "sha256": "598aaf8f0fe7238922dbb5278308249821c86a8371bbb879bea9004991b2b920"
+    },
+    {
+     "path": "results/base-agrees-finetuned-v2/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.7002,
+     "macro_f1": 0.621,
+     "balanced_accuracy": 0.6352
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/base-agrees-v1",
+   "weights": [
+    {
+     "path": "results/base-agrees-v1/head.npz",
+     "size_mb": 0.04,
+     "sha256": "598aaf8f0fe7238922dbb5278308249821c86a8371bbb879bea9004991b2b920"
+    },
+    {
+     "path": "results/base-agrees-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6838,
+     "macro_f1": 0.5885,
+     "balanced_accuracy": 0.6016
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/base-all-v1",
+   "weights": [
+    {
+     "path": "results/base-all-v1/head.npz",
+     "size_mb": 0.04,
+     "sha256": "4221cd6ac7fa71b0b7d266166d8af38c2383c9356f5c550450fba4eafe17e046"
+    },
+    {
+     "path": "results/base-all-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.692,
+     "macro_f1": 0.5837,
+     "balanced_accuracy": 0.5756
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/base-finetuned-v1",
+   "weights": [
+    {
+     "path": "results/base-finetuned-v1/export/emotion-fp32.onnx",
+     "size_mb": 76.31,
+     "sha256": "28de44db8f448781508e43b85519a1e03cc9eb0770ec282f0abf1d091cfebed8"
+    },
+    {
+     "path": "results/base-finetuned-v1/export/emotion-int8.onnx",
+     "size_mb": 22.5,
+     "sha256": "2abfefcceb70b8f1c4398decbaeb6b980a7c6b8689934cd0d7a22ab60c13c89c"
+    },
+    {
+     "path": "results/base-finetuned-v1/finetuned.pt",
+     "size_mb": 76.26,
+     "sha256": "20fe05dd387826c5b6203007adfddcaf06881928ee687f422ae5c8118b55dbc6"
+    },
+    {
+     "path": "results/base-finetuned-v1/head.npz",
+     "size_mb": 0.04,
+     "sha256": "4221cd6ac7fa71b0b7d266166d8af38c2383c9356f5c550450fba4eafe17e046"
+    },
+    {
+     "path": "results/base-finetuned-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6853,
+     "macro_f1": 0.5948,
+     "balanced_accuracy": 0.5982
+    },
+    "int8": {
+     "accuracy": 0.6853,
+     "macro_f1": 0.5913,
+     "balanced_accuracy": 0.5927
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/small-agrees-finetuned-v2",
+   "weights": [
+    {
+     "path": "results/small-agrees-finetuned-v2/finetuned.pt",
+     "size_mb": 332.87,
+     "sha256": "7f1cd2513b139e46849c1099c574cc7df699041910905c64b842ef2a29a7ac48"
+    },
+    {
+     "path": "results/small-agrees-finetuned-v2/head.npz",
+     "size_mb": 0.06,
+     "sha256": "894197edcd9a4cf3758b0c39b894dc486f5dab7d151ff439f32c827f00359562"
+    },
+    {
+     "path": "results/small-agrees-finetuned-v2/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.7099,
+     "macro_f1": 0.6312,
+     "balanced_accuracy": 0.6371
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/small-agrees-v1",
+   "weights": [
+    {
+     "path": "results/small-agrees-v1/head.npz",
+     "size_mb": 0.06,
+     "sha256": "894197edcd9a4cf3758b0c39b894dc486f5dab7d151ff439f32c827f00359562"
+    },
+    {
+     "path": "results/small-agrees-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.7047,
+     "macro_f1": 0.6293,
+     "balanced_accuracy": 0.6499
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/small-all-v1",
+   "weights": [
+    {
+     "path": "results/small-all-v1/export/emotion-fp32.onnx",
+     "size_mb": 332.96,
+     "sha256": "2d7e89d768bde299ef3083581f488f406f2b1a027b03040541f4e0c6492cf1ee"
+    },
+    {
+     "path": "results/small-all-v1/export/emotion-int8.onnx",
+     "size_mb": 90.47,
+     "sha256": "ac5bf7e46d479a7b7199642525ca7433e0907ee799ee2fdb27a577a7bbc568d1"
+    },
+    {
+     "path": "results/small-all-v1/head.npz",
+     "size_mb": 0.06,
+     "sha256": "ace2c24ea7e39a6e4a67b1ad12f63b26ff9844f7b15b8598b26f86447286fe58"
+    },
+    {
+     "path": "results/small-all-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.7226,
+     "macro_f1": 0.6114,
+     "balanced_accuracy": 0.5885
+    },
+    "int8": {
+     "accuracy": 0.7151,
+     "macro_f1": 0.6061,
+     "balanced_accuracy": 0.5852
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/small-balanced-finetuned-v3",
+   "weights": [
+    {
+     "path": "results/small-balanced-finetuned-v3/finetuned.pt",
+     "size_mb": 332.87,
+     "sha256": "e57ab14643afbc0a074227096b676210dbdf66897166f3bd78b2db750bcb8221"
+    },
+    {
+     "path": "results/small-balanced-finetuned-v3/head.npz",
+     "size_mb": 0.06,
+     "sha256": "ace2c24ea7e39a6e4a67b1ad12f63b26ff9844f7b15b8598b26f86447286fe58"
+    },
+    {
+     "path": "results/small-balanced-finetuned-v3/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ]
+  },
+  {
+   "run": "results/small-finetuned-v1",
+   "weights": [
+    {
+     "path": "results/small-finetuned-v1/export/emotion-fp32.onnx",
+     "size_mb": 332.96,
+     "sha256": "65401a8ad51e65596f7cc2d111d242f1df68c42a5d5c28d954c654185aa5af3d"
+    },
+    {
+     "path": "results/small-finetuned-v1/export/emotion-int8.onnx",
+     "size_mb": 90.47,
+     "sha256": "62dadfe326f65e175b771a468318c17267402e401d131b41e344521c34c64855"
+    },
+    {
+     "path": "results/small-finetuned-v1/finetuned.pt",
+     "size_mb": 332.87,
+     "sha256": "16658522e20641beeaa5c43949909c75d29c5e78b5d014c3b4184756ebbac3eb"
+    },
+    {
+     "path": "results/small-finetuned-v1/head.npz",
+     "size_mb": 0.06,
+     "sha256": "ace2c24ea7e39a6e4a67b1ad12f63b26ff9844f7b15b8598b26f86447286fe58"
+    },
+    {
+     "path": "results/small-finetuned-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.736,
+     "macro_f1": 0.6379,
+     "balanced_accuracy": 0.6201
+    },
+    "int8": {
+     "accuracy": 0.7353,
+     "macro_f1": 0.6336,
+     "balanced_accuracy": 0.6158
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/tiny-agrees-finetuned-v2",
+   "weights": [
+    {
+     "path": "results/tiny-agrees-finetuned-v2/finetuned.pt",
+     "size_mb": 29.6,
+     "sha256": "b2f9fbaf72548c22aac869344d6322f1ef8dadaa6e7635fb63b3d080a45dc35a"
+    },
+    {
+     "path": "results/tiny-agrees-finetuned-v2/head.npz",
+     "size_mb": 0.03,
+     "sha256": "197bae464b802670898178cb689ef0ca154b5909e252372fb74be350c5d34401"
+    },
+    {
+     "path": "results/tiny-agrees-finetuned-v2/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6667,
+     "macro_f1": 0.5962,
+     "balanced_accuracy": 0.6183
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/tiny-agrees-v1",
+   "weights": [
+    {
+     "path": "results/tiny-agrees-v1/head.npz",
+     "size_mb": 0.03,
+     "sha256": "197bae464b802670898178cb689ef0ca154b5909e252372fb74be350c5d34401"
+    },
+    {
+     "path": "results/tiny-agrees-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6711,
+     "macro_f1": 0.5713,
+     "balanced_accuracy": 0.5809
+    },
+    "transcript": {
+     "accuracy": 0.4198,
+     "macro_f1": 0.1763,
+     "balanced_accuracy": 0.2018
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/tiny-all-v1",
+   "weights": [
+    {
+     "path": "results/tiny-all-v1/head.npz",
+     "size_mb": 0.03,
+     "sha256": "10455227fee897d51214ca712d00671563062d7de7059885d2b3edd4b3cd02af"
+    },
+    {
+     "path": "results/tiny-all-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6719,
+     "macro_f1": 0.5392,
+     "balanced_accuracy": 0.5228
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  },
+  {
+   "run": "results/tiny-balanced-finetuned-v3",
+   "weights": [
+    {
+     "path": "results/tiny-balanced-finetuned-v3/finetuned.pt",
+     "size_mb": 29.6,
+     "sha256": "9c387b5602f37f24df2a3a7a2a4c14be5ae2e2ecbfa86d179e3f2b9c7a6f41cd"
+    },
+    {
+     "path": "results/tiny-balanced-finetuned-v3/head.npz",
+     "size_mb": 0.03,
+     "sha256": "10455227fee897d51214ca712d00671563062d7de7059885d2b3edd4b3cd02af"
+    },
+    {
+     "path": "results/tiny-balanced-finetuned-v3/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ]
+  },
+  {
+   "run": "results/tiny-finetuned-v1",
+   "weights": [
+    {
+     "path": "results/tiny-finetuned-v1/export/emotion-fp32.onnx",
+     "size_mb": 29.63,
+     "sha256": "649fd723fde61a48eb81c6558ed0a69a73e0927dd6d0b42e139497f667e903dc"
+    },
+    {
+     "path": "results/tiny-finetuned-v1/export/emotion-int8.onnx",
+     "size_mb": 9.48,
+     "sha256": "ae4d75f72b2b98b281ddff7c96e9ebe469e0f30d676c22186b45d3b7cea41b70"
+    },
+    {
+     "path": "results/tiny-finetuned-v1/finetuned.pt",
+     "size_mb": 29.6,
+     "sha256": "0c20dfb3ed63f7897809f2289649f0d46ff4a8adbdc0c3cabd2215475fb56ed2"
+    },
+    {
+     "path": "results/tiny-finetuned-v1/head.npz",
+     "size_mb": 0.03,
+     "sha256": "10455227fee897d51214ca712d00671563062d7de7059885d2b3edd4b3cd02af"
+    },
+    {
+     "path": "results/tiny-finetuned-v1/transcript_head.npz",
+     "size_mb": 0.0,
+     "sha256": "67a21bf02fccdc859d9ef013c4933a5437d733509d0eb42a1b4ff7182f71a90d"
+    }
+   ],
+   "test_metrics": {
+    "float": {
+     "accuracy": 0.6838,
+     "macro_f1": 0.5795,
+     "balanced_accuracy": 0.57
+    },
+    "int8": {
+     "accuracy": 0.6786,
+     "macro_f1": 0.5792,
+     "balanced_accuracy": 0.5736
+    },
+    "transcript": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    },
+    "prior": {
+     "accuracy": 0.5205,
+     "macro_f1": 0.1141,
+     "balanced_accuracy": 0.1667
+    }
+   }
+  }
+ ]
+}

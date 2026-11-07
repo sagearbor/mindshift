@@ -1,0 +1,9 @@
+tiny C0.01-balancedFalse dev macro F1 0.5262
+tiny C0.1-balancedFalse dev macro F1 0.5282
+tiny C1-balancedFalse dev macro F1 0.4974
+tiny C10-balancedFalse dev macro F1 0.4888
+tiny C0.01-balancedTrue dev macro F1 0.4467
+tiny C0.1-balancedTrue dev macro F1 0.4288
+tiny C1-balancedTrue dev macro F1 0.402
+tiny C10-balancedTrue dev macro F1 0.3976
+selected C0.1-balancedFalse saved eval/codex/results/tiny-all-v1

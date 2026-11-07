@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s delivery suggests an emotional state that is marked by tension or agitation. While the pitch level remains normal, the energy of the speech stands out as notably high for its overall tone. This heightened energy often correlates with emotions such as frustration or anger, especially when paired with specific stress patterns on key words.\n\nThe transcription, \u201cIt\u2019s eleven o\u2019clock,\u201d carries no inherently emotional content, but the prosodic emphasis on \"eleven\" and \"o'clock\" creates a sense of urgency or insistence. Stressing these particular words may indicate the speaker is fixating on this detail, possibly due to impatience or annoyance. Additionally, the normal speed level combined with elevated energy can reflect controlled irritation rather than outright rage\u2014this balance often aligns with middle-aged male speakers who might express anger in a restrained yet firm manner.\n\nAlthough the intonation contour is labeled as uncertain, the combination of stressed words and high energy strongly points toward an emotionally charged delivery. Even without explicit semantic cues, the prosody conveys a sense of dissatisfaction or exasperation, which aligns well with how anger is typically expressed vocally.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1026_IEO_ANG_LO",
+  "audio_sha256": "d65cc60ebdca6ca4f64d6d3eae7b28880430a7a9e65c328aa46e2f7b582dd418",
+  "seconds": 16.687688042409718,
+  "label_source": "machine",
+  "approved_for_training": false
+}

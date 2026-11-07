@@ -1,0 +1,17 @@
+{
+  "id": "1088_DFA_SAD_XX",
+  "audio_sha256": "4c83f6d2f1505d302ba2c530a46e759ea0d64833cd3e3b85fc5b7b473839d6b2",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.026417030395329628,
+    0.0017977014792068338,
+    0.25063780597194135,
+    0.011722486178257647,
+    0.6813041934983721,
+    0.028120782476893057
+  ],
+  "allowed_choice_mass": 0.9958759628520615,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,10 @@
+{
+  "completed": false,
+  "empty_outputs": 0,
+  "finish_reason_length": 0,
+  "invalid_outputs": 1,
+  "runtime_errors": 0,
+  "error_type": "ValueError",
+  "error": "Missing or ambiguous final answer; not a scored result",
+  "elapsed_seconds": 2.1125460006296635
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1088_WSI_ANG_XX",
+  "audio_sha256": "91f463f62a0d204b0ccdcf52ba3734e2ffcf2987f7b1dbcfa247abb26384c209",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.7009230632965192,
+    0.0014403672679041992,
+    0.0011217591561542104,
+    0.002230884465690891,
+    0.29218820380503396,
+    0.0020957220086976844
+  ],
+  "allowed_choice_mass": 0.9969029213251354,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,10 @@
+{
+  "id": "1016_MTI_DIS_XX",
+  "audio_sha256": "a7ab084f3d285b04f9bc499f9b88054659f7f5a90f49da143be96af10645694e",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14576587453484535,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

@@ -1,0 +1,48 @@
+{
+  "purpose": "Existing human-rated audio, without purchasing new ratings",
+  "checked_date": "2026-11-06",
+  "sources": [
+    {
+      "name": "Emozionalmente",
+      "publisher": "https://zenodo.org/records/12616095",
+      "licence_source": "https://openslr.org/161/",
+      "declared_licence": "CC BY 4.0",
+      "archive_expected_md5": "398c6502dd2b0e1e810f927c12897547",
+      "reported_recordings": 6902,
+      "reported_actors": 431,
+      "reported_ratings_per_clip": 5,
+      "language": "Italian",
+      "speech_type": "acted, not spontaneous",
+      "decision": "Downloaded and verified: 6,902 recordings, five ratings per clip, 431 actors. Separate frozen Italian diagnostic completed; not natural English."
+    },
+    {
+      "name": "Zaion Emotion Dataset",
+      "publisher": "https://github.com/BenoitWang/Speech_Emotion_Diarization",
+      "licence_source": "https://raw.githubusercontent.com/BenoitWang/Speech_Emotion_Diarization/main/DATA_LICENSE",
+      "paper": "https://arxiv.org/html/2306.12991",
+      "declared_data_licence": "CC BY-NC 4.0",
+      "declared_code_licence": "Apache 2.0",
+      "speech_type": "natural with human segment boundaries",
+      "decision": "Research-only candidate; code licence does not grant commercial data reuse. Exclude from commercially cleared training."
+    },
+    {
+      "name": "MSP-Podcast",
+      "publisher": "https://www.lab-msp.com/MSP/MSP-Podcast.html",
+      "speech_type": "natural English with human ratings",
+      "decision": "Access and commercial terms need a separate agreement; not treated as freely cleared data. No signature or outreach performed."
+    },
+    {
+      "name": "Morgan Emotional Speech Set",
+      "publisher": "https://zenodo.org/records/7378320",
+      "licence_source": "https://zenodo.org/api/records/7378320",
+      "declared_licence": "CC BY 4.0",
+      "language": "English",
+      "speech_type": "acted",
+      "verified_recordings": 1800,
+      "verified_actors": 6,
+      "human_ratings": "Downloadable XLSX contains all four-category human distributions, arousal and valence",
+      "decision": "Preserve calm separately from neutral; frozen three-shared-emotion diagnostic completed without model changes."
+    }
+  ],
+  "limitation": "No independent natural-English commercially cleared acceptance corpus established yet. Public downloadability is recorded separately from reuse terms."
+}

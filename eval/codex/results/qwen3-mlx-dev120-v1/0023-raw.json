@@ -1,0 +1,10 @@
+{
+  "id": "1003_ITS_FEA_XX",
+  "audio_sha256": "d3152ff16ddc2f254f12b48d3ebd43c51d23a7c47b4ddf2672210070eb88ce77",
+  "text": "C",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14525729231536388,
+  "peak_memory_gb": 22.001694658,
+  "approved_for_training": false
+}

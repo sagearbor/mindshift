@@ -1,0 +1,10 @@
+{
+  "id": "1001_TAI_FEA_XX",
+  "audio_sha256": "a821c33da017643fb03799d075b82cd4ab7f6e62a13d8cbe39c753e0be628271",
+  "text": "C",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.1448863334953785,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1041_WSI_DIS_XX",
+  "audio_sha256": "9dbb67a991ee486ea792f779abff952bbbfa4f6ff2690c27dd4c75b4d14c2707",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.06545366586980274,
+    0.004741447652609588,
+    0.006898765627408574,
+    0.014604686947830901,
+    0.9035599862497398,
+    0.004741447652609588
+  ],
+  "allowed_choice_mass": 0.9956933766699743,
+  "label_source": "machine",
+  "approved_for_training": false
+}

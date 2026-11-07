@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s delivery suggests an emotional state that leans toward unease or apprehension. While the pitch level is described as normal, this neutrality might reflect an attempt to maintain composure despite underlying tension. The energy level being low further supports this interpretation, as reduced vocal energy often signals a lack of confidence or a subdued emotional state, which can be associated with fear or anxiety.\n\nThe transcription, \u201cIt\u2019s eleven o\u2019clock,\u201d carries no overtly alarming content semantically, but its brevity combined with the absence of stressed words creates a flatness in delivery that could indicate hesitation or reluctance to emphasize anything specific. This lack of emphasis may suggest the speaker is avoiding drawing attention to their statement, possibly out of concern for consequences or danger.\n\nAdditionally, considering the speaker profile\u2014a young adult male\u2014this demographic might exhibit fear through restrained vocal dynamics rather than overt panic. The normal speech rate paired with low energy reinforces the impression of someone trying to suppress stronger emotions while maintaining control. Taken together, these prosodic cues point toward an underlying sense of fear or unease, even if subtly expressed.</think>\n<answer>C</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1041_IEO_FEA_MD",
+  "audio_sha256": "263f53d8b8c40d4d407ef319d2d5487f818620a5e714c4825bb09111eeb1ed48",
+  "seconds": 16.0409216247499,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1057_TAI_NEU_XX",
+  "audio_sha256": "c7987e78fac3ba4971cb9aad9fbb22a2da21e2bc7f1a73a0c5d0fbf5aeda1dcd",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.04903640535591693,
+    0.00355218528981569,
+    0.1711538720932688,
+    0.012398344909907743,
+    0.7205847165106108,
+    0.04327447584047936
+  ],
+  "allowed_choice_mass": 0.9957059627463866,
+  "label_source": "machine",
+  "approved_for_training": false
+}

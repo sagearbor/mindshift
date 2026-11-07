@@ -1,0 +1,17 @@
+{
+  "id": "1050_IWW_NEU_XX",
+  "audio_sha256": "e490e6aa7eb8c07e7c6d7de5a831680a4183c3164ed17546538ab883ef45a8c5",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.01687248209087102,
+    0.0045411669487564815,
+    0.040474980435692816,
+    0.013140302264728605,
+    0.9212063086289152,
+    0.003764759631037565
+  ],
+  "allowed_choice_mass": 0.996196033603976,
+  "label_source": "machine",
+  "approved_for_training": false
+}

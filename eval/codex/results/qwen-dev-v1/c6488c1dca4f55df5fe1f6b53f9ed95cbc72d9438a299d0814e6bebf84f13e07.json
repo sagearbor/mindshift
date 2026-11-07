@@ -1,0 +1,17 @@
+{
+  "id": "1003_IWL_FEA_XX",
+  "audio_sha256": "a75eae9d01697f057b9e5004371450e0352a3621651117eaa2ab1a5f54779520",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.05667179450550232,
+    0.004651904173998033,
+    0.07276802455436968,
+    0.02676986020821131,
+    0.3933802241243408,
+    0.44575819243357817
+  ],
+  "allowed_choice_mass": 0.9796537520574842,
+  "label_source": "machine",
+  "approved_for_training": false
+}

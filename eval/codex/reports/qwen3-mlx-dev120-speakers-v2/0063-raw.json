@@ -1,0 +1,10 @@
+{
+  "id": "1057_ITS_ANG_XX",
+  "audio_sha256": "77ffc1283cc3ca358071d1c1b559f637112998a99902c05cddaa2ee98ec6dafd",
+  "text": "C",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14461212512105703,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

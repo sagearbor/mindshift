@@ -1,0 +1,70 @@
+{
+  "ratings_sha256": "5eab9668f6adc2666b0179ae80553a50a5172dbc9812e582cd0ffa7bc0dd237e",
+  "timing_sha256": "e6d44cbbf1dca05746c789f87ecdbf975e01cb142bba88266f23189a47bb4667",
+  "columns": [
+    "anger",
+    "disgust",
+    "fear",
+    "happiness",
+    "neutral",
+    "sadness",
+    "tied"
+  ],
+  "counts_by_actor_intent": {
+    "ANG": [
+      770,
+      137,
+      31,
+      7,
+      214,
+      0,
+      112
+    ],
+    "DIS": [
+      100,
+      343,
+      62,
+      8,
+      572,
+      51,
+      135
+    ],
+    "FEA": [
+      51,
+      16,
+      407,
+      8,
+      569,
+      97,
+      123
+    ],
+    "HAP": [
+      54,
+      26,
+      67,
+      330,
+      655,
+      9,
+      130
+    ],
+    "NEU": [
+      8,
+      7,
+      7,
+      0,
+      1040,
+      4,
+      21
+    ],
+    "SAD": [
+      3,
+      18,
+      71,
+      0,
+      847,
+      209,
+      123
+    ]
+  },
+  "denominator": "All original 7,442 source recordings, including the silent recording; unique-winner agreement excludes ties"
+}

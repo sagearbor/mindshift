@@ -1,0 +1,5 @@
+{
+  "id": "1073_IEO_FEA_HI",
+  "text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe user asks to classify the emotion perceived in the speaker's voice from the given options.\nThe speaker says: \"It's 11 o'clock.\"\nThe emotion suggested by the words is neutral or calm, but the task is to classify the emotion perceived in the speaker's voice.\nLooking at the options:\nA = anger\nB = disgust\nC = fear\nD = happiness\nE = neutral\nF = sadness\n\nThe statement \"It's 11 o'clock\" is a neutral statement. The speaker's voice likely conveys a neutral emotion.\nTherefore, the label should be E.\nThe user asks to reply with only the single letter E.\n</think>\n\nE",
+  "n_generated_tokens": 214
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1088_IWW_HAP_XX",
+  "audio_sha256": "bbaa6e8b943e1468f73a2a0eb27fa00e4e88dc72efae450a02251b7907c56c25",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.03469594153859169,
+    0.14607537002744844,
+    0.010581664313476744,
+    0.17620053002247119,
+    0.6150002790649761,
+    0.017446215033037577
+  ],
+  "allowed_choice_mass": 0.9892606921821313,
+  "label_source": "machine",
+  "approved_for_training": false
+}

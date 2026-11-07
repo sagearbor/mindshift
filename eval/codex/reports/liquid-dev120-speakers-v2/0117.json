@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+  ],
+  "generated_text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe speaker says: \"I'm on my way to the meeting.\"\nThis is a neutral statement about their current state. There is no anger, disgust, fear, happiness, sadness, or neutrality implied beyond \"neutral\" being the default for a simple statement like this. The emotion suggested by the words is neutral, and the emotion perceived in the speaker's voice is also neutral.\n\nLet's check the options:\nA = anger\nB = disgust\nC = fear\nD = happiness\nE = neutral\nF = sadness\n\nThe speaker's voice is neutral.\nSo the answer is E.\n</think>\n\nE",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1026_IOM_HAP_XX",
+  "audio_sha256": "ef4dfed063ddc0895e8f7ed57e5b7ce5c34ae5e8ae817b67aaeba0738101c334",
+  "seconds": 3.510988707654178,
+  "label_source": "machine",
+  "approved_for_training": false
+}

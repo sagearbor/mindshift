@@ -1,0 +1,17 @@
+{
+  "id": "1001_DFA_DIS_XX",
+  "audio_sha256": "c992e624c48a6119b5635ef7b606aea28d45d02c397b9bd85f7e5a2c2656ac65",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "transcript",
+  "probabilities": [
+    0.025172784444868507,
+    0.011890781411115174,
+    0.005276502265944466,
+    0.00985780402773271,
+    0.944601767450001,
+    0.003200360400338502
+  ],
+  "allowed_choice_mass": 0.9942272672337397,
+  "label_source": "machine",
+  "approved_for_training": false
+}

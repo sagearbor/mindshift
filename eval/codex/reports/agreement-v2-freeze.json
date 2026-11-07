@@ -1,0 +1,69 @@
+{
+  "created_utc": "2026-11-06T05:33:55.105428+00:00",
+  "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+  "benchmark_index_sha256": "2b7195c43ba96e99bb39cd1fcd8421625f2411ecd0e04148590e5de79f03bd7a",
+  "candidates": [
+    {
+      "run": "tiny-agrees-finetuned-v2",
+      "dev_macro_f1": 0.5327767507371801,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "fe09e70408c9f4b8b5a3a46023e8b976981c5c6905099b6909ca014f5cb0f8bd",
+        "head.npz": "197bae464b802670898178cb689ef0ca154b5909e252372fb74be350c5d34401",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2",
+        "finetuned.pt": "b2f9fbaf72548c22aac869344d6322f1ef8dadaa6e7635fb63b3d080a45dc35a"
+      }
+    },
+    {
+      "run": "base-agrees-finetuned-v2",
+      "dev_macro_f1": 0.5436249011659411,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "d32e222cda82bfec15d51cb2cfb471d3a00922953fe7dbb0303136d7532ef776",
+        "head.npz": "598aaf8f0fe7238922dbb5278308249821c86a8371bbb879bea9004991b2b920",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2",
+        "finetuned.pt": "215a6efd073e8776d786602310b3210aea0ae18c89cff5e391d24d98ad26036f"
+      }
+    },
+    {
+      "run": "small-agrees-finetuned-v2",
+      "dev_macro_f1": 0.5711060497028332,
+      "presence": {
+        "finetuned.pt": true,
+        "export/emotion-int8.onnx": false,
+        "export/emotion-fp32.onnx": false,
+        "export/validation.json": false
+      },
+      "hashes": {
+        "selection.json": "64bd621206f6081a17e3d2871619a239053de112845bd98e097cb7f51f712811",
+        "head.npz": "894197edcd9a4cf3758b0c39b894dc486f5dab7d151ff439f32c827f00359562",
+        "transcript_head.npz": "807a8a54cb7b496ee9a43163eee2d8980998c6765271cfcbac579f3152f205b2",
+        "finetuned.pt": "7f1cd2513b139e46849c1099c574cc7df699041910905c64b842ef2a29a7ac48"
+      }
+    }
+  ],
+  "selected_accuracy_candidate": "small-agrees-finetuned-v2",
+  "compact_comparators": [
+    "tiny-agrees-finetuned-v2",
+    "base-agrees-finetuned-v2"
+  ],
+  "selection_rule": "Highest development macro F1; final test cannot change training or candidate choice",
+  "export_rule": "Validate float numerical parity and int8 dev macro F1 drop <= 0.02; no test-driven export tuning",
+  "teacher_gate": {
+    "macro_f1_min": 0.75,
+    "every_class_recall_min": 0.6
+  },
+  "scope": "Experimental candidates only; no deployment, no new machine-label pool, no watch qualification",
+  "evaluation_status": "Regression on previously inspected test; not independent final confirmation",
+  "hypothesis_origin": "Agreement-only frozen-head test advantage observed in v1; new training uses train/dev only"
+}

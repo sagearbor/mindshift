@@ -1,0 +1,10 @@
+{
+  "id": "1016_WSI_FEA_XX",
+  "audio_sha256": "17ae281ef7f6c86503b08e78b420417758563907e6acbd0babb3d20d409f861d",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19757795799523592,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

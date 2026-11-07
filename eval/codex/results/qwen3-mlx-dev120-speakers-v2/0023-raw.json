@@ -1,0 +1,10 @@
+{
+  "id": "1026_IEO_SAD_LO",
+  "audio_sha256": "0ca89751d4fe5cf6878d6512fab63e504800bb4b0e2d65c4d808cbbabe25629a",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.1961743338033557,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

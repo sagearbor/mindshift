@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone suggests an upbeat emotional state, which becomes evident through several prosodic features. First, the pitch level is described as \"normal,\" but combined with the \"expressive\" intonation contour, this likely indicates dynamic vocal variation that adds liveliness to the delivery. Expressiveness often signals positive emotions like excitement or joy, especially when paired with normal energy levels\u2014here, the speaker does not sound subdued or flat.\n\nThe stress on specific words such as \u201cI,\u201d \u201cthink,\u201d \u201cseen,\u201d and \u201cthis\u201d further reinforces this impression. By emphasizing these key parts of the sentence, the speaker conveys engagement and enthusiasm, as if sharing something intriguing or familiar. This pattern aligns well with someone expressing pleasant surprise or delight.\n\nAdditionally, the semantic content of the phrase, \u201cI think I\u2019ve seen this before,\u201d hints at recognition or familiarity, which can evoke feelings of happiness or satisfaction. While the speech rate remains \"normal,\" its steadiness complements the overall expressive quality without introducing tension or urgency.\n\nConsidering the speaker profile\u2014a middle-aged male\u2014the delivery feels mature yet animated, suggesting confidence and ease rather than hesitation or negativity. Taken together, the combination of expressive intonation, stressed emphasis, and the positive undertone of the statement strongly points toward a happy emotional state.</think>\n<answer>D</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1016_ITS_HAP_XX",
+  "audio_sha256": "08088ea5b967ca9378d5a03653855a2c3c38c6874d17ac6f13492d52974eb407",
+  "seconds": 17.282492709346116,
+  "label_source": "machine",
+  "approved_for_training": false
+}

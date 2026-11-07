@@ -1,0 +1,17 @@
+{
+  "id": "1016_IOM_NEU_XX",
+  "audio_sha256": "85e6cf9a8b4e75ca4a1a71c445a48c30c1d6a1e483adcba4db506b5e98a19f9c",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.006260529889613461,
+    0.0002584029291114705,
+    0.0015829098468134015,
+    0.002032496475633707,
+    0.9890697238027701,
+    0.0007959370560589232
+  ],
+  "allowed_choice_mass": 0.9984428278177688,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,14 @@
+{
+  "balance_power": 0.5,
+  "class_weights": [
+    1.1332244873046875,
+    1.1913830041885376,
+    1.2311047315597534,
+    1.6717463731765747,
+    0.6482487916946411,
+    1.4071894884109497
+  ],
+  "class_weight_source": "training human vote distributions only",
+  "device": "cpu",
+  "note": "Class weighting changes the target distribution; assess calibration separately."
+}

@@ -1,0 +1,657 @@
+{
+  "ids": [
+    "1001_DFA_ANG_XX",
+    "1001_DFA_DIS_XX",
+    "1001_DFA_FEA_XX",
+    "1001_IEO_HAP_HI",
+    "1001_DFA_HAP_XX",
+    "1003_IOM_FEA_XX",
+    "1003_DFA_ANG_XX",
+    "1003_IEO_DIS_HI",
+    "1003_ITS_DIS_XX",
+    "1003_IEO_HAP_HI",
+    "1003_DFA_DIS_XX",
+    "1016_DFA_SAD_XX",
+    "1016_DFA_ANG_XX",
+    "1016_IEO_DIS_HI",
+    "1016_IEO_FEA_HI",
+    "1016_IEO_HAP_LO",
+    "1016_DFA_HAP_XX",
+    "1020_DFA_SAD_XX",
+    "1020_DFA_ANG_XX",
+    "1020_DFA_DIS_XX",
+    "1020_IEO_FEA_HI",
+    "1020_IEO_HAP_MD",
+    "1020_DFA_NEU_XX",
+    "1026_IEO_SAD_LO",
+    "1026_DFA_ANG_XX",
+    "1026_IEO_ANG_LO",
+    "1026_IEO_FEA_HI",
+    "1026_DFA_FEA_XX",
+    "1026_DFA_HAP_XX",
+    "1041_IEO_FEA_MD",
+    "1041_DFA_ANG_XX",
+    "1041_IEO_ANG_MD",
+    "1041_IEO_FEA_HI",
+    "1041_DFA_HAP_XX",
+    "1041_DFA_DIS_XX",
+    "1042_MTI_SAD_XX",
+    "1042_DFA_ANG_XX",
+    "1042_DFA_DIS_XX",
+    "1042_IWW_DIS_XX",
+    "1042_IEO_FEA_HI",
+    "1042_DFA_FEA_XX",
+    "1050_TSI_FEA_XX",
+    "1047_DFA_ANG_XX",
+    "1047_MTI_DIS_XX",
+    "1047_IEO_FEA_HI",
+    "1047_DFA_HAP_XX",
+    "1047_DFA_DIS_XX",
+    "1054_IEO_DIS_LO",
+    "1050_DFA_ANG_XX",
+    "1050_IEO_DIS_MD",
+    "1050_IEO_FEA_LO",
+    "1050_ITS_HAP_XX",
+    "1050_DFA_NEU_XX",
+    "1057_ITH_FEA_XX",
+    "1054_DFA_ANG_XX",
+    "1054_IEO_DIS_HI",
+    "1054_IEO_FEA_HI",
+    "1054_DFA_HAP_XX",
+    "1054_DFA_DIS_XX",
+    "1062_IEO_FEA_MD",
+    "1057_DFA_ANG_XX",
+    "1057_IWL_ANG_XX",
+    "1057_IEO_FEA_HI",
+    "1057_ITS_ANG_XX",
+    "1057_DFA_DIS_XX",
+    "1067_IEO_DIS_HI",
+    "1062_DFA_ANG_XX",
+    "1062_ITH_ANG_XX",
+    "1062_IWW_DIS_XX",
+    "1062_IEO_ANG_MD",
+    "1062_DFA_DIS_XX",
+    "1074_IEO_SAD_HI",
+    "1067_IOM_ANG_XX",
+    "1067_IEO_DIS_LO",
+    "1067_IEO_FEA_HI",
+    "1067_IEO_ANG_MD",
+    "1067_DFA_ANG_XX",
+    "1075_MTI_SAD_XX",
+    "1073_DFA_ANG_XX",
+    "1073_IOM_DIS_XX",
+    "1073_IEO_FEA_HI",
+    "1074_IEO_ANG_MD",
+    "1073_DFA_DIS_XX",
+    "1087_DFA_DIS_XX",
+    "1074_DFA_ANG_XX",
+    "1074_IEO_DIS_LO",
+    "1074_IEO_DIS_HI",
+    "1075_DFA_HAP_XX",
+    "1074_DFA_DIS_XX",
+    "1088_IWL_DIS_XX",
+    "1075_DFA_ANG_XX",
+    "1075_IEO_ANG_MD",
+    "1075_IEO_FEA_HI",
+    "1001_ITS_HAP_XX",
+    "1075_DFA_FEA_XX",
+    "1003_IOM_SAD_XX",
+    "1087_DFA_ANG_XX",
+    "1087_IEO_ANG_MD",
+    "1087_DFA_FEA_XX",
+    "1003_IOM_HAP_XX",
+    "1087_DFA_HAP_XX",
+    "1016_ITH_SAD_XX",
+    "1088_DFA_ANG_XX",
+    "1088_IOM_ANG_XX",
+    "1088_IEO_FEA_HI",
+    "1016_ITS_HAP_XX",
+    "1088_DFA_DIS_XX",
+    "1020_IEO_DIS_HI",
+    "1001_IEO_DIS_HI",
+    "1001_IEO_ANG_HI",
+    "1001_IEO_FEA_MD",
+    "1020_ITS_HAP_XX",
+    "1001_DFA_NEU_XX",
+    "1026_IOM_SAD_XX",
+    "1003_IEO_ANG_HI",
+    "1003_IEO_FEA_LO",
+    "1003_IWW_DIS_XX",
+    "1026_IOM_HAP_XX",
+    "1003_DFA_NEU_XX",
+    "1041_IEO_SAD_HI"
+  ],
+  "speakers": 18,
+  "entries": [
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "metrics": {
+        "n_total": 120,
+        "n_single_label": 120,
+        "n_tied": 0,
+        "accuracy": 0.6,
+        "macro_f1": 0.6053014269293227,
+        "balanced_accuracy": 0.6,
+        "kappa": 0.52,
+        "brier_to_votes": 0.16264006717230967,
+        "cross_entropy_to_votes": 1.3167504769177645,
+        "expected_individual_vote_agreement": 0.48149080086580087,
+        "ece_10_bins": 0.08429760312040645,
+        "confusion_matrix": [
+          [
+            19,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            3,
+            8,
+            0,
+            1,
+            6,
+            2
+          ],
+          [
+            2,
+            0,
+            11,
+            0,
+            7,
+            0
+          ],
+          [
+            1,
+            2,
+            0,
+            13,
+            3,
+            1
+          ],
+          [
+            1,
+            3,
+            0,
+            1,
+            15,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            14,
+            6
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.7307692307692307,
+            "recall": 0.95,
+            "f1": 0.8260869565217391,
+            "support": 20
+          },
+          "disgust": {
+            "precision": 0.6153846153846154,
+            "recall": 0.4,
+            "f1": 0.48484848484848486,
+            "support": 20
+          },
+          "fear": {
+            "precision": 1.0,
+            "recall": 0.55,
+            "f1": 0.7096774193548387,
+            "support": 20
+          },
+          "happiness": {
+            "precision": 0.8666666666666667,
+            "recall": 0.65,
+            "f1": 0.7428571428571429,
+            "support": 20
+          },
+          "neutral": {
+            "precision": 0.32608695652173914,
+            "recall": 0.75,
+            "f1": 0.45454545454545453,
+            "support": 20
+          },
+          "sadness": {
+            "precision": 0.6666666666666666,
+            "recall": 0.3,
+            "f1": 0.41379310344827586,
+            "support": 20
+          }
+        }
+      }
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "metrics": {
+        "n_total": 120,
+        "n_single_label": 120,
+        "n_tied": 0,
+        "accuracy": 0.36666666666666664,
+        "macro_f1": 0.3079069889414717,
+        "balanced_accuracy": 0.3666666666666667,
+        "kappa": 0.23999999999999988,
+        "brier_to_votes": 0.7331840845625569,
+        "cross_entropy_to_votes": 17.153419977818654,
+        "expected_individual_vote_agreement": 0.3791970298220298,
+        "ece_10_bins": 0.6333333333333333,
+        "confusion_matrix": [
+          [
+            8,
+            0,
+            0,
+            0,
+            12,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            14,
+            0,
+            6,
+            0
+          ],
+          [
+            1,
+            0,
+            2,
+            0,
+            17,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            17,
+            2
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.8888888888888888,
+            "recall": 0.4,
+            "f1": 0.5517241379310345,
+            "support": 20
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "fear": {
+            "precision": 0.8235294117647058,
+            "recall": 0.7,
+            "f1": 0.7567567567567568,
+            "support": 20
+          },
+          "happiness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "neutral": {
+            "precision": 0.21739130434782608,
+            "recall": 1.0,
+            "f1": 0.35714285714285715,
+            "support": 20
+          },
+          "sadness": {
+            "precision": 1.0,
+            "recall": 0.1,
+            "f1": 0.18181818181818182,
+            "support": 20
+          }
+        }
+      }
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "metrics": {
+        "n_total": 120,
+        "n_single_label": 120,
+        "n_tied": 0,
+        "accuracy": 0.16666666666666666,
+        "macro_f1": 0.04830917874396135,
+        "balanced_accuracy": 0.16666666666666666,
+        "kappa": 1.1102230246251565e-16,
+        "brier_to_votes": 0.9944274708059432,
+        "cross_entropy_to_votes": 20.762630738662494,
+        "expected_individual_vote_agreement": 0.24857533670033666,
+        "ece_10_bins": 0.8333333333333334,
+        "confusion_matrix": [
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            18,
+            1
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "fear": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "happiness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "neutral": {
+            "precision": 0.1694915254237288,
+            "recall": 1.0,
+            "f1": 0.2898550724637681,
+            "support": 20
+          },
+          "sadness": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          }
+        }
+      }
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "metrics": {
+        "n_total": 120,
+        "n_single_label": 120,
+        "n_tied": 0,
+        "accuracy": 0.5416666666666666,
+        "macro_f1": 0.481376930959788,
+        "balanced_accuracy": 0.5416666666666666,
+        "kappa": 0.44999999999999996,
+        "brier_to_votes": 0.6605169368954091,
+        "cross_entropy_to_votes": 16.149486232006026,
+        "expected_individual_vote_agreement": 0.4155306036556036,
+        "ece_10_bins": 0.45833333333333337,
+        "confusion_matrix": [
+          [
+            18,
+            0,
+            0,
+            1,
+            1,
+            0
+          ],
+          [
+            8,
+            0,
+            0,
+            0,
+            2,
+            10
+          ],
+          [
+            5,
+            0,
+            11,
+            0,
+            0,
+            4
+          ],
+          [
+            4,
+            0,
+            1,
+            14,
+            1,
+            0
+          ],
+          [
+            1,
+            0,
+            6,
+            4,
+            6,
+            3
+          ],
+          [
+            0,
+            0,
+            3,
+            0,
+            1,
+            16
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.5,
+            "recall": 0.9,
+            "f1": 0.6428571428571429,
+            "support": 20
+          },
+          "disgust": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 20
+          },
+          "fear": {
+            "precision": 0.5238095238095238,
+            "recall": 0.55,
+            "f1": 0.5365853658536586,
+            "support": 20
+          },
+          "happiness": {
+            "precision": 0.7368421052631579,
+            "recall": 0.7,
+            "f1": 0.717948717948718,
+            "support": 20
+          },
+          "neutral": {
+            "precision": 0.5454545454545454,
+            "recall": 0.3,
+            "f1": 0.3870967741935484,
+            "support": 20
+          },
+          "sadness": {
+            "precision": 0.48484848484848486,
+            "recall": 0.8,
+            "f1": 0.6037735849056604,
+            "support": 20
+          }
+        }
+      }
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "metrics": {
+        "n": 120,
+        "accuracy": 0.5916666666666667,
+        "macro_f1": 0.5691475289768247,
+        "balanced_accuracy": 0.5916666666666667,
+        "surprise_predictions": 0,
+        "confusion_matrix": [
+          [
+            19,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            8,
+            11,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            4,
+            16,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            4,
+            0,
+            2,
+            14,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            10,
+            1,
+            4,
+            3,
+            1,
+            0
+          ],
+          [
+            0,
+            8,
+            4,
+            0,
+            0,
+            8,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "per_emotion": {
+          "anger": {
+            "precision": 0.59375,
+            "recall": 0.95,
+            "f1": 0.7307692307692307,
+            "support": 20
+          },
+          "disgust": {
+            "precision": 0.3235294117647059,
+            "recall": 0.55,
+            "f1": 0.4074074074074074,
+            "support": 20
+          },
+          "fear": {
+            "precision": 0.6666666666666666,
+            "recall": 0.8,
+            "f1": 0.7272727272727273,
+            "support": 20
+          },
+          "happiness": {
+            "precision": 0.7777777777777778,
+            "recall": 0.7,
+            "f1": 0.7368421052631579,
+            "support": 20
+          },
+          "neutral": {
+            "precision": 1.0,
+            "recall": 0.15,
+            "f1": 0.2608695652173913,
+            "support": 20
+          },
+          "sadness": {
+            "precision": 0.8888888888888888,
+            "recall": 0.4,
+            "f1": 0.5517241379310345,
+            "support": 20
+          }
+        }
+      }
+    }
+  ],
+  "caveat": "Balanced development screen; not independent test; different generation configurations recorded per run"
+}

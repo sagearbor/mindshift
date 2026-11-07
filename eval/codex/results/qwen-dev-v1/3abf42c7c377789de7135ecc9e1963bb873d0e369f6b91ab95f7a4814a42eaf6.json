@@ -1,0 +1,17 @@
+{
+  "id": "1087_MTI_ANG_XX",
+  "audio_sha256": "08425402f826bfcfd5d04aa422cd6945ab4f772c2e246709b92d4a604308a97e",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.043654820756967284,
+    0.09241725626772308,
+    0.02818567069320968,
+    0.031938549144661536,
+    0.7738002128636322,
+    0.03000349027380521
+  ],
+  "allowed_choice_mass": 0.993896690531446,
+  "label_source": "machine",
+  "approved_for_training": false
+}

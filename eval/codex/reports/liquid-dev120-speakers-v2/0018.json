@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+  ],
+  "generated_text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe user asks to classify the emotion perceived in the speaker's voice from the given options.\nThe speaker says: \"Don't forget a jacket.\"\nThe words \"Don't forget a jacket\" do not express anger, disgust, fear, happiness, sadness, or neutrality. They are a neutral instruction.\nTherefore, the emotion is neutral, which corresponds to E.\nThe required output is just the letter E.\n</think>\n\nE",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1020_DFA_ANG_XX",
+  "audio_sha256": "552f2992831012824609d52f301b961a4e04d3ccfb6d86618985fea3ebb1c3ff",
+  "seconds": 2.8405550410971045,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1074_WSI_HAP_XX",
+  "audio_sha256": "030bb89ec3eabecffb78ff7aad68ab922a43e3815e9adc81f4d98a3f5b5ac8d8",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.04840604177758182,
+    0.001211821544200267,
+    0.0025654262292035624,
+    0.029359748453433997,
+    0.9133550027281147,
+    0.005101959267466333
+  ],
+  "allowed_choice_mass": 0.9931113724907739,
+  "label_source": "machine",
+  "approved_for_training": false
+}

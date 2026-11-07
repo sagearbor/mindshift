@@ -1,0 +1,17 @@
+{
+  "id": "1003_WSI_SAD_XX",
+  "audio_sha256": "6a55d03bc2903451c27da19f97c0e752128dc8a8f407ac37aa528334b678abd8",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "transcript",
+  "probabilities": [
+    0.020151738590215434,
+    0.003968112604076326,
+    0.0013713430211529153,
+    0.0024067819555644294,
+    0.9709651405334433,
+    0.0011368832955492476
+  ],
+  "allowed_choice_mass": 0.9974132851203056,
+  "label_source": "machine",
+  "approved_for_training": false
+}

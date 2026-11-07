@@ -1,0 +1,17 @@
+{
+  "id": "1057_DFA_DIS_XX",
+  "audio_sha256": "9646411deb4c3e85b7dfb0e27006c9ac752630db1d2e108ef86c3c3c7524243b",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.09331969494564023,
+    0.013443976720100326,
+    0.4182298568851582,
+    0.04995043322555978,
+    0.3257177400460028,
+    0.099338298177539
+  ],
+  "allowed_choice_mass": 0.9920185736251164,
+  "label_source": "machine",
+  "approved_for_training": false
+}

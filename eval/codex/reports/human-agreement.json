@@ -1,0 +1,246 @@
+{
+  "source_sha256": "497b4dfeb9fe74988c194b292a4a1658eacf7cefcfc4af01b7136070342547c7",
+  "svg_sha256": "9b7ef9898e3ddc828cb31a72bd2ac18a561491182c38bda5fff72b7d43f60038",
+  "coordinates": [
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "anger",
+      "percent_correct": 95.0,
+      "n": 20,
+      "x": 95.0,
+      "y": -0.27
+    },
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "disgust",
+      "percent_correct": 40.0,
+      "n": 20,
+      "x": 40.0,
+      "y": 0.73
+    },
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "fear",
+      "percent_correct": 55.00000000000001,
+      "n": 20,
+      "x": 55.00000000000001,
+      "y": 1.73
+    },
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "happiness",
+      "percent_correct": 65.0,
+      "n": 20,
+      "x": 65.0,
+      "y": 2.73
+    },
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "neutral",
+      "percent_correct": 75.0,
+      "n": 20,
+      "x": 75.0,
+      "y": 3.73
+    },
+    {
+      "model": "Whisper small, existing fine-tune (float)",
+      "emotion": "sadness",
+      "percent_correct": 30.0,
+      "n": 20,
+      "x": 30.0,
+      "y": 4.73
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "anger",
+      "percent_correct": 40.0,
+      "n": 20,
+      "x": 40.0,
+      "y": -0.135
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "disgust",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 0.865
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "fear",
+      "percent_correct": 70.0,
+      "n": 20,
+      "x": 70.0,
+      "y": 1.865
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "happiness",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 2.865
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "neutral",
+      "percent_correct": 100.0,
+      "n": 20,
+      "x": 100.0,
+      "y": 3.865
+    },
+    {
+      "model": "Qwen3-Omni MLX 4-bit",
+      "emotion": "sadness",
+      "percent_correct": 10.0,
+      "n": 20,
+      "x": 10.0,
+      "y": 4.865
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "anger",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "disgust",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 1.0
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "fear",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 2.0
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "happiness",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 3.0
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "neutral",
+      "percent_correct": 100.0,
+      "n": 20,
+      "x": 100.0,
+      "y": 4.0
+    },
+    {
+      "model": "Liquid LFM3-Audio-2B",
+      "emotion": "sadness",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 5.0
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "anger",
+      "percent_correct": 90.0,
+      "n": 20,
+      "x": 90.0,
+      "y": 0.135
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "disgust",
+      "percent_correct": 0.0,
+      "n": 20,
+      "x": 0.0,
+      "y": 1.135
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "fear",
+      "percent_correct": 55.00000000000001,
+      "n": 20,
+      "x": 55.00000000000001,
+      "y": 2.135
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "happiness",
+      "percent_correct": 70.0,
+      "n": 20,
+      "x": 70.0,
+      "y": 3.135
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "neutral",
+      "percent_correct": 30.0,
+      "n": 20,
+      "x": 30.0,
+      "y": 4.135
+    },
+    {
+      "model": "EmotionThinker: float32, repetition penalty 1.1",
+      "emotion": "sadness",
+      "percent_correct": 80.0,
+      "n": 20,
+      "x": 80.0,
+      "y": 5.135
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "anger",
+      "percent_correct": 95.0,
+      "n": 20,
+      "x": 95.0,
+      "y": 0.27
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "disgust",
+      "percent_correct": 55.00000000000001,
+      "n": 20,
+      "x": 55.00000000000001,
+      "y": 1.27
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "fear",
+      "percent_correct": 80.0,
+      "n": 20,
+      "x": 80.0,
+      "y": 2.27
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "happiness",
+      "percent_correct": 70.0,
+      "n": 20,
+      "x": 70.0,
+      "y": 3.27
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "neutral",
+      "percent_correct": 15.0,
+      "n": 20,
+      "x": 15.0,
+      "y": 4.27
+    },
+    {
+      "model": "MERaLiON-SER: training overlaps this corpus",
+      "emotion": "sadness",
+      "percent_correct": 40.0,
+      "n": 20,
+      "x": 40.0,
+      "y": 5.27
+    }
+  ]
+}

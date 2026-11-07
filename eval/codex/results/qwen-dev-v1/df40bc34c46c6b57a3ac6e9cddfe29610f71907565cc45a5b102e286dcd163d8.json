@@ -1,0 +1,17 @@
+{
+  "id": "1073_TIE_DIS_XX",
+  "audio_sha256": "b649a743a25345668f71035adeec03b2b7fe699c9ad12e7fcde6c3874a259fcc",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.20986129870986384,
+    0.0321832725056848,
+    0.006337262102647473,
+    0.043989317931905456,
+    0.6881087072453147,
+    0.019520141504584455
+  ],
+  "allowed_choice_mass": 0.99313398787905,
+  "label_source": "machine",
+  "approved_for_training": false
+}

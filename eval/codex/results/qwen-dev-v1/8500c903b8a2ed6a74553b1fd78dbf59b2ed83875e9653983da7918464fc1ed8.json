@@ -1,0 +1,17 @@
+{
+  "id": "1041_MTI_DIS_XX",
+  "audio_sha256": "01428175dd14de9e8aee5e83c352af126532c73f3ad34cd002099831bd8911a5",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.039636586626145,
+    0.007804906671930365,
+    0.4828724771959115,
+    0.02559130374780201,
+    0.20129119609105217,
+    0.24280352966715738
+  ],
+  "allowed_choice_mass": 0.9930356940962569,
+  "label_source": "machine",
+  "approved_for_training": false
+}

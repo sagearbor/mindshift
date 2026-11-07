@@ -1,0 +1,17 @@
+{
+  "id": "1088_TSI_NEU_XX",
+  "audio_sha256": "778f0bb6fb2a7facf555108dd56ee8a3932e556fe0a6a2de02ae49f561410c4c",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.008010584302036569,
+    0.0006177099334812377,
+    0.0022950708281864146,
+    0.0021560195160804604,
+    0.9856129234807738,
+    0.0013076919394415943
+  ],
+  "allowed_choice_mass": 0.997665224319042,
+  "label_source": "machine",
+  "approved_for_training": false
+}

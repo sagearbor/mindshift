@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests heightened emotional intensity, which becomes evident through several prosodic features. First, the pitch level is notably high, often associated with strong emotions such as anger or excitement. While anger can manifest in both high and low pitch depending on context, this elevated pitch aligns more closely with an agitated state rather than calmness.\n\nThe energy level is described as normal, but combined with the fast speech rate, it creates a sense of urgency or impatience. Rapid pacing often signals frustration or irritation, especially when paired with stressed words like \"It's\" and \"eleven.\" These stresses emphasize the time, potentially reflecting annoyance at being late or the need to assert control over the situation.\n\nAdditionally, the semantic content\u2014\u201cIt\u2019s eleven o\u2019clock\u201d\u2014can imply dissatisfaction if spoken in a tone that conveys exasperation or impatience. For instance, the phrase might be delivered with clipped articulation or sharper intonation contours, reinforcing the impression of irritation. Considering the speaker profile\u2014a middle-aged male\u2014their vocal expression may lean toward a firm, authoritative style, further amplifying the perception of anger.\n\nOverall, the combination of high pitch, fast pace, and stressed emphasis strongly points to an emotionally charged delivery consistent with anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1042_IEO_FEA_HI",
+  "audio_sha256": "3636a86ba4fbf2240d0195082a6a3c9356eb09181c894148d073eaad76b99ef1",
+  "seconds": 18.289980833418667,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,10 @@
+{
+  "id": "1067_IOM_ANG_XX",
+  "audio_sha256": "da27948487bc46ce3f38a5635b5a7661a3e74560aba54563ef2e7024b905c3da",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.1936564575880766,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

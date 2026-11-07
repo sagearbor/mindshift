@@ -1,0 +1,17 @@
+{
+  "id": "1001_IOM_HAP_XX",
+  "audio_sha256": "54a8162c71d91fb536700f476dfec833f53bd579c83cab131e12ff4b98cb0af2",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.02575471071847726,
+    0.0006863397928063785,
+    0.001646443572229718,
+    0.0044754976439752405,
+    0.9664383897664678,
+    0.0009986185060441158
+  ],
+  "allowed_choice_mass": 0.9972827251759965,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,16 @@
+{
+  "probabilities": [
+    0.39087654542205186,
+    0.0006255598748469534,
+    0.000379421243580675,
+    0.0006659050204959315,
+    0.6054014365751148,
+    0.002051131863910675
+  ],
+  "allowed_choice_mass": 1.1500077770799798e-05,
+  "id": "1003_IOM_FEA_XX",
+  "audio_sha256": "93141566a7b9c8ace99f6e2deec897163f821e1f33aad72f4edee66f1646d529",
+  "seconds": 0.32120462507009506,
+  "label_source": "machine",
+  "approved_for_training": false
+}

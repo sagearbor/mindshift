@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of urgency and heightened emotional intensity, which becomes evident through several prosodic features. First, the pitch level is notably high, suggesting an elevated emotional state often associated with agitation or frustration. This heightened pitch, combined with the expressive intonation contour, creates a dynamic vocal delivery that feels forceful rather than neutral.\n\nThe energy level is also high, further reinforcing the impression of emotional arousal. While the speech rate remains normal, the stress placed on specific words\u2014\u201cDon\u2019t,\u201d \u201cforget,\u201d and \u201cjacket!\u201d\u2014adds emphasis to key parts of the message, making it sound more commanding and assertive. Stressing these particular words suggests the speaker is trying to draw attention to something important, possibly out of exasperation or impatience.\n\nAdditionally, the semantic content of the phrase, \u201cDon\u2019t forget a jacket!\u201d, carries a tone of mild irritation or annoyance, especially when paired with the prosodic cues. For a middle-aged female speaker, this combination of high pitch, strong energy, and deliberate stress patterns strongly points toward an emotionally charged delivery, likely reflecting frustration or anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1003_DFA_ANG_XX",
+  "audio_sha256": "ff499b82dc7d37e73c7b6ee45fefe04cbad21c8d5cf64f81fdc6eb92b2c4ad1b",
+  "seconds": 16.3226551245898,
+  "label_source": "machine",
+  "approved_for_training": false
+}

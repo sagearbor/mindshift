@@ -1,0 +1,10 @@
+{
+  "id": "1016_ITS_DIS_XX",
+  "audio_sha256": "e4a7d89ca3d0820972683312a798180ecaf34165fc638d7a65f057fbe58a9758",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19841720815747976,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

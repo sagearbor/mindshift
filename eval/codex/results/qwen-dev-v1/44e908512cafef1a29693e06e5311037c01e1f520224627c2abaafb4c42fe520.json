@@ -1,0 +1,17 @@
+{
+  "id": "1003_IEO_HAP_MD",
+  "audio_sha256": "60d3d543dc668c8dbdbf2627fb005dafa8e091a1b25322617a6fda0df16ce949",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.11423105824952733,
+    0.011310406418292479,
+    0.014522849314155706,
+    0.12944074694763844,
+    0.6997500668310558,
+    0.030744872239331
+  ],
+  "allowed_choice_mass": 0.9618939790155909,
+  "label_source": "machine",
+  "approved_for_training": false
+}

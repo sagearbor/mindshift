@@ -1,0 +1,17 @@
+{
+  "id": "1087_WSI_FEA_XX",
+  "audio_sha256": "67f4c9a3a064a91644fbf365133e93a51ec75e598d1d5602af6a9b94d4b8f1cf",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.023296018649172853,
+    0.0031527732821712198,
+    0.03184188216798179,
+    0.0040482410273618786,
+    0.9305562006057442,
+    0.007104884267569209
+  ],
+  "allowed_choice_mass": 0.99577867877858,
+  "label_source": "machine",
+  "approved_for_training": false
+}

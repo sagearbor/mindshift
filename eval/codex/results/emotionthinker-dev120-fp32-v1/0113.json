@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "generated_text": "<think>The speaker\u2019s delivery suggests an emotional state that leans toward sadness. First, the low energy level is a key indicator of subdued affect. This lack of vocal dynamism often signals a sense of heaviness or emotional withdrawal, which aligns well with feelings of sadness. Additionally, the pitch remains at a normal level without significant variation, further reinforcing a flatness or monotony in tone that can be associated with melancholy.\n\nThe speech rate being normal does not contradict this interpretation but instead complements it by avoiding urgency or excitement, traits more commonly linked to other emotions like anger or joy. The absence of stressed words also contributes to the impression of emotional detachment, as emphasis on certain parts of the sentence might otherwise convey intensity or focus.\n\nTurning to the transcription, \u201cI\u2019m on my way to the meeting,\u201d there is no overtly emotional language. However, the semantic content combined with prosodic cues creates a subtle contrast. The phrase itself could imply routine or obligation, yet when delivered with low energy and a flat intonation contour, it may reflect resignation or a lack of enthusiasm for the task ahead. For a young adult male speaker, such vocal patterns suggest an underlying sadness rather than neutrality.</think>\n<answer>F</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1026_IOM_SAD_XX",
+  "audio_sha256": "67c8d32ca3a4ceb40c01bedd72235bd15c75c483142b073ba03f327588daf623",
+  "seconds": 16.149473750032485,
+  "label_source": "machine",
+  "approved_for_training": false
+}

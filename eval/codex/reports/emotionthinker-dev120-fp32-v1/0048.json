@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery strongly suggests heightened emotional intensity. First, the energy level is notably high, which often correlates with emotions such as anger or frustration. This elevated energy creates an impression of urgency or agitation, even if the pitch remains at a normal level. Additionally, the speech rate is slow, which can sometimes indicate deliberate emphasis or controlled expression\u2014common traits when someone is trying to assert authority or express dissatisfaction.\n\nThe stress placed on \"Don't\" and \"jacket!\" further reinforces this interpretation. Stressing these particular words signals importance and possibly irritation, as though the speaker is emphasizing key points to ensure compliance. While the semantic content of the phrase\u2014\"Don't forget a jacket!\"\u2014might initially seem neutral or instructional, its delivery likely carries an edge due to the prosodic cues. For instance, the combination of high energy and stressed words could suggest impatience or annoyance, especially given that the speaker is middle-aged and male, whose vocal tone might naturally lean toward firmness or authority.\n\nOverall, the interplay of high energy, deliberate pacing, and word stress paints a picture of someone expressing frustration or anger, even if the literal meaning of the words does not explicitly convey it.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1050_DFA_ANG_XX",
+  "audio_sha256": "79c76ee6ff5c4ce6cb1489ff04d91cd2e2c587709fb70b17041f8c7143dbddd2",
+  "seconds": 17.68969108350575,
+  "label_source": "machine",
+  "approved_for_training": false
+}

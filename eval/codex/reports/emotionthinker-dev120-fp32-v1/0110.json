@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is heightened and intense. While the pitch level remains normal, the energy level stands out as notably high for a young adult male speaker. This elevated energy often correlates with emotions such as anger or frustration, where individuals tend to project their feelings more forcefully through their voice.\n\nThe speech rate is fast, which further reinforces this impression. Rapid pacing can signal urgency or agitation, both of which align well with anger. Additionally, stress patterns on specific words\u2014\u201cIt\u2019s,\u201d \u201celeven,\u201d and \u201co\u2019clock\u201d\u2014highlight key elements of the message, potentially emphasizing impatience or annoyance. Stressing these particular words could indicate the speaker\u2019s focus on time, possibly reflecting irritation or exasperation.\n\nAlthough the semantic content of the phrase, \"It's eleven o'clock,\" might seem neutral at face value, its delivery likely carries emotional weight. Combined with the prosodic cues, the statement may reflect frustration over being late or a situation involving time constraints. Taken together, the combination of high energy, fast pace, and stressed words strongly points toward an emotionally charged expression consistent with anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1001_IEO_FEA_MD",
+  "audio_sha256": "4a9e22697134bdd4f4cc838d8308e469de456d59340f7a9016802d03e681223a",
+  "seconds": 15.36338666640222,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,18 @@
+{
+  "tests": 58,
+  "failures": 0,
+  "errors": 0,
+  "test_command": ".venv/bin/python -m pytest eval/codex/tests -q --junitxml=eval/codex/reports/tests-overnight.xml",
+  "test_xml_sha256": "1393e4782fa0e0ba2a87cb7a4dd2fc0f3e59e391a8d1b8eb33b4cd01fd62ffd5",
+  "requirements_sha256": "759c1ca2b296b95212a1b3b342e16229dd0ab065a2c9cb716777828541cf0473",
+  "pretest_freeze_sha256": "7a1bb46d8669275feca3244104eb2dae2bf69e1fc1fca9422429297a03fa2309",
+  "html_structural_check": "16 collapsed accordions; four valid embedded SVGs; human agreement graph first",
+  "browser_visual_verification": "blocked: browser URL policy disallows local file URL; no workaround attempted",
+  "phone_verified": false,
+  "independent_review": "All planned experiments complete. Reviewer independently verified raw native responses, shared cohorts, external diagnostic scores and chart cells, and both balanced-training comparisons. Stale pending wording corrected.",
+  "report_comparison_check": "63 changes recomputed from frozen per-run metrics; human denominators recomputed from benchmark index",
+  "report_html_sha256": "be0fefcf6ea4e40ab9c9c716ebf55230ed8a9d2dd356695a108b855345095980",
+  "report_update_test_run": "58 final targeted tests passed on 2026-11-06",
+  "overview_chart_check": "18 plotted coordinates verified against raw metrics; valid SVG; chart above first accordion; standalone PNG visually inspected",
+  "human_agreement_chart_check": "All 30 coordinates checked against measured recall on identical 120 English clips; standalone PNG visually inspected. Human consensus is the reference, not measured human accuracy."
+}

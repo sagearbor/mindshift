@@ -1,0 +1,9 @@
+small C0.01-balancedFalse dev macro F1 0.5717
+small C0.1-balancedFalse dev macro F1 0.5074
+small C1-balancedFalse dev macro F1 0.4567
+small C10-balancedFalse dev macro F1 0.4241
+small C0.01-balancedTrue dev macro F1 0.4646
+small C0.1-balancedTrue dev macro F1 0.4158
+small C1-balancedTrue dev macro F1 0.3588
+small C10-balancedTrue dev macro F1 0.3411
+selected C0.01-balancedFalse saved eval/codex/results/small-all-v1

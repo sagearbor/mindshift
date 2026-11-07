@@ -1,0 +1,959 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emotion model results</title><style>
+    :root{color-scheme:light dark;--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd} @media(prefers-color-scheme:dark){:root{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}}[data-theme=dark]{--bg:#131720;--fg:#e7edf7;--panel:#1d2430;--line:#455269;--good:#58d993;--bad:#ff7c88;--violet:#c0a0ff}[data-theme=light]{--bg:#fafafa;--fg:#18202c;--panel:#fff;--line:#ccd3dd;--good:#11773f;--bad:#b72834;--violet:#7440bd}
+    body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui;margin:30px auto;padding:0 20px;max-width:1100px}h1{font-size:2rem;line-height:1.2}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}.card{border:1px solid currentColor;background:var(--panel);padding:14px;border-radius:10px}.card b{display:block;font-size:2rem}.card small{display:block}.good{color:var(--good)}.bad{color:var(--bad)}.violet{color:var(--violet)}.chip{font-size:.76rem;border:1px solid currentColor;padding:3px 7px;border-radius:6px;white-space:nowrap}details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:12px 0}summary{cursor:pointer;font-weight:650;white-space:nowrap;overflow-x:auto}summary .chip{margin:0 9px}.callout{border-left:4px solid;padding:10px;margin:15px 0;font-weight:650}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:.88rem}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--line)}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:15px;border:1px solid var(--line);border-radius:6px}a{color:var(--good)}.recap{margin:22px 0}.recap p{margin:7px 0}
+.meter{display:block;min-width:90px;height:7px;background:var(--line);margin-top:5px;border-radius:4px;overflow:hidden}
+.meter i{display:block;height:100%;background:currentColor}
+.measure{white-space:nowrap;font-variant-numeric:tabular-nums}
+.delta-track{position:relative;display:block;width:150px;height:10px;background:var(--line);margin-top:5px}
+.delta-track:after{content:"";position:absolute;left:50%;height:100%;border-left:1px solid var(--fg)}
+.delta-track i{position:absolute;height:100%;background:currentColor}
+.flow{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}.flow>div{flex:1;min-width:160px;border:1px solid var(--line);padding:14px;border-radius:8px}.flow strong{display:block;font-size:1.5rem}
+.visual-table{min-width:1050px}.visual-table th:first-child{min-width:150px}.note{font-size:.9rem}
+</style><body><h1>Emotion recognition: measured results</h1><p><span class="good">Green = GOOD</span> · <span class="bad">Red = BAD</span> · <span class="violet">Violet = NEEDS YOU</span></p><div class="cards"><div class="card good"><b>7,441</b><small>GOOD — usable labelled clips</small></div><div class="card good"><b>1,476</b><small>GOOD — held-out test clips</small></div><div class="card good"><b>9.9 <abbr title="Megabytes: one million bytes">MB</abbr></b><small>GOOD — tiny model size</small></div><div class="card good"><b>94.9 MB</b><small>GOOD — small model size</small></div><div class="card bad"><b>63.4%</b><small>BAD — small model quality unmet</small></div><div class="card bad"><b>0</b><small>BAD — qualified automatic labelers</small></div></div><div class="scroll"><table><thead><tr><th>Scorecard</th><th>Verdict</th><th>So what</th></tr></thead><tbody><tr><td>Human benchmark</td><td>GOOD</td><td>Both actor intent and listener votes preserved</td></tr><tr><td>Phone-size export</td><td>GOOD</td><td>Complete tiny model under 10 MB</td></tr><tr><td>Recognition quality</td><td>BAD</td><td>Still below the provisional research target</td></tr><tr><td>Phone validation</td><td>BAD</td><td>Real-device tests remain unfinished</td></tr><tr><td>Automatic labelling</td><td>BAD</td><td>Teacher failed; large-scale labels not generated</td></tr></tbody></table></div><div class="recap"><p><strong>Oneliner:</strong> A reproducible benchmark and compact models are ready; reliable recognition is not achieved yet.</p><p><strong>Task given:</strong> Build a commercially usable, accurate phone-sized emotion model verified against human-tagged audio; device testing and nudges excluded.</p><p><strong>My result:</strong> Incomplete on accuracy; benchmark, training comparisons and local exports completed.</p><p><strong>Recommended next step:</strong> Keep both labels, train from listener votes, and find existing human-rated natural speech before trusting automatic labels.</p></div><p><strong>English is the priority.</strong> All custom training so far used English only: 4,489 <abbr title="Crowd-sourced Emotional Multimodal Actors Dataset">CREMA-D</abbr> training clips, or 1,849 for agreement-only experiments. Italian was an extra evaluation, never training data. MESS adds a separate English diagnostic. Any future Italian training would be a minority experiment judged by English validation.</p><p><strong>What is our model?</strong> We took the Whisper small audio encoder, added a six-emotion classifier, trained the classifier and fine-tuned the encoder on human listener ratings, then compressed its weights to 8-bit. The complete export is 94.9 MB; the separately trained tiny alternative is 9.9 MB. These are experimental phone candidates; neither phone nor watch execution has been verified.</p><p><strong>How to read the scores:</strong> Percent correct counts correct labels across recordings. Macro <abbr title="Harmonic mean of precision and recall; macro F1 averages equally over six emotions">F1</abbr> first combines precision (how often an emotion prediction is right) and recall (how often that emotion is found), then averages equally across emotions. F1 points are F1 multiplied by 100: 63.4 points means F1 = 0.634, not 63.4% of recordings correct. The original selected model scored 73.5% correct and 63.4 macro F1 points on the same test.</p><figure><svg role="img" aria-label="Model agreement with human audio-only labels on the same English recordings" style="width:100%;height:auto;display:block" xmlns:xlink="http://www.w3.org/1999/xlink" width="972pt" height="554.4pt" viewBox="0 0 972 554.4" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 554.4 
+L 972 554.4 
+L 972 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 126.36 432.432 
+L 670.68 432.432 
+L 670.68 88.704 
+L 126.36 88.704 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="line2d_1">
+    <path d="M 126.36 119.695869 
+L 670.68 119.695869 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 126.36 176.044721 
+L 670.68 176.044721 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 126.36 232.393574 
+L 670.68 232.393574 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_4">
+    <path d="M 126.36 288.742426 
+L 670.68 288.742426 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_5">
+    <path d="M 126.36 345.091279 
+L 670.68 345.091279 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_6">
+    <path d="M 126.36 401.440131 
+L 670.68 401.440131 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e9edf2; stroke-linecap: square"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_7">
+      <path d="M 141.621308 432.432 
+L 141.621308 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8"/>
+     <g id="text_1">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="141.621308" y="449.549188" transform="rotate(-0 141.621308 449.549188)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_9">
+      <path d="M 243.363364 432.432 
+L 243.363364 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10"/>
+     <g id="text_2">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="243.363364" y="449.549188" transform="rotate(-0 243.363364 449.549188)">20</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_11">
+      <path d="M 345.105421 432.432 
+L 345.105421 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12"/>
+     <g id="text_3">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="345.105421" y="449.549188" transform="rotate(-0 345.105421 449.549188)">40</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_13">
+      <path d="M 446.847477 432.432 
+L 446.847477 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_14"/>
+     <g id="text_4">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="446.847477" y="449.549188" transform="rotate(-0 446.847477 449.549188)">60</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_15">
+      <path d="M 548.589533 432.432 
+L 548.589533 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_16"/>
+     <g id="text_5">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="548.589533" y="449.549188" transform="rotate(-0 548.589533 449.549188)">80</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_17">
+      <path d="M 650.331589 432.432 
+L 650.331589 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke: #e5e8ed; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_18"/>
+     <g id="text_6">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="650.331589" y="449.549188" transform="rotate(-0 650.331589 449.549188)">100</text>
+     </g>
+    </g>
+    <g id="text_7">
+     <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: middle" x="398.52" y="476.550125" transform="rotate(-0 398.52 476.550125)">Percent matching the human consensus — higher is better</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_19"/>
+     <g id="text_8">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="124.254463" transform="rotate(-0 118.36 124.254463)">Anger</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_20"/>
+     <g id="text_9">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="180.603784" transform="rotate(-0 118.36 180.603784)">Disgust</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_21"/>
+     <g id="text_10">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="236.952168" transform="rotate(-0 118.36 236.952168)">Fear</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_22"/>
+     <g id="text_11">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="293.301489" transform="rotate(-0 118.36 293.301489)">Happiness</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_23"/>
+     <g id="text_12">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="349.650341" transform="rotate(-0 118.36 349.650341)">Neutral</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_24"/>
+     <g id="text_13">
+      <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: end" x="118.36" y="405.999194" transform="rotate(-0 118.36 405.999194)">Sadness</text>
+     </g>
+    </g>
+   </g>
+   <g id="line2d_25">
+    <path d="M 650.331589 432.432 
+L 650.331589 88.704 
+" clip-path="url(#p9eb5bb7ee1)" style="fill: none; stroke-dasharray: 5.55,2.4; stroke-dashoffset: 0; stroke: #177245; stroke-width: 1.5"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 126.36 432.432 
+L 670.68 432.432 
+" style="fill: none; stroke: #c9d0d8; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="PathCollection_1">
+    <defs>
+     <path id="md585400825" d="M 0 4.472136 
+C 1.186024 4.472136 2.323632 4.000923 3.162278 3.162278 
+C 4.000923 2.323632 4.472136 1.186024 4.472136 0 
+C 4.472136 -1.186024 4.000923 -2.323632 3.162278 -3.162278 
+C 2.323632 -4.000923 1.186024 -4.472136 0 -4.472136 
+C -1.186024 -4.472136 -2.323632 -4.000923 -3.162278 -3.162278 
+C -4.000923 -2.323632 -4.472136 -1.186024 -4.472136 0 
+C -4.472136 1.186024 -4.000923 2.323632 -3.162278 3.162278 
+C -2.323632 4.000923 -1.186024 4.472136 0 4.472136 
+z
+" style="stroke: #185e9b"/>
+    </defs>
+    <g clip-path="url(#p9eb5bb7ee1)">
+     <use xlink:href="#md585400825" x="624.896075" y="104.481679" style="fill: #185e9b; stroke: #185e9b"/>
+     <use xlink:href="#md585400825" x="345.105421" y="160.830531" style="fill: #185e9b; stroke: #185e9b"/>
+     <use xlink:href="#md585400825" x="421.411963" y="217.179384" style="fill: #185e9b; stroke: #185e9b"/>
+     <use xlink:href="#md585400825" x="472.282991" y="273.528236" style="fill: #185e9b; stroke: #185e9b"/>
+     <use xlink:href="#md585400825" x="523.154019" y="329.877089" style="fill: #185e9b; stroke: #185e9b"/>
+     <use xlink:href="#md585400825" x="294.234393" y="386.225941" style="fill: #185e9b; stroke: #185e9b"/>
+    </g>
+   </g>
+   <g id="PathCollection_2">
+    <defs>
+     <path id="mc337323c7c" d="M -4.472136 4.472136 
+L 4.472136 4.472136 
+L 4.472136 -4.472136 
+L -4.472136 -4.472136 
+z
+" style="stroke: #7958a4"/>
+    </defs>
+    <g clip-path="url(#p9eb5bb7ee1)">
+     <use xlink:href="#mc337323c7c" x="345.105421" y="112.088774" style="fill: #7958a4; stroke: #7958a4"/>
+     <use xlink:href="#mc337323c7c" x="141.621308" y="168.437626" style="fill: #7958a4; stroke: #7958a4"/>
+     <use xlink:href="#mc337323c7c" x="497.718505" y="224.786479" style="fill: #7958a4; stroke: #7958a4"/>
+     <use xlink:href="#mc337323c7c" x="141.621308" y="281.135331" style="fill: #7958a4; stroke: #7958a4"/>
+     <use xlink:href="#mc337323c7c" x="650.331589" y="337.484184" style="fill: #7958a4; stroke: #7958a4"/>
+     <use xlink:href="#mc337323c7c" x="192.492336" y="393.833036" style="fill: #7958a4; stroke: #7958a4"/>
+    </g>
+   </g>
+   <g id="PathCollection_3">
+    <defs>
+     <path id="m0a34d09e2f" d="M 0 -4.472136 
+L -4.472136 4.472136 
+L 4.472136 4.472136 
+z
+" style="stroke: #a76812"/>
+    </defs>
+    <g clip-path="url(#p9eb5bb7ee1)">
+     <use xlink:href="#m0a34d09e2f" x="141.621308" y="119.695869" style="fill: #a76812; stroke: #a76812"/>
+     <use xlink:href="#m0a34d09e2f" x="141.621308" y="176.044721" style="fill: #a76812; stroke: #a76812"/>
+     <use xlink:href="#m0a34d09e2f" x="141.621308" y="232.393574" style="fill: #a76812; stroke: #a76812"/>
+     <use xlink:href="#m0a34d09e2f" x="141.621308" y="288.742426" style="fill: #a76812; stroke: #a76812"/>
+     <use xlink:href="#m0a34d09e2f" x="650.331589" y="345.091279" style="fill: #a76812; stroke: #a76812"/>
+     <use xlink:href="#m0a34d09e2f" x="141.621308" y="401.440131" style="fill: #a76812; stroke: #a76812"/>
+    </g>
+   </g>
+   <g id="PathCollection_4">
+    <defs>
+     <path id="mdb375c2fcd" d="M -0 6.324555 
+L 6.324555 0 
+L 0 -6.324555 
+L -6.324555 -0 
+z
+" style="stroke: #187c7d"/>
+    </defs>
+    <g clip-path="url(#p9eb5bb7ee1)">
+     <use xlink:href="#mdb375c2fcd" x="599.460561" y="127.302964" style="fill: #187c7d; stroke: #187c7d"/>
+     <use xlink:href="#mdb375c2fcd" x="141.621308" y="183.651816" style="fill: #187c7d; stroke: #187c7d"/>
+     <use xlink:href="#mdb375c2fcd" x="421.411963" y="240.000669" style="fill: #187c7d; stroke: #187c7d"/>
+     <use xlink:href="#mdb375c2fcd" x="497.718505" y="296.349521" style="fill: #187c7d; stroke: #187c7d"/>
+     <use xlink:href="#mdb375c2fcd" x="294.234393" y="352.698374" style="fill: #187c7d; stroke: #187c7d"/>
+     <use xlink:href="#mdb375c2fcd" x="548.589533" y="409.047226" style="fill: #187c7d; stroke: #187c7d"/>
+    </g>
+   </g>
+   <g id="PathCollection_5">
+    <defs>
+     <path id="mdcfaa46b92" d="M -2.236068 4.472136 
+L 0 2.236068 
+L 2.236068 4.472136 
+L 4.472136 2.236068 
+L 2.236068 0 
+L 4.472136 -2.236068 
+L 2.236068 -4.472136 
+L 0 -2.236068 
+L -2.236068 -4.472136 
+L -4.472136 -2.236068 
+L -2.236068 0 
+L -4.472136 2.236068 
+z
+" style="stroke: #626973"/>
+    </defs>
+    <g clip-path="url(#p9eb5bb7ee1)">
+     <use xlink:href="#mdcfaa46b92" x="624.896075" y="134.910059" style="fill: #626973; stroke: #626973"/>
+     <use xlink:href="#mdcfaa46b92" x="421.411963" y="191.258911" style="fill: #626973; stroke: #626973"/>
+     <use xlink:href="#mdcfaa46b92" x="548.589533" y="247.607764" style="fill: #626973; stroke: #626973"/>
+     <use xlink:href="#mdcfaa46b92" x="497.718505" y="303.956616" style="fill: #626973; stroke: #626973"/>
+     <use xlink:href="#mdcfaa46b92" x="217.92785" y="360.305469" style="fill: #626973; stroke: #626973"/>
+     <use xlink:href="#mdcfaa46b92" x="345.105421" y="416.654321" style="fill: #626973; stroke: #626973"/>
+    </g>
+   </g>
+   <g id="legend_1">
+    <g id="PathCollection_6">
+     <g>
+      <use xlink:href="#md585400825" x="707.9096" y="102.786808" style="fill: #185e9b; stroke: #185e9b"/>
+     </g>
+    </g>
+    <g id="text_14">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 97.751515)">Our Whisper small (float)</text>
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 110.954523)">60.0% overall</text>
+    </g>
+    <g id="PathCollection_7">
+     <g>
+      <use xlink:href="#mc337323c7c" x="707.9096" y="144.042824" style="fill: #7958a4; stroke: #7958a4"/>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 139.007531)">Qwen3-Omni 30B (4-bit)</text>
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 152.210539)">36.7% overall</text>
+    </g>
+    <g id="PathCollection_8">
+     <g>
+      <use xlink:href="#m0a34d09e2f" x="707.9096" y="185.29884" style="fill: #a76812; stroke: #a76812"/>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 180.263547)">Liquid LFM3-Audio 2B</text>
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 193.466555)">16.7% overall</text>
+    </g>
+    <g id="PathCollection_9">
+     <g>
+      <use xlink:href="#mdb375c2fcd" x="707.9096" y="226.554855" style="fill: #187c7d; stroke: #187c7d"/>
+     </g>
+    </g>
+    <g id="text_17">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 221.519562)">EmotionThinker 7B</text>
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 234.72257)">54.2% overall</text>
+    </g>
+    <g id="PathCollection_10">
+     <g>
+      <use xlink:href="#mdcfaa46b92" x="707.9096" y="267.810871" style="fill: #626973; stroke: #626973"/>
+     </g>
+    </g>
+    <g id="text_18">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 262.775578)">MERaLiON (training overlap)*</text>
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'" transform="translate(727.7096 275.978586)">59.2% overall</text>
+    </g>
+   </g>
+  </g>
+  <g id="text_19">
+   <text style="font-weight: 700; font-size: 21px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #17263b" x="38.88" y="27.72" transform="rotate(-0 38.88 27.72)">How often did each model agree with the human labelers?</text>
+  </g>
+  <g id="text_20">
+   <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #445469" x="38.88" y="55.44" transform="rotate(-0 38.88 55.44)">Same 120 English recordings • 18 speakers • 20 recordings per emotion • all models run locally</text>
+  </g>
+  <g id="text_21">
+   <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #344356" x="38.88" y="496.188" transform="rotate(-0 38.88 496.188)">Human reference = the most-selected emotion among audio-only listeners; tied votes excluded.</text>
+  </g>
+  <g id="text_22">
+   <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #344356" x="38.88" y="513.3744" transform="rotate(-0 38.88 513.3744)">100% means matching that reference every time. It is not a measured human accuracy score.</text>
+  </g>
+  <g id="text_23">
+   <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #344356" x="38.88" y="530.5608" transform="rotate(-0 38.88 530.5608)">* MERaLiON trained on this corpus. All rows are development screening, not fresh test confirmation.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p9eb5bb7ee1">
+   <rect x="126.36" y="88.704" width="544.32" height="343.728"/>
+  </clipPath>
+ </defs>
+</svg>
+<figcaption>Each dot is a model’s percent correct against human-perceived emotion, using the same English clips. This is the direct model-versus-human-label comparison. Whisper uses its uncompressed checkpoint here; its compressed export is evaluated separately. Human consensus supplies the reference, not an additional competitor with a measured score.</figcaption></figure><figure style="margin:24px 0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 370" role="img" aria-label="Per-emotion recognition across original and new recordings" style="width:100%;height:auto;display:block"><rect width="1060" height="370" rx="12" fill="#ffffff"/><g font-family="Arial,sans-serif" fill="#17263b"><text x="24" y="34" font-size="23" font-weight="bold">Does the same compact model work on new recordings?</text><text x="24" y="61" font-size="14">Correctly recognized within each human-perceived emotion · each cell shows its denominator</text><text x="303" y="98" font-size="14" text-anchor="middle">Anger</text><text x="424" y="98" font-size="14" text-anchor="middle">Disgust</text><text x="545" y="98" font-size="14" text-anchor="middle">Fear</text><text x="666" y="98" font-size="14" text-anchor="middle">Happiness</text><text x="787" y="98" font-size="14" text-anchor="middle">Neutral</text><text x="908" y="98" font-size="14" text-anchor="middle">Sadness</text><text x="24" y="139" font-size="16" font-weight="bold">Original English test</text><text x="24" y="161" font-size="13">1,341 clips · 18 actors</text><rect x="245" y="115" width="116" height="63" rx="6" fill="#d7efdf"/><text x="303" y="140" font-size="14" text-anchor="middle">85.3% · good</text><text x="303" y="162" font-size="12" text-anchor="middle">184 recordings</text><rect x="366" y="115" width="116" height="63" rx="6" fill="#fae0e3"/><text x="424" y="140" font-size="14" text-anchor="middle">42.0% · low</text><text x="424" y="162" font-size="12" text-anchor="middle">131 recordings</text><rect x="487" y="115" width="116" height="63" rx="6" fill="#fae0e3"/><text x="545" y="140" font-size="14" text-anchor="middle">48.9% · low</text><text x="545" y="162" font-size="12" text-anchor="middle">133 recordings</text><rect x="608" y="115" width="116" height="63" rx="6" fill="#d7efdf"/><text x="666" y="140" font-size="14" text-anchor="middle">60.5% · good</text><text x="666" y="162" font-size="12" text-anchor="middle">86 recordings</text><rect x="729" y="115" width="116" height="63" rx="6" fill="#d7efdf"/><text x="787" y="140" font-size="14" text-anchor="middle">87.0% · good</text><text x="787" y="162" font-size="12" text-anchor="middle">698 recordings</text><rect x="850" y="115" width="116" height="63" rx="6" fill="#fae0e3"/><text x="908" y="140" font-size="14" text-anchor="middle">45.9% · low</text><text x="908" y="162" font-size="12" text-anchor="middle">109 recordings</text><text x="24" y="214" font-size="16" font-weight="bold">New Italian diagnostic</text><text x="24" y="236" font-size="13">953 clips · 86 actors</text><rect x="245" y="190" width="116" height="63" rx="6" fill="#fae0e3"/><text x="303" y="215" font-size="14" text-anchor="middle">30.5% · low</text><text x="303" y="237" font-size="12" text-anchor="middle">164 recordings</text><rect x="366" y="190" width="116" height="63" rx="6" fill="#fae0e3"/><text x="424" y="215" font-size="14" text-anchor="middle">1.8% · low</text><text x="424" y="237" font-size="12" text-anchor="middle">113 recordings</text><rect x="487" y="190" width="116" height="63" rx="6" fill="#fae0e3"/><text x="545" y="215" font-size="14" text-anchor="middle">49.0% · low</text><text x="545" y="237" font-size="12" text-anchor="middle">96 recordings</text><rect x="608" y="190" width="116" height="63" rx="6" fill="#fae0e3"/><text x="666" y="215" font-size="14" text-anchor="middle">4.8% · low</text><text x="666" y="237" font-size="12" text-anchor="middle">145 recordings</text><rect x="729" y="190" width="116" height="63" rx="6" fill="#d7efdf"/><text x="787" y="215" font-size="14" text-anchor="middle">95.8% · good</text><text x="787" y="237" font-size="12" text-anchor="middle">239 recordings</text><rect x="850" y="190" width="116" height="63" rx="6" fill="#fae0e3"/><text x="908" y="215" font-size="14" text-anchor="middle">7.1% · low</text><text x="908" y="237" font-size="12" text-anchor="middle">196 recordings</text><text x="24" y="289" font-size="16" font-weight="bold">New English diagnostic</text><text x="24" y="311" font-size="13">1,270 clips · 6 actors</text><rect x="245" y="265" width="116" height="63" rx="6" fill="#fae0e3"/><text x="303" y="290" font-size="14" text-anchor="middle">49.8% · low</text><text x="303" y="312" font-size="12" text-anchor="middle">450 recordings</text><rect x="366" y="265" width="116" height="63" rx="6" fill="#e7ebf0"/><text x="424" y="290" font-size="14" text-anchor="middle">Not evaluated</text><text x="424" y="312" font-size="12" text-anchor="middle">No target clips</text><rect x="487" y="265" width="116" height="63" rx="6" fill="#e7ebf0"/><text x="545" y="290" font-size="14" text-anchor="middle">Not evaluated</text><text x="545" y="312" font-size="12" text-anchor="middle">No target clips</text><rect x="608" y="265" width="116" height="63" rx="6" fill="#fae0e3"/><text x="666" y="290" font-size="14" text-anchor="middle">1.4% · low</text><text x="666" y="312" font-size="12" text-anchor="middle">443 recordings</text><rect x="729" y="265" width="116" height="63" rx="6" fill="#e7ebf0"/><text x="787" y="290" font-size="14" text-anchor="middle">Not evaluated</text><text x="787" y="312" font-size="12" text-anchor="middle">No target clips</text><rect x="850" y="265" width="116" height="63" rx="6" fill="#fae0e3"/><text x="908" y="290" font-size="14" text-anchor="middle">0.0% · low</text><text x="908" y="312" font-size="12" text-anchor="middle">377 recordings</text><text x="24" y="351" font-size="13">Green: reaches provisional 60% recall target. Red: below target. Gray: emotion absent from this diagnostic.</text></g></svg><figcaption><strong>Bad — the existing model does not transfer reliably to the new recordings.</strong> Same small int8 model throughout; all predictions remain six-way. Corpus, language, acting and human rating choices differ, so these rows are not a controlled estimate of any single cause. Original English excludes 135 tied ratings; Italian excludes 358 tied/surprise-winning and 23 long clips; new English excludes 530 calm-winning/tied clips. New English measures only anger, happiness and sadness. All three corpora are acted speech.</figcaption></figure><figure style="margin:24px 0"><svg role="img" aria-label="Three before-and-after plots comparing training filters, encoder fine-tuning, and compression for Whisper tiny, base, and small" style="width:100%;height:auto;display:block" xmlns:xlink="http://www.w3.org/1999/xlink" width="1008pt" height="424.8pt" viewBox="0 0 1008 424.8" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 424.8
+L 1008 424.8
+L 1008 0
+L 0 0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 75.6 339.84
+L 355.6 339.84
+L 355.6 106.2
+L 75.6 106.2
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1"/>
+     <g id="text_1">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="137.063415" y="357.198281" transform="rotate(-0 137.063415 357.198281)">All clips</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2"/>
+     <g id="text_2">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="273.64878" y="357.198281" transform="rotate(-0 273.64878 357.198281)">Agreement only</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_3">
+      <path d="M 75.6 339.84
+L 355.6 339.84
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4"/>
+     <g id="text_3">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="344.018711" transform="rotate(-0 66.6 344.018711)">50</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_5">
+      <path d="M 75.6 296.573333
+L 355.6 296.573333
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6"/>
+     <g id="text_4">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="300.752044" transform="rotate(-0 66.6 300.752044)">55</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_7">
+      <path d="M 75.6 253.306667
+L 355.6 253.306667
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8"/>
+     <g id="text_5">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="257.485378" transform="rotate(-0 66.6 257.485378)">60</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_9">
+      <path d="M 75.6 210.04
+L 355.6 210.04
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10"/>
+     <g id="text_6">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="214.218711" transform="rotate(-0 66.6 214.218711)">65</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_11">
+      <path d="M 75.6 166.773333
+L 355.6 166.773333
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12"/>
+     <g id="text_7">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="170.952044" transform="rotate(-0 66.6 170.952044)">70</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_13">
+      <path d="M 75.6 123.506667
+L 355.6 123.506667
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_14"/>
+     <g id="text_8">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #273548" x="66.6" y="127.685378" transform="rotate(-0 66.6 127.685378)">75</text>
+     </g>
+    </g>
+    <g id="text_9">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle" x="37.959922" y="223.02" transform="rotate(-90 37.959922 223.02)">Macro F1 score (0–100) · higher is better</text>
+    </g>
+   </g>
+   <g id="line2d_15">
+    <path d="M 75.6 123.506667
+L 355.6 123.506667
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke-dasharray: 4.81,2.08; stroke-dashoffset: 0; stroke: #9d2838; stroke-width: 1.3"/>
+   </g>
+   <g id="line2d_16">
+    <path d="M 137.063415 305.919794
+L 273.64878 278.130682
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke: #3979b6; stroke-width: 2.2; stroke-linecap: square"/>
+    <defs>
+     <path id="mcbce8f5efe" d="M 0 3.5
+C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874
+C 3.131218 1.81853 3.5 0.928211 3.5 0
+C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874
+C 1.81853 -3.131218 0.928211 -3.5 0 -3.5
+C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874
+C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0
+C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874
+C -1.81853 3.131218 -0.928211 3.5 0 3.5
+z
+" style="stroke: #3979b6"/>
+    </defs>
+    <g clip-path="url(#p5fbe363493)">
+     <use xlink:href="#mcbce8f5efe" x="137.063415" y="305.919794" style="fill: #3979b6; stroke: #3979b6"/>
+     <use xlink:href="#mcbce8f5efe" x="273.64878" y="278.130682" style="fill: #3979b6; stroke: #3979b6"/>
+    </g>
+   </g>
+   <g id="line2d_17">
+    <path d="M 137.063415 267.369459
+L 273.64878 263.294877
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke-dasharray: 8.14,3.52; stroke-dashoffset: 0; stroke: #515b67; stroke-width: 2.2"/>
+    <defs>
+     <path id="m941c832ea8" d="M -3.5 3.5
+L 3.5 3.5
+L 3.5 -3.5
+L -3.5 -3.5
+z
+" style="stroke: #515b67; stroke-linejoin: miter"/>
+    </defs>
+    <g clip-path="url(#p5fbe363493)">
+     <use xlink:href="#m941c832ea8" x="137.063415" y="267.369459" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+     <use xlink:href="#m941c832ea8" x="273.64878" y="263.294877" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="line2d_18">
+    <path d="M 137.063415 243.41953
+L 273.64878 227.991368
+" clip-path="url(#p5fbe363493)" style="fill: none; stroke-dasharray: 2.2,3.63; stroke-dashoffset: 0; stroke: #152f51; stroke-width: 2.2"/>
+    <defs>
+     <path id="mae06f933ab" d="M -0 4.949747
+L 4.949747 0
+L 0 -4.949747
+L -4.949747 -0
+z
+" style="stroke: #152f51; stroke-linejoin: miter"/>
+    </defs>
+    <g clip-path="url(#p5fbe363493)">
+     <use xlink:href="#mae06f933ab" x="137.063415" y="243.41953" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+     <use xlink:href="#mae06f933ab" x="273.64878" y="227.991368" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 75.6 339.84
+L 355.6 339.84
+" style="fill: none; stroke: #ccd4dd; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #9d2838" x="82.429268" y="118.314667" transform="rotate(-0 82.429268 118.314667)">Provisional target: 75</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="137.063415" y="322.919794" transform="rotate(-0 137.063415 322.919794)">53.92</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="273.64878" y="295.130682" transform="rotate(-0 273.64878 295.130682)">57.13</text>
+   </g>
+   <g id="text_13">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="298.234146" y="280.728339" transform="rotate(-0 298.234146 280.728339)">+3.21</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="137.063415" y="257.369459" transform="rotate(-0 137.063415 257.369459)">58.37</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="273.64878" y="253.294877" transform="rotate(-0 273.64878 253.294877)">58.85</text>
+   </g>
+   <g id="text_16">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="298.234146" y="265.892533" transform="rotate(-0 298.234146 265.892533)">+0.47</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="137.063415" y="233.41953" transform="rotate(-0 137.063415 233.41953)">61.14</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="273.64878" y="217.991368" transform="rotate(-0 273.64878 217.991368)">62.93</text>
+   </g>
+   <g id="text_19">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="298.234146" y="230.589024" transform="rotate(-0 298.234146 230.589024)">+1.78</text>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(298.234146 162.893539)">Change</text>
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(298.234146 173.696)">(points)</text>
+   </g>
+   <g id="text_21">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start" x="75.6" y="88.2" transform="rotate(-0 75.6 88.2)">Filter training clips</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_4">
+    <path d="M 389.2 339.84
+L 669.2 339.84
+L 669.2 106.2
+L 389.2 106.2
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_3">
+    <g id="xtick_3">
+     <g id="line2d_19"/>
+     <g id="text_22">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="450.663415" y="357.198281" transform="rotate(-0 450.663415 357.198281)">Frozen encoder</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_20"/>
+     <g id="text_23">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="587.24878" y="357.198281" transform="rotate(-0 587.24878 357.198281)">Fine-tuned</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_4">
+    <g id="ytick_7">
+     <g id="line2d_21">
+      <path d="M 389.2 339.84
+L 669.2 339.84
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_22"/>
+    </g>
+    <g id="ytick_8">
+     <g id="line2d_23">
+      <path d="M 389.2 296.573333
+L 669.2 296.573333
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_24"/>
+    </g>
+    <g id="ytick_9">
+     <g id="line2d_25">
+      <path d="M 389.2 253.306667
+L 669.2 253.306667
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_26"/>
+    </g>
+    <g id="ytick_10">
+     <g id="line2d_27">
+      <path d="M 389.2 210.04
+L 669.2 210.04
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_28"/>
+    </g>
+    <g id="ytick_11">
+     <g id="line2d_29">
+      <path d="M 389.2 166.773333
+L 669.2 166.773333
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_30"/>
+    </g>
+    <g id="ytick_12">
+     <g id="line2d_31">
+      <path d="M 389.2 123.506667
+L 669.2 123.506667
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_32"/>
+    </g>
+   </g>
+   <g id="line2d_33">
+    <path d="M 389.2 123.506667
+L 669.2 123.506667
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke-dasharray: 4.81,2.08; stroke-dashoffset: 0; stroke: #9d2838; stroke-width: 1.3"/>
+   </g>
+   <g id="line2d_34">
+    <path d="M 450.663415 305.919794
+L 587.24878 271.02693
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke: #3979b6; stroke-width: 2.2; stroke-linecap: square"/>
+    <g clip-path="url(#pdc94f7fa73)">
+     <use xlink:href="#mcbce8f5efe" x="450.663415" y="305.919794" style="fill: #3979b6; stroke: #3979b6"/>
+     <use xlink:href="#mcbce8f5efe" x="587.24878" y="271.02693" style="fill: #3979b6; stroke: #3979b6"/>
+    </g>
+   </g>
+   <g id="line2d_35">
+    <path d="M 450.663415 267.369459
+L 587.24878 257.844406
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke-dasharray: 8.14,3.52; stroke-dashoffset: 0; stroke: #515b67; stroke-width: 2.2"/>
+    <g clip-path="url(#pdc94f7fa73)">
+     <use xlink:href="#m941c832ea8" x="450.663415" y="267.369459" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+     <use xlink:href="#m941c832ea8" x="587.24878" y="257.844406" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="line2d_36">
+    <path d="M 450.663415 243.41953
+L 587.24878 220.510208
+" clip-path="url(#pdc94f7fa73)" style="fill: none; stroke-dasharray: 2.2,3.63; stroke-dashoffset: 0; stroke: #152f51; stroke-width: 2.2"/>
+    <g clip-path="url(#pdc94f7fa73)">
+     <use xlink:href="#mae06f933ab" x="450.663415" y="243.41953" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+     <use xlink:href="#mae06f933ab" x="587.24878" y="220.510208" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="patch_5">
+    <path d="M 389.2 339.84
+L 669.2 339.84
+" style="fill: none; stroke: #ccd4dd; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #9d2838" x="396.029268" y="118.314667" transform="rotate(-0 396.029268 118.314667)">Provisional target: 75</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="450.663415" y="322.919794" transform="rotate(-0 450.663415 322.919794)">53.92</text>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="587.24878" y="288.02693" transform="rotate(-0 587.24878 288.02693)">57.95</text>
+   </g>
+   <g id="text_27">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="611.834146" y="273.624586" transform="rotate(-0 611.834146 273.624586)">+4.03</text>
+   </g>
+   <g id="text_28">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="450.663415" y="257.369459" transform="rotate(-0 450.663415 257.369459)">58.37</text>
+   </g>
+   <g id="text_29">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="587.24878" y="247.844406" transform="rotate(-0 587.24878 247.844406)">59.48</text>
+   </g>
+   <g id="text_30">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="611.834146" y="260.442062" transform="rotate(-0 611.834146 260.442062)">+1.10</text>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="450.663415" y="233.41953" transform="rotate(-0 450.663415 233.41953)">61.14</text>
+   </g>
+   <g id="text_32">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="587.24878" y="210.510208" transform="rotate(-0 587.24878 210.510208)">63.79</text>
+   </g>
+   <g id="text_33">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #137743" x="611.834146" y="223.107865" transform="rotate(-0 611.834146 223.107865)">+2.65</text>
+   </g>
+   <g id="text_34">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(611.834146 162.893539)">Change</text>
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(611.834146 173.696)">(points)</text>
+   </g>
+   <g id="text_35">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start" x="389.2" y="88.2" transform="rotate(-0 389.2 88.2)">Retrain encoder</text>
+   </g>
+  </g>
+  <g id="axes_3">
+   <g id="patch_6">
+    <path d="M 702.8 339.84
+L 982.8 339.84
+L 982.8 106.2
+L 702.8 106.2
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_5">
+    <g id="xtick_5">
+     <g id="line2d_37"/>
+     <g id="text_36">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="764.263415" y="357.198281" transform="rotate(-0 764.263415 357.198281)">Float</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_38"/>
+     <g id="text_37">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #273548" x="900.84878" y="357.198281" transform="rotate(-0 900.84878 357.198281)">8-bit</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_6">
+    <g id="ytick_13">
+     <g id="line2d_39">
+      <path d="M 702.8 339.84
+L 982.8 339.84
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_40"/>
+    </g>
+    <g id="ytick_14">
+     <g id="line2d_41">
+      <path d="M 702.8 296.573333
+L 982.8 296.573333
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_42"/>
+    </g>
+    <g id="ytick_15">
+     <g id="line2d_43">
+      <path d="M 702.8 253.306667
+L 982.8 253.306667
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_44"/>
+    </g>
+    <g id="ytick_16">
+     <g id="line2d_45">
+      <path d="M 702.8 210.04
+L 982.8 210.04
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_46"/>
+    </g>
+    <g id="ytick_17">
+     <g id="line2d_47">
+      <path d="M 702.8 166.773333
+L 982.8 166.773333
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_48"/>
+    </g>
+    <g id="ytick_18">
+     <g id="line2d_49">
+      <path d="M 702.8 123.506667
+L 982.8 123.506667
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #e1e6ec; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_50"/>
+    </g>
+   </g>
+   <g id="line2d_51">
+    <path d="M 702.8 123.506667
+L 982.8 123.506667
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke-dasharray: 4.81,2.08; stroke-dashoffset: 0; stroke: #9d2838; stroke-width: 1.3"/>
+   </g>
+   <g id="line2d_52">
+    <path d="M 764.263415 271.02693
+L 900.84878 271.307811
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke: #3979b6; stroke-width: 2.2; stroke-linecap: square"/>
+    <g clip-path="url(#p5868f1bfd5)">
+     <use xlink:href="#mcbce8f5efe" x="764.263415" y="271.02693" style="fill: #3979b6; stroke: #3979b6"/>
+     <use xlink:href="#mcbce8f5efe" x="900.84878" y="271.307811" style="fill: #3979b6; stroke: #3979b6"/>
+    </g>
+   </g>
+   <g id="line2d_53">
+    <path d="M 764.263415 257.844406
+L 900.84878 260.795774
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke-dasharray: 8.14,3.52; stroke-dashoffset: 0; stroke: #515b67; stroke-width: 2.2"/>
+    <g clip-path="url(#p5868f1bfd5)">
+     <use xlink:href="#m941c832ea8" x="764.263415" y="257.844406" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+     <use xlink:href="#m941c832ea8" x="900.84878" y="260.795774" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="line2d_54">
+    <path d="M 764.263415 220.510208
+L 900.84878 224.203837
+" clip-path="url(#p5868f1bfd5)" style="fill: none; stroke-dasharray: 2.2,3.63; stroke-dashoffset: 0; stroke: #152f51; stroke-width: 2.2"/>
+    <g clip-path="url(#p5868f1bfd5)">
+     <use xlink:href="#mae06f933ab" x="764.263415" y="220.510208" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+     <use xlink:href="#mae06f933ab" x="900.84878" y="224.203837" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="patch_7">
+    <path d="M 702.8 339.84
+L 982.8 339.84
+" style="fill: none; stroke: #ccd4dd; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_38">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #9d2838" x="709.629268" y="118.314667" transform="rotate(-0 709.629268 118.314667)">Provisional target: 75</text>
+   </g>
+   <g id="text_39">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="764.263415" y="288.02693" transform="rotate(-0 764.263415 288.02693)">57.95</text>
+   </g>
+   <g id="text_40">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #3979b6" x="900.84878" y="288.307811" transform="rotate(-0 900.84878 288.307811)">57.92</text>
+   </g>
+   <g id="text_41">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #b62e40" x="925.434146" y="273.905467" transform="rotate(-0 925.434146 273.905467)">-0.03</text>
+   </g>
+   <g id="text_42">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="764.263415" y="247.844406" transform="rotate(-0 764.263415 247.844406)">59.48</text>
+   </g>
+   <g id="text_43">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #515b67" x="900.84878" y="250.795774" transform="rotate(-0 900.84878 250.795774)">59.13</text>
+   </g>
+   <g id="text_44">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #b62e40" x="925.434146" y="263.39343" transform="rotate(-0 925.434146 263.39343)">-0.34</text>
+   </g>
+   <g id="text_45">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="764.263415" y="210.510208" transform="rotate(-0 764.263415 210.510208)">63.79</text>
+   </g>
+   <g id="text_46">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f51" x="900.84878" y="214.203837" transform="rotate(-0 900.84878 214.203837)">63.36</text>
+   </g>
+   <g id="text_47">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #b62e40" x="925.434146" y="226.801494" transform="rotate(-0 925.434146 226.801494)">-0.43</text>
+   </g>
+   <g id="text_48">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(925.434146 162.893539)">Change</text>
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; fill: #515b67" transform="translate(925.434146 173.696)">(points)</text>
+   </g>
+   <g id="text_49">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start" x="702.8" y="88.2" transform="rotate(-0 702.8 88.2)">Compress weights</text>
+   </g>
+  </g>
+  <g id="text_50">
+   <text style="font-weight: 700; font-size: 21px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #152f51" x="50.4" y="21.24" transform="rotate(-0 50.4 21.24)">What actually improved?</text>
+  </g>
+  <g id="text_51">
+   <text style="font-size: 12px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #515b67" x="50.4" y="48.852" transform="rotate(-0 50.4 48.852)">Same 1,341 human-labelled test clips • three separate before/after comparisons</text>
+  </g>
+  <g id="text_52">
+   <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #273548" x="50.4" y="392.94" transform="rotate(-0 50.4 392.94)">Green change = gain; red change = loss. Line style / marker identifies model size. All models remain below target.</text>
+  </g>
+  <g id="text_53">
+   <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #515b67" x="50.4" y="409.932" transform="rotate(-0 50.4 409.932)">Vertical axis starts at 50. Descriptive point estimates; uncertainty is not shown. 135 tied human labels excluded.</text>
+  </g>
+  <g id="legend_1">
+   <g id="line2d_55">
+    <path d="M 751.204687 27.152281
+L 762.204687 27.152281
+L 773.204687 27.152281
+" style="fill: none; stroke: #3979b6; stroke-width: 2.2; stroke-linecap: square"/>
+    <g>
+     <use xlink:href="#mcbce8f5efe" x="762.204687" y="27.152281" style="fill: #3979b6; stroke: #3979b6"/>
+    </g>
+   </g>
+   <g id="text_54">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start" x="782.004687" y="31.002281" transform="rotate(-0 782.004687 31.002281)">Tiny</text>
+   </g>
+   <g id="line2d_56">
+    <path d="M 826.9225 27.152281
+L 837.9225 27.152281
+L 848.9225 27.152281
+" style="fill: none; stroke-dasharray: 8.14,3.52; stroke-dashoffset: 0; stroke: #515b67; stroke-width: 2.2"/>
+    <g>
+     <use xlink:href="#m941c832ea8" x="837.9225" y="27.152281" style="fill: #515b67; stroke: #515b67; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="text_55">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start" x="857.7225" y="31.002281" transform="rotate(-0 857.7225 31.002281)">Base</text>
+   </g>
+   <g id="line2d_57">
+    <path d="M 906.509219 27.152281
+L 917.509219 27.152281
+L 928.509219 27.152281
+" style="fill: none; stroke-dasharray: 2.2,3.63; stroke-dashoffset: 0; stroke: #152f51; stroke-width: 2.2"/>
+    <g>
+     <use xlink:href="#mae06f933ab" x="917.509219" y="27.152281" style="fill: #152f51; stroke: #152f51; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="text_56">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start" x="937.309219" y="31.002281" transform="rotate(-0 937.309219 31.002281)">Small</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p5fbe363493">
+   <rect x="75.6" y="106.2" width="280" height="233.64"/>
+  </clipPath>
+  <clipPath id="pdc94f7fa73">
+   <rect x="389.2" y="106.2" width="280" height="233.64"/>
+  </clipPath>
+  <clipPath id="p5868f1bfd5">
+   <rect x="702.8" y="106.2" width="280" height="233.64"/>
+  </clipPath>
+ </defs>
+</svg>
+<figcaption><strong>Fine-tuning helped overall; compression cost little accuracy.</strong> Each panel is an independent comparison, not a sequence of three training steps. Filtering uses frozen encoders at float precision; fine-tuning uses all training clips at float precision; compression uses the same fine-tuned checkpoint. Macro F1 gives each emotion equal weight and is not overall percent correct. Passing the full provisional goal also requires every emotion’s recall to reach 60%.</figcaption></figure><section><h2>Overnight update: agreement-only fine-tuning</h2><p><strong>Mixed result — no replacement selected.</strong> Development quality fell for all three sizes. Tiny and base improved on the previously inspected test; small worsened. That old test helped motivate this experiment, so it cannot independently confirm the gains.</p><svg viewBox="0 0 900 340" role="img" aria-label="All-clip versus agreement-only fine-tuning: development worsens for all sizes; old-test results are mixed" style="width:100%;background:#fff;color:#172033;border-radius:12px"><text x="65" y="25" fill="#172033" font-size="17">Development: all three worse</text><line x1="65" x2="375" y1="252.99999999999997" y2="252.99999999999997" stroke="#ddd"/><text x="25" y="258.0" fill="#333" font-size="12">50</text><line x1="65" x2="375" y1="197.99999999999994" y2="197.99999999999994" stroke="#ddd"/><text x="25" y="202.99999999999994" fill="#333" font-size="12">55</text><line x1="65" x2="375" y1="143.0" y2="143.0" stroke="#ddd"/><text x="25" y="148.0" fill="#333" font-size="12">60</text><line x1="65" x2="375" y1="87.99999999999994" y2="87.99999999999994" stroke="#ddd"/><text x="25" y="92.99999999999994" fill="#333" font-size="12">65</text><line x1="95" x2="315" y1="204.5661051044945" y2="216.94557418910185" stroke="#166534" stroke-width="3"/><circle cx="95" cy="204.5661051044945" r="5" fill="#166534"><title>tiny: 54.40 macro F1 points</title></circle><circle cx="315" cy="216.94557418910185" r="5" fill="#166534"><title>tiny: 53.28 macro F1 points</title></circle><text x="324" y="220.94557418910185" fill="#166534" font-size="12">tiny</text><line x1="95" x2="315" y1="199.12381817649015" y2="205.0126087174648" stroke="#7c3aed" stroke-width="3"/><circle cx="95" cy="199.12381817649015" r="5" fill="#7c3aed"><title>base: 54.90 macro F1 points</title></circle><circle cx="315" cy="205.0126087174648" r="5" fill="#7c3aed"><title>base: 54.36 macro F1 points</title></circle><text x="324" y="209.0126087174648" fill="#7c3aed" font-size="12">base</text><line x1="95" x2="315" y1="152.14871304085403" y2="174.78334532688348" stroke="#0369a1" stroke-width="3"/><circle cx="95" cy="152.14871304085403" r="5" fill="#0369a1"><title>small: 59.17 macro F1 points</title></circle><circle cx="315" cy="174.78334532688348" r="5" fill="#0369a1"><title>small: 57.11 macro F1 points</title></circle><text x="324" y="178.78334532688348" fill="#0369a1" font-size="12">small</text><text x="65" y="310" fill="#333">All training clips</text><text x="270" y="310" fill="#333">Agreement only</text><text x="515" y="25" fill="#172033" font-size="17">Old test: mixed; not fresh evidence</text><line x1="515" x2="825" y1="252.99999999999997" y2="252.99999999999997" stroke="#ddd"/><text x="475" y="258.0" fill="#333" font-size="12">50</text><line x1="515" x2="825" y1="197.99999999999994" y2="197.99999999999994" stroke="#ddd"/><text x="475" y="202.99999999999994" fill="#333" font-size="12">55</text><line x1="515" x2="825" y1="143.0" y2="143.0" stroke="#ddd"/><text x="475" y="148.0" fill="#333" font-size="12">60</text><line x1="515" x2="825" y1="87.99999999999994" y2="87.99999999999994" stroke="#ddd"/><text x="475" y="92.99999999999994" fill="#333" font-size="12">65</text><line x1="545" x2="765" y1="165.52575792048646" y2="147.15515290232014" stroke="#166534" stroke-width="3"/><circle cx="545" cy="165.52575792048646" r="5" fill="#166534"><title>tiny: 57.95 macro F1 points</title></circle><circle cx="765" cy="147.15515290232014" r="5" fill="#166534"><title>tiny: 59.62 macro F1 points</title></circle><text x="774" y="151.15515290232014" fill="#166534" font-size="12">tiny</text><line x1="545" x2="765" y1="148.7683122577444" y2="119.94228299581914" stroke="#7c3aed" stroke-width="3"/><circle cx="545" cy="148.7683122577444" r="5" fill="#7c3aed"><title>base: 59.48 macro F1 points</title></circle><circle cx="765" cy="119.94228299581914" r="5" fill="#7c3aed"><title>base: 62.10 macro F1 points</title></circle><text x="774" y="123.94228299581914" fill="#7c3aed" font-size="12">base</text><line x1="545" x2="765" y1="101.3095867879776" y2="108.63156775880665" stroke="#0369a1" stroke-width="3"/><circle cx="545" cy="101.3095867879776" r="5" fill="#0369a1"><title>small: 63.79 macro F1 points</title></circle><circle cx="765" cy="108.63156775880665" r="5" fill="#0369a1"><title>small: 63.12 macro F1 points</title></circle><text x="774" y="112.63156775880665" fill="#0369a1" font-size="12">small</text><text x="515" y="310" fill="#333">All training clips</text><text x="720" y="310" fill="#333">Agreement only</text></svg><div class="scroll"><table><tr><th>Size</th><th>Development: all → agreement</th><th>Old test: all → agreement</th></tr><tr><td>tiny</td><td>54.40 → 53.28</td><td>57.95 → 59.62</td></tr><tr><td>base</td><td>54.90 → 54.36</td><td>59.48 → 62.10</td></tr><tr><td>small</td><td>59.17 → 57.11</td><td>63.79 → 63.12</td></tr></table></div><p>Values are macro F1 points, equally weighting six emotions, not percent correct. Development has 1,353 uniquely rated clips; old test has 1,341. Respectively 123 and 135 tied clips are excluded from these single-label scores. All models use float precision here. Existing all-clip selection remains in place.</p></section><section><h2>Local audio models: shared development screen</h2><p>120 clips from 18 development speakers, 20 per emotion. These are screening results, not independent test confirmation. Machine predictions remain excluded from training. All rows ran locally on this Mac; each emotion percentage uses 20 recordings. Whisper has our trained classifier and encoder fine-tuning. The four other models were not fine-tuned by us: Qwen uses the community 4-bit export, and EmotionThinker uses full precision plus a 1.1 repetition penalty after reduced-precision generation looped.</p><div class="scroll"><table><tr><th>Model</th><th>Macro F1 points</th><th>Percent correct</th><th>Anger</th><th>Disgust</th><th>Fear</th><th>Happiness</th><th>Neutral</th><th>Sadness</th><th>Meaning</th></tr><tr><td>Whisper small, existing fine-tune (float)</td><td><span style="display:inline-block;width:121.1px;height:10px;background:#64748b"></span> 60.5</td><td>60.0%</td><td>95.0%</td><td>40.0%</td><td>55.0%</td><td>65.0%</td><td>75.0%</td><td>30.0%</td><td>Development evidence only</td></tr><tr><td>Qwen3-Omni MLX 4-bit</td><td><span style="display:inline-block;width:61.6px;height:10px;background:#64748b"></span> 30.8</td><td>36.7%</td><td>40.0%</td><td>0.0%</td><td>70.0%</td><td>0.0%</td><td>100.0%</td><td>10.0%</td><td>Development evidence only</td></tr><tr><td>Liquid LFM3-Audio-2B</td><td><span style="display:inline-block;width:9.7px;height:10px;background:#64748b"></span> 4.8</td><td>16.7%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>Development evidence only</td></tr><tr><td>EmotionThinker: float32, repetition penalty 1.1</td><td><span style="display:inline-block;width:96.3px;height:10px;background:#64748b"></span> 48.1</td><td>54.2%</td><td>90.0%</td><td>0.0%</td><td>55.0%</td><td>70.0%</td><td>30.0%</td><td>80.0%</td><td>Development evidence only</td></tr><tr><td>MERaLiON-SER: training overlaps this corpus</td><td><span style="display:inline-block;width:113.8px;height:10px;background:#64748b"></span> 56.9</td><td>59.2%</td><td>95.0%</td><td>55.0%</td><td>80.0%</td><td>70.0%</td><td>15.0%</td><td>40.0%</td><td>Training overlap — diagnostic only</td></tr></table></div><p>No new model is qualified to label training audio. MERaLiON trained on CREMA-D according to its <a href="https://arxiv.org/html/2511.04914">publisher paper, section 4.1.2</a>, so its row is an overlapping-data diagnostic, not held-out evidence. Extra surprise predictions count as wrong; none were silently removed. The original 12-clip Qwen/Liquid checks were runtime smoke tests concentrated on two speakers. This screen rotates speakers within emotions. All four planned candidates completed this screen. Earlier execution failures remain preserved and unscored.</p></section><section><h2>New human-rated corpus: Italian diagnostic</h2><p><strong>Bad — cross-language recognition remains weak.</strong> The unchanged small int8 model scored 36.6% correct and 26.3 macro F1 points on 953 clips from 86 speakers. It was not trained on this Italian corpus.</p><p>The publisher test has 1,334 clips from 88 speakers. This six-emotion diagnostic excludes 358 tied or surprise-winning clips and 23 clips exceeding the existing six-second input limit. Plurality is determined across all seven original labels before exclusion; actor intent and all five human votes remain preserved.</p><p>The full corpus adds 6,902 recordings with 34,510 existing human ratings. It is acted Italian, not natural English. The protocol and model hash were frozen before inference; unknown pretraining overlap remains a limitation. This result does not change the selected model.</p><p>Source: <a href="https://zenodo.org/records/12616095">Emozionalmente, Catania and colleagues</a>; <a href="https://openslr.org/161/">OpenSLR licence listing: CC BY 4.0</a>. No fresh human ratings were purchased.</p></section><section><h2>New English human ratings: three-emotion MESS diagnostic</h2><p><strong>Bad — recognition does not transfer reliably to these new English recordings.</strong> The unchanged small int8 model scored <strong>18.1% correct</strong> and 21.3 macro F1 points on 1,270 recordings from six actors. This narrower diagnostic does not establish six-emotion or natural-conversation quality.</p><div class="scroll"><table><tr><th>Human-perceived emotion</th><th>Recordings</th><th>Percent correctly recognized</th></tr><tr><td>anger</td><td>450</td><td>49.8%</td></tr><tr><td>disgust</td><td>0</td><td>Not evaluated</td></tr><tr><td>fear</td><td>0</td><td>Not evaluated</td></tr><tr><td>happiness</td><td>443</td><td>1.4%</td></tr><tr><td>neutral</td><td>0</td><td>Not evaluated</td></tr><tr><td>sadness</td><td>377</td><td>0.0%</td></tr></table></div><p>The source contains 1,800 recordings with human rating percentages for angry, calm, happy and sad. We excluded 530 calm-winning or tied recordings before inference. Calm is not relabeled neutral. Predictions of disgust, fear or neutral still count as errors on the selected three emotions. All original human distributions and actor intentions are retained. Accuracy is poor for every actor: 4.0% to 30.4% across the six actors. A post-result full-precision check matched the compressed model’s choices on all 15 checked recordings; this small implementation check does not establish a new accuracy estimate.</p><p>The model and cohort were frozen before inference. No MESS training or model selection occurred; unknown foundation-model pretraining overlap remains possible. These are acted English sentences from six speakers with four-choice human ratings, not spontaneous conversations. <a href="https://zenodo.org/records/7378320">Morgan Emotional Speech Set, Shae Morgan, Zenodo v5</a>; publisher metadata specifies CC BY 4.0.</p></section><section><h2>Class balancing: development results only</h2><p>Training-only weights give less common emotions more influence while retaining every human vote. No old English test or external diagnostic was used in this experiment. Higher macro F1 and lower Brier error are better. Macro F1 and recall use 1,353 clips with a unique human plurality, excluding 123 ties; Brier error compares predicted probabilities with all 1,476 human vote distributions.</p><div class="scroll"><table><tr><th>Model</th><th>Existing fine-tune → weighted candidate: macro F1 points</th><th>Brier error: before → after</th><th>Selected epoch</th><th>Device</th></tr><tr><td>tiny</td><td>54.4 → 52.8</td><td>0.154 → 0.143</td><td>0</td><td>cpu</td></tr><tr><td>small</td><td>59.2 → 57.4</td><td>0.121 → 0.134</td><td>3</td><td>mps</td></tr></table></div><p>Epoch zero means none of the weighted training epochs beat the starting frozen-encoder classifier, so the candidate fell back to that starting model. Tiny ran on CPU while the old fine-tune used MPS; this is an exploratory comparison, not an isolated causal estimate of weighting. Both planned sizes are complete. Existing models remain selected.</p><div class="scroll"><table><tr><th>Model</th><th>Emotion</th><th>Development clips</th><th>Recall before → after</th></tr><tr><td>tiny</td><td>anger</td><td>210</td><td>64.8% → 63.8%</td></tr><tr><td>tiny</td><td>disgust</td><td>90</td><td>36.7% → 34.4%</td></tr><tr><td>tiny</td><td>fear</td><td>100</td><td>60.0% → 48.0%</td></tr><tr><td>tiny</td><td>happiness</td><td>56</td><td>50.0% → 53.6%</td></tr><tr><td>tiny</td><td>neutral</td><td>827</td><td>79.7% → 84.5%</td></tr><tr><td>tiny</td><td>sadness</td><td>70</td><td>34.3% → 25.7%</td></tr><tr><td>small</td><td>anger</td><td>210</td><td>74.8% → 74.8%</td></tr><tr><td>small</td><td>disgust</td><td>90</td><td>34.4% → 50.0%</td></tr><tr><td>small</td><td>fear</td><td>100</td><td>45.0% → 57.0%</td></tr><tr><td>small</td><td>happiness</td><td>56</td><td>58.9% → 58.9%</td></tr><tr><td>small</td><td>neutral</td><td>827</td><td>88.6% → 77.0%</td></tr><tr><td>small</td><td>sadness</td><td>70</td><td>42.9% → 45.7%</td></tr></table></div></section><p><strong>Research outcome:</strong> The shortlisted local audio models did not qualify as automatic labelers, and both class-balancing experiments are complete. The next useful work needs broader English training data and independent human-rated natural speech with documented reuse terms. Preserve human ratings and actor intent separately. No automatic labels enter training until a teacher passes evaluation. Phone testing and nudges are outside this research scope.</p><details><summary>1. <span class="chip bad">BAD</span> Per-emotion results: all models</summary><div class="callout bad">Bad — Per-emotion results: all models. Use the research results to target the next training round; do not deploy this candidate.</div><p>Each emotion is <strong>percent correct among clips humans labelled that emotion</strong> (recall). Bars run from 0% to 100%; green meets the provisional 60% per-emotion goal, red falls short. These are the same 1,341 uniquely labelled test clips for every Whisper row; 135 ties are excluded.</p><div class="scroll"><table class="visual-table"><thead><tr><th>Model / variant</th><th>Where run</th><th>Scored clips</th><th>What changed</th><th>anger</th><th>disgust</th><th>fear</th><th>happiness</th><th>neutral</th><th>sadness</th></tr></thead><tbody><tr><td>Whisper tiny<br>all · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 4,489 training clips</td><td><span class="measure good">75.5%<span class="meter" aria-hidden="true"><i style="width:75.5435%"></i></span></span></td><td><span class="measure bad">33.6%<span class="meter" aria-hidden="true"><i style="width:33.5878%"></i></span></span></td><td><span class="measure bad">48.1%<span class="meter" aria-hidden="true"><i style="width:48.1203%"></i></span></span></td><td><span class="measure bad">44.2%<span class="meter" aria-hidden="true"><i style="width:44.1860%"></i></span></span></td><td><span class="measure good">83.8%<span class="meter" aria-hidden="true"><i style="width:83.8109%"></i></span></span></td><td><span class="measure bad">28.4%<span class="meter" aria-hidden="true"><i style="width:28.4404%"></i></span></span></td></tr><tr><td>Whisper tiny<br>agrees · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 1,849 agreement clips</td><td><span class="measure good">84.2%<span class="meter" aria-hidden="true"><i style="width:84.2391%"></i></span></span></td><td><span class="measure bad">48.1%<span class="meter" aria-hidden="true"><i style="width:48.0916%"></i></span></span></td><td><span class="measure bad">53.4%<span class="meter" aria-hidden="true"><i style="width:53.3835%"></i></span></span></td><td><span class="measure bad">52.3%<span class="meter" aria-hidden="true"><i style="width:52.3256%"></i></span></span></td><td><span class="measure good">75.6%<span class="meter" aria-hidden="true"><i style="width:75.6447%"></i></span></span></td><td><span class="measure bad">34.9%<span class="meter" aria-hidden="true"><i style="width:34.8624%"></i></span></span></td></tr><tr><td>Whisper tiny<br>finetuned · int8</td><td>Local Mac</td><td>1341</td><td>Retrained encoder + classifier; 4,489 clips; then 8-bit compression</td><td><span class="measure good">79.9%<span class="meter" aria-hidden="true"><i style="width:79.8913%"></i></span></span></td><td><span class="measure bad">36.6%<span class="meter" aria-hidden="true"><i style="width:36.6412%"></i></span></span></td><td><span class="measure bad">59.4%<span class="meter" aria-hidden="true"><i style="width:59.3985%"></i></span></span></td><td><span class="measure bad">50.0%<span class="meter" aria-hidden="true"><i style="width:50.0000%"></i></span></span></td><td><span class="measure good">78.8%<span class="meter" aria-hidden="true"><i style="width:78.7966%"></i></span></span></td><td><span class="measure bad">39.4%<span class="meter" aria-hidden="true"><i style="width:39.4495%"></i></span></span></td></tr><tr><td>Whisper base<br>all · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 4,489 training clips</td><td><span class="measure good">86.4%<span class="meter" aria-hidden="true"><i style="width:86.4130%"></i></span></span></td><td><span class="measure bad">35.1%<span class="meter" aria-hidden="true"><i style="width:35.1145%"></i></span></span></td><td><span class="measure bad">48.9%<span class="meter" aria-hidden="true"><i style="width:48.8722%"></i></span></span></td><td><span class="measure bad">55.8%<span class="meter" aria-hidden="true"><i style="width:55.8140%"></i></span></span></td><td><span class="measure good">81.5%<span class="meter" aria-hidden="true"><i style="width:81.5186%"></i></span></span></td><td><span class="measure bad">37.6%<span class="meter" aria-hidden="true"><i style="width:37.6147%"></i></span></span></td></tr><tr><td>Whisper base<br>agrees · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 1,849 agreement clips</td><td><span class="measure good">87.0%<span class="meter" aria-hidden="true"><i style="width:86.9565%"></i></span></span></td><td><span class="measure bad">45.0%<span class="meter" aria-hidden="true"><i style="width:45.0382%"></i></span></span></td><td><span class="measure bad">53.4%<span class="meter" aria-hidden="true"><i style="width:53.3835%"></i></span></span></td><td><span class="measure good">61.6%<span class="meter" aria-hidden="true"><i style="width:61.6279%"></i></span></span></td><td><span class="measure good">76.4%<span class="meter" aria-hidden="true"><i style="width:76.3610%"></i></span></span></td><td><span class="measure bad">37.6%<span class="meter" aria-hidden="true"><i style="width:37.6147%"></i></span></span></td></tr><tr><td>Whisper base<br>finetuned · int8</td><td>Local Mac</td><td>1341</td><td>Retrained encoder + classifier; 4,489 clips; then 8-bit compression</td><td><span class="measure good">85.3%<span class="meter" aria-hidden="true"><i style="width:85.3261%"></i></span></span></td><td><span class="measure bad">42.0%<span class="meter" aria-hidden="true"><i style="width:41.9847%"></i></span></span></td><td><span class="measure good">64.7%<span class="meter" aria-hidden="true"><i style="width:64.6617%"></i></span></span></td><td><span class="measure bad">38.4%<span class="meter" aria-hidden="true"><i style="width:38.3721%"></i></span></span></td><td><span class="measure good">76.6%<span class="meter" aria-hidden="true"><i style="width:76.6476%"></i></span></span></td><td><span class="measure bad">48.6%<span class="meter" aria-hidden="true"><i style="width:48.6239%"></i></span></span></td></tr><tr><td>Whisper small<br>all · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 4,489 training clips</td><td><span class="measure good">83.7%<span class="meter" aria-hidden="true"><i style="width:83.6957%"></i></span></span></td><td><span class="measure bad">45.0%<span class="meter" aria-hidden="true"><i style="width:45.0382%"></i></span></span></td><td><span class="measure bad">58.6%<span class="meter" aria-hidden="true"><i style="width:58.6466%"></i></span></span></td><td><span class="measure bad">50.0%<span class="meter" aria-hidden="true"><i style="width:50.0000%"></i></span></span></td><td><span class="measure good">86.4%<span class="meter" aria-hidden="true"><i style="width:86.3897%"></i></span></span></td><td><span class="measure bad">29.4%<span class="meter" aria-hidden="true"><i style="width:29.3578%"></i></span></span></td></tr><tr><td>Whisper small<br>agrees · float</td><td>Local Mac</td><td>1341</td><td>Added trained classifier; encoder frozen; 1,849 agreement clips</td><td><span class="measure good">89.1%<span class="meter" aria-hidden="true"><i style="width:89.1304%"></i></span></span></td><td><span class="measure bad">58.0%<span class="meter" aria-hidden="true"><i style="width:58.0153%"></i></span></span></td><td><span class="measure good">60.9%<span class="meter" aria-hidden="true"><i style="width:60.9023%"></i></span></span></td><td><span class="measure good">60.5%<span class="meter" aria-hidden="true"><i style="width:60.4651%"></i></span></span></td><td><span class="measure good">74.6%<span class="meter" aria-hidden="true"><i style="width:74.6418%"></i></span></span></td><td><span class="measure bad">46.8%<span class="meter" aria-hidden="true"><i style="width:46.7890%"></i></span></span></td></tr><tr><td>Whisper small<br>finetuned · int8</td><td>Local Mac</td><td>1341</td><td>Retrained encoder + classifier; 4,489 clips; then 8-bit compression</td><td><span class="measure good">85.3%<span class="meter" aria-hidden="true"><i style="width:85.3261%"></i></span></span></td><td><span class="measure bad">42.0%<span class="meter" aria-hidden="true"><i style="width:41.9847%"></i></span></span></td><td><span class="measure bad">48.9%<span class="meter" aria-hidden="true"><i style="width:48.8722%"></i></span></span></td><td><span class="measure good">60.5%<span class="meter" aria-hidden="true"><i style="width:60.4651%"></i></span></span></td><td><span class="measure good">87.0%<span class="meter" aria-hidden="true"><i style="width:86.9628%"></i></span></span></td><td><span class="measure bad">45.9%<span class="meter" aria-hidden="true"><i style="width:45.8716%"></i></span></span></td></tr></tbody></table></div><p>All Whisper rows already have a trained emotion classifier. Unmodified Whisper transcribes speech; we did not measure an off-the-shelf six-emotion score. Adding the classifier therefore establishes the baseline, with no measured before/after uplift. No pruning or distillation has been performed. Phone and watch execution remain untested.</p><h3>Separate development experiment — not the same test set</h3><div class="scroll"><table class="visual-table"><thead><tr><th>Model</th><th>Where run</th><th>Scored clips</th><th>What changed</th><th>anger</th><th>disgust</th><th>fear</th><th>happiness</th><th>neutral</th><th>sadness</th></tr></thead><tbody><tr><td>Qwen2.5-Omni-7B</td><td>Local Mac</td><td>1353</td><td>No weight changes; constrained six-label scoring</td><td><span class="measure bad">55.7%<span class="meter" aria-hidden="true"><i style="width:55.7143%"></i></span></span></td><td><span class="measure bad">13.3%<span class="meter" aria-hidden="true"><i style="width:13.3333%"></i></span></span></td><td><span class="measure bad">39.0%<span class="meter" aria-hidden="true"><i style="width:39.0000%"></i></span></span></td><td><span class="measure bad">26.8%<span class="meter" aria-hidden="true"><i style="width:26.7857%"></i></span></span></td><td><span class="measure good">78.6%<span class="meter" aria-hidden="true"><i style="width:78.5973%"></i></span></span></td><td><span class="measure bad">12.9%<span class="meter" aria-hidden="true"><i style="width:12.8571%"></i></span></span></td></tr></tbody></table></div><p><abbr title="The publisher name of the tested large audio-language model">Qwen</abbr> uses 1,353 unique winners from 1,476 development clips; 123 ties are excluded. These results cannot establish its relative test ranking. Recommendation: test stronger audio teachers on development data before deciding whether to fine-tune them.</p></details><details><summary>2. <span class="chip good">GOOD</span> What each modification changed</summary><div class="callout good">Good — What each modification changed. Nothing to do.</div><p>Each comparison changes one part of the pipeline. Same 1,341 uniquely labelled test clips throughout; 135 ties excluded. Changes are percentage points, not relative percentages. These are descriptive results, not statistically established gains. Bars share a −25 to +25 point scale: left/red is loss, right/green is gain.</p><h3>Training filter: all clips → agreement-only</h3><p>Frozen encoder and trained classifier in both runs; float precision in both. Only training is filtered. Training shrinks from 4,489 to 1,849 clips, changing the label mixture too. Development favored all-clip training for all three sizes, so this test advantage is not a universal result.</p><div class="scroll"><table class="visual-table"><thead><tr><th>Encoder</th><th>Macro F1 before → after</th><th>Macro F1 change</th><th>anger recall change</th><th>disgust recall change</th><th>fear recall change</th><th>happiness recall change</th><th>neutral recall change</th><th>sadness recall change</th></tr></thead><tbody><tr><td>tiny</td><td>53.92% → 57.13%</td><td><span class="measure good">+3.21 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:6.4228%"></i></span></span></td><td><span class="measure good">+8.70 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:17.3913%"></i></span></span></td><td><span class="measure good">+14.50 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:29.0076%"></i></span></span></td><td><span class="measure good">+5.26 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:10.5263%"></i></span></span></td><td><span class="measure good">+8.14 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:16.2791%"></i></span></span></td><td><span class="measure bad">-8.17 points — loss<span class="delta-track" aria-hidden="true"><i style="left:33.6676%;width:16.3324%"></i></span></span></td><td><span class="measure good">+6.42 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:12.8440%"></i></span></span></td></tr><tr><td>base</td><td>58.37% → 58.85%</td><td><span class="measure good">+0.47 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.9417%"></i></span></span></td><td><span class="measure good">+0.54 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:1.0870%"></i></span></span></td><td><span class="measure good">+9.92 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:19.8473%"></i></span></span></td><td><span class="measure good">+4.51 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:9.0226%"></i></span></span></td><td><span class="measure good">+5.81 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:11.6279%"></i></span></span></td><td><span class="measure bad">-5.16 points — loss<span class="delta-track" aria-hidden="true"><i style="left:39.6848%;width:10.3152%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td></tr><tr><td>small</td><td>61.14% → 62.93%</td><td><span class="measure good">+1.78 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:3.5658%"></i></span></span></td><td><span class="measure good">+5.43 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:10.8696%"></i></span></span></td><td><span class="measure good">+12.98 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:25.9542%"></i></span></span></td><td><span class="measure good">+2.26 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:4.5113%"></i></span></span></td><td><span class="measure good">+10.47 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:20.9302%"></i></span></span></td><td><span class="measure bad">-11.75 points — loss<span class="delta-track" aria-hidden="true"><i style="left:26.5043%;width:23.4957%"></i></span></span></td><td><span class="measure good">+17.43 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:34.8624%"></i></span></span></td></tr></tbody></table></div><h3>Fine-tuning: frozen encoder → retrained encoder</h3><p>Both use all 4,489 training clips and float precision. Each includes a trained classifier; fine-tuning also changes encoder weights. Agreement-only encoder fine-tuning has not been run.</p><div class="scroll"><table class="visual-table"><thead><tr><th>Encoder</th><th>Macro F1 before → after</th><th>Macro F1 change</th><th>anger recall change</th><th>disgust recall change</th><th>fear recall change</th><th>happiness recall change</th><th>neutral recall change</th><th>sadness recall change</th></tr></thead><tbody><tr><td>tiny</td><td>53.92% → 57.95%</td><td><span class="measure good">+4.03 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:8.0646%"></i></span></span></td><td><span class="measure good">+4.89 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:9.7826%"></i></span></span></td><td><span class="measure good">+3.05 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:6.1069%"></i></span></span></td><td><span class="measure good">+11.28 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:22.5564%"></i></span></span></td><td><span class="measure good">+3.49 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:6.9767%"></i></span></span></td><td><span class="measure bad">-3.58 points — loss<span class="delta-track" aria-hidden="true"><i style="left:42.8367%;width:7.1633%"></i></span></span></td><td><span class="measure good">+9.17 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:18.3486%"></i></span></span></td></tr><tr><td>base</td><td>58.37% → 59.48%</td><td><span class="measure good">+1.10 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:2.2015%"></i></span></span></td><td><span class="measure bad">-0.54 points — loss<span class="delta-track" aria-hidden="true"><i style="left:48.9130%;width:1.0870%"></i></span></span></td><td><span class="measure good">+6.87 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:13.7405%"></i></span></span></td><td><span class="measure good">+16.54 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:33.0827%"></i></span></span></td><td><span class="measure bad">-13.95 points — loss<span class="delta-track" aria-hidden="true"><i style="left:22.0930%;width:27.9070%"></i></span></span></td><td><span class="measure bad">-5.44 points — loss<span class="delta-track" aria-hidden="true"><i style="left:39.1117%;width:10.8883%"></i></span></span></td><td><span class="measure good">+10.09 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:20.1835%"></i></span></span></td></tr><tr><td>small</td><td>61.14% → 63.79%</td><td><span class="measure good">+2.65 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:5.2949%"></i></span></span></td><td><span class="measure good">+1.09 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:2.1739%"></i></span></span></td><td><span class="measure bad">-3.05 points — loss<span class="delta-track" aria-hidden="true"><i style="left:43.8931%;width:6.1069%"></i></span></span></td><td><span class="measure bad">-7.52 points — loss<span class="delta-track" aria-hidden="true"><i style="left:34.9624%;width:15.0376%"></i></span></span></td><td><span class="measure good">+11.63 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:23.2558%"></i></span></span></td><td><span class="measure good">+0.29 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.5731%"></i></span></span></td><td><span class="measure good">+16.51 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:33.0275%"></i></span></span></td></tr></tbody></table></div><h3>Compression: float → 8-bit weights</h3><p>Same fine-tuned checkpoint and labels. This measures compression loss separately from training gains. Some operations remain floating point.</p><div class="scroll"><table class="visual-table"><thead><tr><th>Encoder</th><th>Macro F1 before → after</th><th>Macro F1 change</th><th>anger recall change</th><th>disgust recall change</th><th>fear recall change</th><th>happiness recall change</th><th>neutral recall change</th><th>sadness recall change</th></tr></thead><tbody><tr><td>tiny</td><td>57.95% → 57.92%</td><td><span class="measure bad">-0.03 points — loss<span class="delta-track" aria-hidden="true"><i style="left:49.9351%;width:0.0649%"></i></span></span></td><td><span class="measure bad">-0.54 points — loss<span class="delta-track" aria-hidden="true"><i style="left:48.9130%;width:1.0870%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td><td><span class="measure good">+2.33 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:4.6512%"></i></span></span></td><td><span class="measure bad">-1.43 points — loss<span class="delta-track" aria-hidden="true"><i style="left:47.1347%;width:2.8653%"></i></span></span></td><td><span class="measure good">+1.83 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:3.6697%"></i></span></span></td></tr><tr><td>base</td><td>59.48% → 59.13%</td><td><span class="measure bad">-0.34 points — loss<span class="delta-track" aria-hidden="true"><i style="left:49.3179%;width:0.6821%"></i></span></span></td><td><span class="measure bad">-0.54 points — loss<span class="delta-track" aria-hidden="true"><i style="left:48.9130%;width:1.0870%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td><td><span class="measure bad">-0.75 points — loss<span class="delta-track" aria-hidden="true"><i style="left:48.4962%;width:1.5038%"></i></span></span></td><td><span class="measure bad">-3.49 points — loss<span class="delta-track" aria-hidden="true"><i style="left:43.0233%;width:6.9767%"></i></span></span></td><td><span class="measure good">+0.57 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:1.1461%"></i></span></span></td><td><span class="measure good">+0.92 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:1.8349%"></i></span></span></td></tr><tr><td>small</td><td>63.79% → 63.36%</td><td><span class="measure bad">-0.43 points — loss<span class="delta-track" aria-hidden="true"><i style="left:49.1463%;width:0.8537%"></i></span></span></td><td><span class="measure good">+0.54 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:1.0870%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td><td><span class="measure bad">-2.26 points — loss<span class="delta-track" aria-hidden="true"><i style="left:45.4887%;width:4.5113%"></i></span></span></td><td><span class="measure bad">-1.16 points — loss<span class="delta-track" aria-hidden="true"><i style="left:47.6744%;width:2.3256%"></i></span></span></td><td><span class="measure good">+0.29 points — gain<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.5731%"></i></span></span></td><td><span class="measure good">+0.00 points — unchanged<span class="delta-track" aria-hidden="true"><i style="left:50.0000%;width:0.0000%"></i></span></span></td></tr></tbody></table></div><h3>Compression reduces storage substantially</h3><div class="scroll"><table class="visual-table"><thead><tr><th>Encoder</th><th>Float size</th><th>8-bit size</th><th>Storage benefit</th></tr></thead><tbody><tr><td>tiny</td><td><span class="measure">31.1 MB<span class="meter" aria-hidden="true"><i style="width:8.8770%"></i></span></span></td><td><span class="measure">9.9 MB<span class="meter" aria-hidden="true"><i style="width:2.8407%"></i></span></span></td><td><span class="good">GOOD — 68.0% smaller</span></td></tr><tr><td>base</td><td><span class="measure">80.0 MB<span class="meter" aria-hidden="true"><i style="width:22.8619%"></i></span></span></td><td><span class="measure">23.6 MB<span class="meter" aria-hidden="true"><i style="width:6.7395%"></i></span></span></td><td><span class="good">GOOD — 70.5% smaller</span></td></tr><tr><td>small</td><td><span class="measure">349.1 MB<span class="meter" aria-hidden="true"><i style="width:99.7520%"></i></span></span></td><td><span class="measure">94.9 MB<span class="meter" aria-hidden="true"><i style="width:27.1037%"></i></span></span></td><td><span class="good">GOOD — 72.8% smaller</span></td></tr></tbody></table></div><p>Size bars share a 0–350 MB scale. Lower storage is good; phone latency and battery benefit have not been measured. Macro F1 balances precision and recall equally across emotions; it is not overall percent correct.</p></details><details><summary>3. <span class="chip good">GOOD</span> Where the 1,341 recordings came from</summary><div class="callout good">Good — Where the 1,341 recordings came from. Nothing to do.</div><p>The recordings come from the <a href="https://github.com/CheyneyComputerScience/CREMA-D">CREMA-D publisher</a>: actors reading scripted English sentences with intended emotions. We did not create 1,341 new recordings. That number is one held-out portion of this public dataset.</p><div class="flow"><div>Original corpus<strong>7,442 clips</strong>91 actors</div><div>Usable audio<strong>7,441 clips</strong>One silent training clip excluded</div><div>Test partition<strong>1,476 clips</strong>18 actors absent from training and development</div><div>Single-label scoring<strong>1,341 clips</strong>135 tied winners excluded</div></div><p>Humans listened to the audio and chose one of six emotions per rating. We keep the counts for all six choices; these are not six independent yes/no ratings or six intensity scores. The unique most-common choice is our single-label target, even when fewer than half the listeners chose it. Ties still contribute to vote-distribution metrics. Actor intent stays separate.</p><div class="scroll"><table class="visual-table"><thead><tr><th>Human winning emotion</th><th>Number of test recordings</th></tr></thead><tbody><tr><td>anger</td><td><span class="measure">184<span class="meter" aria-hidden="true"><i style="width:26.2857%"></i></span></span></td></tr><tr><td>disgust</td><td><span class="measure">131<span class="meter" aria-hidden="true"><i style="width:18.7143%"></i></span></span></td></tr><tr><td>fear</td><td><span class="measure">133<span class="meter" aria-hidden="true"><i style="width:19.0000%"></i></span></span></td></tr><tr><td>happiness</td><td><span class="measure">86<span class="meter" aria-hidden="true"><i style="width:12.2857%"></i></span></span></td></tr><tr><td>neutral</td><td><span class="measure">698<span class="meter" aria-hidden="true"><i style="width:99.7143%"></i></span></span></td></tr><tr><td>sadness</td><td><span class="measure">109<span class="meter" aria-hidden="true"><i style="width:15.5714%"></i></span></span></td></tr></tbody></table></div><p>Count bars share a 0–700 clip scale. Neutral dominates, so overall accuracy alone can look misleadingly good. Human audio-only ratings come from <code>finishedResponses.csv</code>, filtered with the publisher’s response-time data in <code>finishedEmoResponses.csv</code>. Frozen per-clip votes and splits are in <code>eval/codex/benchmarks/cremad-v2.jsonl</code>.</p></details><details><summary>4. <span class="chip bad">BAD</span> Cloud teacher capability and rights gaps</summary><div class="callout bad">Bad — Cloud teacher capability and rights gaps. Use the research results to target the next training round; do not deploy this candidate.</div><p><strong>A stronger audio teacher is worth a controlled comparison, but being multimodal does not automatically mean accepting raw audio.</strong> Official model pages checked November 5, 2026 list audio as unsupported for <a href="https://developers.openai.com/api/docs/models/gpt-6-luna">GPT-6 Luna</a>, <a href="https://developers.openai.com/api/docs/models/gpt-5.6-terra">GPT-5.6 Terra</a>, <a href="https://developers.openai.com/api/docs/models/gpt-6-sol">GPT-6 Sol</a> and <a href="https://developers.openai.com/api/docs/models/gpt-6-astra">GPT-6 Astra</a>. They support text and images. Codex model choice alone does not give us a raw-audio labelling interface.</p>
+<p><a href="https://developers.openai.com/api/docs/guides/audio-chat-completions">OpenAI’s audio guide</a> demonstrates native audio input using <code>gpt-audio-1.5</code>. That is a plausible cloud comparison candidate, not a measured winner. A transcript-only model misses vocal delivery; using it would answer a different question.</p>
+<p>Recommended experiment: first validate the audio model on existing human-rated development clips, hiding actor labels, human votes and filenames that reveal the answer. Compare per-emotion errors and confidence with local candidates, then confirm on fresh human-rated natural speech. Keep machine labels explicitly marked and separate from human ground truth; review disagreements and low-confidence cases. Only expand the training library after a teacher passes this evaluation. No cloud inference or new labelling run was performed for this update.</p>
+<p><strong>Commercial training rights require a separate check.</strong> The <a href="https://openai.com/policies/services-agreement/">OpenAI Services Agreement, §3.3 and “Permitted Exception”</a>, restricts using outputs to develop competing models; its classifier exception excludes models distributed or made commercially available to third parties. This does not determine whether your specific app is competing, but we cannot assume permission to train a shipped phone model from those outputs. Confirm applicable contractual rights before bulk teacher labelling, or use a teacher whose terms expressly permit this use. A paid cloud benchmark and a free-to-run phone model are separate cost decisions.</p></details><details><summary>5. <span class="chip good">GOOD</span> Training and holdout remain separate</summary><div class="callout good">Good — Training and holdout remain separate. Nothing to do.</div><p><strong>Yes: training and testing stay separate by person, not just by recording.</strong> The split already exists; we would reuse its training portion for the new experiment, without moving test clips into training.</p>
+<div class="flow"><div>Train weights<strong>1,849 clips</strong>Agreement-only subset of the 4,489 training clips from 55 actors</div><div>Select checkpoint<strong>1,476 clips</strong>18 different development actors; broad emotions and disagreements retained</div><div>Compare regression<strong>1,476 clips</strong>18 different test actors; 1,341 unique winners plus 135 ties</div><div>Independent acceptance<strong>New recordings</strong>Fresh unseen speakers; human ratings; not collected yet</div></div>
+<p>Compare agreement-only fine-tuning against the existing all-clip fine-tuned model at float precision first. Pick training settings using development data only, freeze the choice, and then compare on the same broad test set. Report all six recalls, macro F1, confusion patterns and actor-level uncertainty; retain tied votes for distribution scoring. Afterward compare float and compressed copies separately.</p>
+<p>The existing test has now been inspected and influenced our next question. It remains useful for regression checks, but it is no longer a fresh independent confirmation for the next research round. Reserve a new human-rated set of natural conversations from unseen speakers for final acceptance. Do not filter that acceptance set to actor/listener agreement and do not let a teacher label its own exam.</p></details><details><summary>6. <span class="chip good">GOOD</span> Both human label types preserved</summary><div class="callout good">Good — Both human label types preserved. Nothing to do.</div><p>Every clip keeps the actor’s intended emotion and the complete audio-only listener vote counts. Listeners heard sadness in 209 of 1,148 intended-sadness clips with a unique winner (18.2%); 123 intended-sadness clips with tied winners are excluded from that rate. This describes actor/listener agreement, not model accuracy. The original corpus has 7,442 clips; overall agreement excludes 644 ties. The usable benchmark has 7,441 after one silent training clip was removed.</p><p>Original filtered corpus: 3,099 agreements among 6,798 unique winners (45.59%). Labels are listeners’ perception of the voice, not proof of an internal emotional state.</p><p>The frozen index is <code>eval/codex/benchmarks/cremad-v2.jsonl</code>. Actor, transcript, source hash, intended label, listener votes and split are retained.</p><div class="scroll"><table><thead><tr><th>Actor intended</th><th>anger</th><th>disgust</th><th>fear</th><th>happiness</th><th>neutral</th><th>sadness</th><th>Tied</th></tr></thead><tbody><tr><td>anger</td><td>770</td><td>137</td><td>31</td><td>7</td><td>214</td><td>0</td><td>112</td></tr><tr><td>disgust</td><td>100</td><td>343</td><td>62</td><td>8</td><td>572</td><td>51</td><td>135</td></tr><tr><td>fear</td><td>51</td><td>16</td><td>407</td><td>8</td><td>569</td><td>97</td><td>123</td></tr><tr><td>happiness</td><td>54</td><td>26</td><td>67</td><td>330</td><td>655</td><td>9</td><td>130</td></tr><tr><td>neutral</td><td>8</td><td>7</td><td>7</td><td>0</td><td>1040</td><td>4</td><td>21</td></tr><tr><td>sadness</td><td>3</td><td>18</td><td>71</td><td>0</td><td>847</td><td>209</td><td>123</td></tr></tbody></table></div><p>Counts above use all original source clips, including the quarantined silent file. Columns show the unique most-common listener label, not necessarily more than half the votes. Tied winners have their own column. This comparison does not establish that either actor intent or listener perception is universally the correct label.</p></details><details><summary>7. <span class="chip good">GOOD</span> Reusable test set built</summary><div class="callout good">Good — Reusable test set built. Nothing to do.</div><p>4,489 training clips from 55 actors; 1,476 development clips from 18 different actors; 1,476 test clips from another 18 actors. No actor or identical audio crosses partitions. All 7,442 reconstructed winner sets matched the publisher’s official audio summary before quarantine.</p><p>Final single-label scores use 1,341 test clips, excluding 135 tied winners. Vote-distribution scores retain all 1,476. The same test can detect regressions, but tuning repeatedly against it would consume its independence.</p><p>Frozen choices and file hashes: <code>eval/codex/reports/pretest-freeze.json</code>. Predictions and confidence intervals are saved beside each candidate report.</p></details><details><summary>8. <span class="chip bad">BAD</span> Quality target remains unmet</summary><div class="callout bad">Bad — Quality target remains unmet. Use the research results to target the next training round; do not deploy this candidate.</div><p>Candidate selected on development: <strong>small-finetuned-v1</strong>. Test macro F1: <strong>63.4%</strong>; actor-bootstrap 95% interval 60.5% to 65.6%. Macro F1 gives every emotion equal weight; it is not percent-correct accuracy. The provisional goal was 75% macro F1 and at least 60% recall in every emotion.</p><div class="scroll"><table><thead><tr><th>Emotion</th><th>Precision</th><th>Recall</th><th>F1</th><th>Test examples</th></tr></thead><tbody><tr><td>anger</td><td>77.7%</td><td>85.3%</td><td>81.3%</td><td>184</td></tr><tr><td>disgust</td><td>47.8%</td><td>42.0%</td><td>44.7%</td><td>131</td></tr><tr><td>fear</td><td>69.9%</td><td>48.9%</td><td>57.5%</td><td>133</td></tr><tr><td>happiness</td><td>64.2%</td><td>60.5%</td><td>62.3%</td><td>86</td></tr><tr><td>neutral</td><td>79.5%</td><td>87.0%</td><td>83.0%</td><td>698</td></tr><tr><td>sadness</td><td>58.1%</td><td>45.9%</td><td>51.3%</td><td>109</td></tr></tbody></table></div><p>Precision asks how often a predicted label matches the human winner; recall asks how many clips with that human winner were recovered. F1 balances both. Intervals resample 18 actors, not individual clips; limited actors and unknown pretraining exposure constrain generalization.</p><div class="scroll"><table><thead><tr><th>Subset</th><th>Clips</th><th>Unique winners</th><th>Macro F1</th></tr></thead><tbody><tr><td>all</td><td>1476</td><td>1341</td><td>63.4%</td></tr><tr><td>actor_agrees</td><td>685</td><td>685</td><td>74.9%</td></tr><tr><td>actor_disagrees</td><td>656</td><td>656</td><td>33.6%</td></tr><tr><td>strong_consensus</td><td>679</td><td>679</td><td>78.5%</td></tr><tr><td>weak_consensus</td><td>797</td><td>662</td><td>50.7%</td></tr></tbody></table></div><p>Against actor intent instead of listener perception, the same predictions have macro F1 48.3% and accuracy 47.6%. This secondary view uses all 1,476 test recordings and answers a different question; it was not used for model selection.</p><p>Strong consensus means at least two-thirds of listeners chose the same label. Subsets are diagnostics, not replacement acceptance results. Acted English does not verify spontaneous conversation.</p></details><details><summary>9. <span class="chip good">GOOD</span> Agreement-only training compared</summary><div class="callout good">Good — Agreement-only training compared. Nothing to do.</div><p>We tested your idea directly: train on 1,849 clips where actor and unique listener winner agree, versus all 4,489 training clips using full listener distributions. Both use exactly the same broad test. This comparison changes both sample count and label mixture, so it does not isolate “nuance” as a causal mechanism.</p><div class="scroll"><table><thead><tr><th>Encoder</th><th>All-vote test F1</th><th>Agreement-only test F1</th><th>All minus agreement</th></tr></thead><tbody><tr><td>tiny</td><td>53.9%</td><td>57.1%</td><td>-3.2 points</td></tr><tr><td>base</td><td>58.4%</td><td>58.8%</td><td>-0.5 points</td></tr><tr><td>small</td><td>61.1%</td><td>62.9%</td><td>-1.8 points</td></tr></tbody></table></div><p>Agreement-only training scored higher in 3 of the three held-out comparisons. This is a useful signal in favor of your proposed filter, while the opposite development ranking shows that actor sampling matters.</p><p>Positive differences favor all-vote training; negative differences favor agreement-only training. Development favored all-vote training for all three encoders, but this does not guarantee the same direction on independent actors. Treat these as descriptive comparisons, not proof of a universal winning cohort. Recommendation: retain all labels and full listener distributions; keep agreement-only training as a supported option and comparison, rather than discarding ambiguous data permanently.</p></details><details><summary>10. <span class="chip good">GOOD</span> Compact exports work locally</summary><div class="callout good">Good — Compact exports work locally. Nothing to do.</div><p>These files include the full encoder and classifier. The research file-size target was below 100 MB for a phone; this checks storage only. Dynamic 8-bit <abbr title="Representing selected model weights using fewer bits">quantization</abbr> reduces supported matrix weights; some operations remain floating point. Float export parity and quantized development quality were checked.</p><div class="scroll"><table><thead><tr><th>Candidate</th><th>8-bit file</th><th>Mac median total</th><th>Mac 95th-percentile total</th><th>Phone</th></tr></thead><tbody><tr><td>small-all-v1</td><td>94.9 MB</td><td>98.3 ms</td><td>104.6 ms</td><td>Not measured</td></tr><tr><td>tiny-finetuned-v1</td><td>9.9 MB</td><td>12.8 ms</td><td>13.1 ms</td><td>Not measured</td></tr><tr><td>base-finetuned-v1</td><td>23.6 MB</td><td>27.7 ms</td><td>42.5 ms</td><td>Not measured</td></tr><tr><td>small-finetuned-v1</td><td>94.9 MB</td><td>82.6 ms</td><td>83.4 ms</td><td>Not measured</td></tr></tbody></table></div><p>Times include <abbr title="Waveform audio file format">WAV</abbr> reading, preprocessing and inference, one <abbr title="Central processing unit">CPU</abbr> thread, 30 repeats on this Mac. Audio collection time is additional. Input accepts up to six seconds and rejects longer recordings. Small files do not prove watch feasibility; no watch, phone battery, memory or streaming measurement was performed.</p><p>A real WAV passed the exported tiny-model command-line smoke check. Silence returns no emotion. This is an experimental local runner, not a product integration.</p></details><details><summary>11. <span class="chip bad">BAD</span> Automatic labeller failed validation</summary><div class="callout bad">Bad — Automatic labeller failed validation. Use the research results to target the next training round; do not deploy this candidate.</div><p>Local Qwen2.5-Omni-7B audio development macro F1 was 38.8%; transcript-only was 12.6%. These are development scores, not held-out test claims. Neither qualifies to manufacture trusted training labels.</p><p>No large machine-labelled pool was created or trained on. Admission checks exist for quality, licences, provenance, speaker/audio overlap, model revision and finite confidence values. A mass collection/labelling job is intentionally not implemented. For the next round, obtain independent human audio-only ratings for licensed natural conversational clips, then test a stronger teacher against them before scaling.</p></details><details><summary>12. <span class="chip good">GOOD</span> Commercial-use provenance recorded</summary><div class="callout good">Good — Commercial-use provenance recorded. Nothing to do.</div><p>Whisper weights and code: <a href="https://github.com/openai/whisper#license"><abbr title="Permissive Massachusetts Institute of Technology software licence">MIT</abbr></a>. Qwen weights: <a href="https://huggingface.co/Qwen/Qwen2.5-Omni-7B">Apache 2.0</a>. CREMA-D: <a href="https://github.com/CheyneyComputerScience/CREMA-D/blob/master/LICENSE.txt">Open Database License and Database Contents License</a>. Commercial use comes with applicable attribution and database obligations; notices are retained. No paid inference was used.</p><p>Unclear emotion2vec+ and WavLM weight terms were excluded. No raw audio or model binaries are included in Git. The derived benchmark index carries its source notices in <code>benchmarks/NOTICE.md</code>.</p></details><details><summary>13. <span class="chip good">GOOD</span> All candidate evidence retained</summary><div class="callout good">Good — All candidate evidence retained. Nothing to do.</div><div class="scroll"><table><thead><tr><th>Candidate</th><th>Variant</th><th>Float dev F1</th><th>Test F1</th><th>Test accuracy</th></tr></thead><tbody><tr><td>tiny-all-v1</td><td>float</td><td>52.8%</td><td>53.9%</td><td>67.2%</td></tr><tr><td>tiny-agrees-v1</td><td>float</td><td>50.5%</td><td>57.1%</td><td>67.1%</td></tr><tr><td>base-all-v1</td><td>float</td><td>53.8%</td><td>58.4%</td><td>69.2%</td></tr><tr><td>base-agrees-v1</td><td>float</td><td>52.8%</td><td>58.8%</td><td>68.4%</td></tr><tr><td>small-all-v1</td><td>float</td><td>57.2%</td><td>61.1%</td><td>72.3%</td></tr><tr><td>small-all-v1</td><td>int8</td><td>57.2%</td><td>60.6%</td><td>71.5%</td></tr><tr><td>small-agrees-v1</td><td>float</td><td>54.0%</td><td>62.9%</td><td>70.5%</td></tr><tr><td>tiny-finetuned-v1</td><td>float</td><td>54.4%</td><td>58.0%</td><td>68.4%</td></tr><tr><td>tiny-finetuned-v1</td><td>int8</td><td>54.4%</td><td>57.9%</td><td>67.9%</td></tr><tr><td>base-finetuned-v1</td><td>float</td><td>54.9%</td><td>59.5%</td><td>68.5%</td></tr><tr><td>base-finetuned-v1</td><td>int8</td><td>54.9%</td><td>59.1%</td><td>68.5%</td></tr><tr><td>small-finetuned-v1</td><td>float</td><td>59.2%</td><td>63.8%</td><td>73.6%</td></tr><tr><td>small-finetuned-v1</td><td>int8</td><td>59.2%</td><td>63.4%</td><td>73.5%</td></tr></tbody></table></div><p>Selected-candidate controls: transcript-only test macro F1 11.4%; training-prior baseline 11.4%. These controls help expose class imbalance and text effects. They do not prove the encoder ignores spoken words.</p><p>Full confusion matrices, vote-distribution error, <abbr title="Agreement between predicted confidence and observed correctness">calibration</abbr>, per-emotion intervals and raw predictions are in <code>eval/codex/reports</code>. Generated-output empties and truncations are zero: these models use forward passes, not text generation. One silent source recording and one metadata-write failure were handled explicitly, not scored as model failures.</p><p>46 targeted tests passed. Independent review corrected audio/cache provenance checks, invalid teacher metrics, frozen-artifact integrity and report provenance. Saved command-line smoke evidence is <code>eval/codex/reports/inference-smoke.json</code>. The HTML structure was checked directly; browser visual verification was blocked by the browser policy for local file URLs.</p></details><h2>State of play</h2><div class="scroll"><table><thead><tr><th>Area</th><th>Where it is</th><th>Affects today’s product?</th></tr></thead><tbody><tr><td>Evaluation code and reports</td><td>codex/emotion-eval branch</td><td>No</td></tr><tr><td>Model weights and source audio</td><td>Local ignored eval/codex directories</td><td>No</td></tr><tr><td>Nudge logic, deployed apps, main</td><td>Untouched</td><td>No</td></tr><tr><td>Phone and watch runtime</td><td>Not implemented or measured</td><td>No</td></tr></tbody></table></div><h2>Where I was wrong</h2><p>Initial unfiltered counts (3,085 agreements, 6,806 unique winners, 636 ties) were corrected to the official filtered counts (3,099, 6,798 and 644 respectively). The initial 7,442 usable-audio assumption became 7,441 after an all-zero WAV was found. A completed base training run hit a path error while saving metadata; metadata was recovered from preserved history without changing predictions. Earlier project accuracy notes used different labels and missing artifacts, so they do not establish current quality.</p><h2>What happens next</h2><details><summary>Step 1. Run the local experimental model</summary><p>Run in Terminal on this Mac. Success: experimental_prediction with six finite probabilities. This is a read-only smoke check, not proof of accuracy. Undo: none needed.</p><pre>cd <repo root>
+.venv/bin/python -m eval.codex.infer --model eval/codex/results/tiny-finetuned-v1/export/emotion-int8.onnx --audio eval/codex/data/crema-d/AudioWAV/1001_IEO_NEU_XX.wav</pre></details><details><summary>Step 2. Inspect saved results</summary><p>Run in Terminal on this Mac. Success: the measured candidate and full metrics print. This reads saved evidence without rerunning training. Undo: none needed.</p><pre>cd <repo root>
+.venv/bin/python -m json.tool eval/codex/reports/summary.json</pre></details><details><summary>Step 3. Continue authorized emotion research</summary><p>Local research is authorized and underway. This is the exact instruction to resume in Codex if interrupted.</p><pre>Continue the emotion-only research from eval/codex/OVERNIGHT-20261106.md. Find existing human-rated natural speech, preserve reuse terms and actor intent separately, and benchmark stronger local audio models on development data. Keep phone testing and nudges out of scope. Do not admit unverified machine labels into training.</pre><p>Success: reproducible local-model results and documented independent human evidence. Undo: discard new research changes before merging; retain raw experiment outputs.</p></details><p>Source evidence: <a href="https://github.com/CheyneyComputerScience/CREMA-D">CREMA-D publisher</a>. Local measured evidence: <code>eval/codex/reports/summary.json</code>. No product release or quality certification.</p></body></html>

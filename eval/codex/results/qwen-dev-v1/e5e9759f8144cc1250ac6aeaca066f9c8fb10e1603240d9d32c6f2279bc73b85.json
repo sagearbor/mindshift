@@ -1,0 +1,17 @@
+{
+  "id": "1074_TSI_FEA_XX",
+  "audio_sha256": "94edf8f2b73b2487541779e4f17e503f20f7862da7d70644c5fdc8df1d0d7e12",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.10121230199750338,
+    0.0044469581947365715,
+    0.25845466740710593,
+    0.14726303046011205,
+    0.33186236201230085,
+    0.15676067992824122
+  ],
+  "allowed_choice_mass": 0.9609194141334436,
+  "label_source": "machine",
+  "approved_for_training": false
+}

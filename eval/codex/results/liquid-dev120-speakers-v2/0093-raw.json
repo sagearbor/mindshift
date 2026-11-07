@@ -1,0 +1,5 @@
+{
+  "id": "1001_ITS_HAP_XX",
+  "text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe speaker says: \"I think I've seen this before.\"\nThis is a neutral statement, indicating familiarity without expressing strong emotion like anger, disgust, fear, happiness, sadness, or neutrality. The word \"neutral\" is explicitly listed as option E.\nTherefore, the emotion is neutral, which corresponds to E.\nThe required output is just the letter E.\n</think>\n\nE",
+  "n_generated_tokens": 158
+}

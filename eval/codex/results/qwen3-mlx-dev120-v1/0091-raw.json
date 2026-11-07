@@ -1,0 +1,10 @@
+{
+  "id": "1016_TAI_DIS_XX",
+  "audio_sha256": "2dbb8e7442adf22e29005b02cfde70c5d6f4d500c8f1d928ef01cdf8b9c790ed",
+  "text": "<answer>E</answer>",
+  "generated_tokens": 7,
+  "finish_reason": "stop",
+  "seconds": 0.19967070780694485,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

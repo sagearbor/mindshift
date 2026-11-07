@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone suggests an emotional state that is marked by dissatisfaction or agitation. While the pitch level remains normal, the energy behind the delivery feels steady but firm, which can often indicate restrained frustration rather than outright calmness. This impression is reinforced by the stress placed on specific words like \"like,\" \"a,\" and \"new.\" Stressing these particular words highlights a desire for change or improvement, potentially signaling impatience or irritation.\n\nThe semantic content of the phrase, \u201cI would like a new alarm clock,\u201d carries a subtle undertone of discontent. The choice of phrasing\u2014\u201cwould like\u201d\u2014implies a need or expectation that has not been met, which aligns well with feelings of frustration. Additionally, the speaker\u2019s middle-aged profile may contribute to a more measured expression of emotions, as older individuals might lean toward expressing dissatisfaction in a controlled manner rather than through overt aggression.\n\nAlthough the speech rate is normal, the overall prosody conveys tension. The combination of steady energy, stressed keywords, and the implied dissatisfaction in the wording strongly points to an underlying sense of frustration or anger, even if subtly expressed.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1057_IWL_ANG_XX",
+  "audio_sha256": "df5926b563deb5f3b333f11cdb75a2441a6bc146dc7cdd01cf44558972a62e69",
+  "seconds": 15.692034708335996,
+  "label_source": "machine",
+  "approved_for_training": false
+}

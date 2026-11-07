@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+  ],
+  "generated_text": "<think>\nWe need to answer the question: \"Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Reply with only the single letter A, B, C, D, E, or F.\"\n\nThe user asks to classify the emotion perceived in the speaker's voice from the given options.\nThe speaker says: \"It's 11 o'clock.\"\nThe emotion suggested by the words is neutral, but the task is to classify the emotion perceived in the speaker's voice.\nLooking at the options:\nA = anger\nB = disgust\nC = fear\nD = happiness\nE = neutral\nF = sadness\n\nThe speaker says \"It's 11 o'clock.\" This is a neutral statement. Therefore, the emotion is neutral.\nThe corresponding label is E.\nThe user asks to reply with only the single letter E.\n</think>\n\nE",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1041_IEO_FEA_MD",
+  "audio_sha256": "263f53d8b8c40d4d407ef319d2d5487f818620a5e714c4825bb09111eeb1ed48",
+  "seconds": 3.56727512460202,
+  "label_source": "machine",
+  "approved_for_training": false
+}

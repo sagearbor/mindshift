@@ -1,0 +1,17 @@
+{
+  "id": "1062_TIE_FEA_XX",
+  "audio_sha256": "3cd210feb4f3b286f615f6b1e8c1d01e79e37a30893970f39077f84452736250",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.048972956132043846,
+    0.009059085982904473,
+    0.2336369068381854,
+    0.02313318646563049,
+    0.299995726656536,
+    0.3852021379247004
+  ],
+  "allowed_choice_mass": 0.9891314447928354,
+  "label_source": "machine",
+  "approved_for_training": false
+}

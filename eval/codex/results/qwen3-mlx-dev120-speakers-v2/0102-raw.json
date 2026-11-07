@@ -1,0 +1,10 @@
+{
+  "id": "1088_DFA_ANG_XX",
+  "audio_sha256": "76041eb28e2d17107c9e2d30e00a1d8b14ec01aac6c62d118c2f28d93d2909f7",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.15045595820993185,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

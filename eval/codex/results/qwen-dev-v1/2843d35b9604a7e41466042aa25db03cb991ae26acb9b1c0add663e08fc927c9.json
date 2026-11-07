@@ -1,0 +1,17 @@
+{
+  "id": "1054_IEO_FEA_HI",
+  "audio_sha256": "1dec02ad9af7c1a8cb4559f62bb9e08b712e2d56b6961ce08315832b597e4a0f",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.1427063633147837,
+    0.00430935876982121,
+    0.49809415018074615,
+    0.03389573230466146,
+    0.19505647182557873,
+    0.12593792360440853
+  ],
+  "allowed_choice_mass": 0.9918028290409155,
+  "label_source": "machine",
+  "approved_for_training": false
+}

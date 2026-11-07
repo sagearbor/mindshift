@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "generated_text": "<think>The speaker\u2019s delivery suggests an emotional state that leans toward sadness. While the transcription, \"I'm on my way to the meeting,\" is neutral in content, prosodic cues provide deeper insight into her emotional tone. Her pitch level remains normal throughout, which avoids any sharp rises or falls typically associated with excitement or anger. This steadiness can often signal subdued emotions like sadness or resignation.\n\nThe energy level is notably low, creating a sense of heaviness or lack of vitality in her speech. Low energy frequently conveys emotional fatigue or a lack of enthusiasm, both of which align well with sadness. Additionally, the speech rate is normal rather than rushed or slow, suggesting she isn\u2019t overwhelmed or overly deliberate\u2014her pacing feels measured but emotionally restrained.\n\nStress patterns further reinforce this interpretation. Words such as \u201cmy\u201d and \u201cway\u201d receive emphasis, potentially reflecting personal focus or a subtle sense of burden tied to her journey. Combined with the semantic context of being \u201con my way,\u201d these stressed words might hint at an internal struggle or reluctance, subtly underscoring a melancholic undertone.\n\nFinally, considering the speaker profile\u2014a teenage female\u2014the emotional weight may be amplified due to developmental sensitivity, making sadness more likely to manifest through subdued vocal dynamics.</think>\n<answer>F</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1003_IOM_FEA_XX",
+  "audio_sha256": "93141566a7b9c8ace99f6e2deec897163f821e1f33aad72f4edee66f1646d529",
+  "seconds": 16.908155208453536,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,9 @@
+{
+  "empty_outputs": 0,
+  "nonfinite_outputs": 0,
+  "finish_reason_length": 0,
+  "device": "mps",
+  "completed": true,
+  "elapsed_seconds": 300.1448621246964,
+  "metadata_recovery": "Training/checkpoints completed; fixed relative CLI source-path error while writing selection metadata. No re-training or score changes."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "1020_MTI_ANG_XX",
+  "audio_sha256": "a158f60d2e21c917a7cb3697cc068e81569b6f57f9dcb5b036bcc803bf20ac87",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.1460942905396223,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}

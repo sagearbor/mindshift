@@ -1,0 +1,129 @@
+{
+  "config": {
+    "kind": "emotionthinker",
+    "revision": "f80d3b343ab1eaf903ffc03aa775cfef4bffa850",
+    "model_path": "eval/codex/artifacts/emotionthinker",
+    "mode": "generate",
+    "manifest_sha256": "a7b2e7d2e9eca057c882955072473f6b14a364589540cebcbc85a4d456b8a294",
+    "prompt": "Classify the emotion perceived in the speaker's voice, not the emotion suggested by the words. Choose exactly one label: A = anger; B = disgust; C = fear; D = happiness; E = neutral; F = sadness. Put exactly one letter A, B, C, D, E, or F inside <answer>...</answer>.",
+    "device": "mps",
+    "dtype": "torch.float32",
+    "model_config_sha256": "32ebe65e53fd394c10ff1e9b9522da2cb914b9ad1df941f032b699d8e7c81d5d",
+    "ids": [
+      "1001_DFA_ANG_XX"
+    ],
+    "split": "development",
+    "max_new_tokens": 40000,
+    "generation_configuration": "Reasoning generation budget 40000",
+    "system_prompt": "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> answer here </answer>.",
+    "subset_strategy": "round-robin emotion, then speakers within emotion",
+    "repetition_penalty": 1.1,
+    "note": "Forward mode is constrained next-token scoring, not native reasoning. No automatic training-label admission."
+  },
+  "metrics": {
+    "n_total": 1,
+    "n_single_label": 1,
+    "n_tied": 0,
+    "accuracy": 1.0,
+    "macro_f1": 0.16666666666666666,
+    "balanced_accuracy": 0.16666666666666666,
+    "kappa": null,
+    "brier_to_votes": 0.17283950617283952,
+    "cross_entropy_to_votes": 9.210340371976182,
+    "expected_individual_vote_agreement": 0.6666666666666666,
+    "ece_10_bins": 0.0,
+    "confusion_matrix": [
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "per_emotion": {
+      "anger": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "disgust": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "fear": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "happiness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "neutral": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "sadness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      }
+    }
+  },
+  "n": 1,
+  "elapsed_seconds": 33.502138833515346,
+  "low_choice_mass_count": 0,
+  "qualified_teacher": false,
+  "note": "Development probe only; no independent generalization or label-quality claim"
+}

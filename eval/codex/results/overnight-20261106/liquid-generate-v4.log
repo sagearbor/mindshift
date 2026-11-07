@@ -1,0 +1,17 @@
+W1106 02:24:22.154000 84356 eval/codex/artifacts/lfm3-runtime/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+Loading weights:   0%|          | 0/203 [00:00<?, ?it/s]Loading weights: 100%|██████████| 203/203 [00:00<00:00, 25703.19it/s]
+Loading weights:   0%|          | 0/527 [00:00<?, ?it/s]Loading weights: 100%|██████████| 527/527 [00:00<00:00, 25899.56it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+liquid generate: 1/12 5.09s
+liquid generate: 2/12 4.52s
+liquid generate: 3/12 2.57s
+liquid generate: 4/12 3.39s
+liquid generate: 5/12 4.06s
+liquid generate: 6/12 3.45s
+liquid generate: 7/12 4.22s
+liquid generate: 8/12 5.56s
+liquid generate: 9/12 4.08s
+liquid generate: 10/12 4.12s
+liquid generate: 11/12 4.12s
+liquid generate: 12/12 3.85s

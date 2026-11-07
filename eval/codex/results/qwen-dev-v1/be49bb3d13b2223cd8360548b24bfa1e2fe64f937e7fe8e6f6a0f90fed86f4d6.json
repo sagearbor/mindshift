@@ -1,0 +1,17 @@
+{
+  "id": "1075_MTI_FEA_XX",
+  "audio_sha256": "a186ba9200d1f2e38f2a71ea4bd9def7186270c49bd4461321bd6574e82d837d",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.019341997109069413,
+    0.0006618467454620397,
+    0.4988366801202657,
+    0.004054302844304564,
+    0.13426007106655738,
+    0.3428451021143403
+  ],
+  "allowed_choice_mass": 0.9919599392300485,
+  "label_source": "machine",
+  "approved_for_training": false
+}

@@ -1,0 +1,106 @@
+{
+  "protocol_sha256": "61a3b83db5ecbafa8f6e62c8d55caaef4a751c6495712c25c5af10fff6ecbde1",
+  "prediction_sha256": "2637cc5e393bf34fd50356bc5241b0a70cfd3e9736d19e9e52de1656a3caa108",
+  "model_sha256": "62dadfe326f65e175b771a468318c17267402e401d131b41e344521c34c64855",
+  "scores": {
+    "n_total": 1270,
+    "accuracy": 0.18110236220472442,
+    "macro_f1": 0.21291597194331868,
+    "balanced_accuracy": 0.17044059861215619,
+    "confusion_matrix": [
+      [
+        224,
+        26,
+        0,
+        0,
+        200,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        3,
+        5,
+        0,
+        6,
+        429,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        55,
+        18,
+        0,
+        0,
+        304,
+        0
+      ]
+    ],
+    "per_emotion": {
+      "anger": {
+        "precision": 0.7943262411347518,
+        "recall": 0.49777777777777776,
+        "f1": 0.6120218579234973,
+        "support": 450
+      },
+      "disgust": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "fear": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "happiness": {
+        "precision": 1.0,
+        "recall": 0.013544018058690745,
+        "f1": 0.026726057906458798,
+        "support": 443
+      },
+      "neutral": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "sadness": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 377
+      }
+    },
+    "macro_average_labels": [
+      "anger",
+      "happiness",
+      "sadness"
+    ]
+  },
+  "elapsed_seconds": 128.1138186668977,
+  "caveat": "Acted English, six actors, four-option human ratings, selected three-emotion diagnostic; not natural speech or a full six-emotion benchmark. Unknown foundation pretraining overlap. No model selection or training using this corpus."
+}

@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s tone conveys a sense of emotional intensity that suggests frustration or irritation. While the pitch level is described as \"normal,\" this neutrality might reflect an effort to maintain composure despite underlying tension. The energy level being \"normal\" further supports this interpretation\u2014anger does not always manifest through heightened loudness but can also be expressed through controlled delivery when paired with sharp stress patterns.\n\nThe stressed emphasis on \u201celeven\u201d and \u201co'clock!\u201d stands out as particularly significant. Stressing these specific words implies urgency or exasperation, possibly reflecting impatience or annoyance at the situation being referenced. Additionally, the semantic content of the phrase, \u201cIt\u2019s eleven o'clock,\u201d could indicate a context where time sensitivity plays a role, such as a deadline or a missed appointment. This aligns well with the prosodic cues suggesting irritation.\n\nConsidering the speaker profile\u2014a middle-aged female\u2014the vocal expression may carry more weight due to societal expectations for assertiveness or authority in certain contexts. Even without exaggerated pitch or speed changes, the combination of normal pitch, targeted stress, and the semantic implications strongly point toward an emotionally charged state consistent with anger.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1075_IEO_ANG_MD",
+  "audio_sha256": "229521565324c852b836221deaba0e484ce01885311f56dd178610770d13f879",
+  "seconds": 15.353801624849439,
+  "label_source": "machine",
+  "approved_for_training": false
+}

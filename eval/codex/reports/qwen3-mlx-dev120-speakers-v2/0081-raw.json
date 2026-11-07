@@ -1,0 +1,10 @@
+{
+  "id": "1074_IEO_ANG_MD",
+  "audio_sha256": "34ff76f5a9ba9be98d11cf76c6b97c657db11a03e7e3c0ebb9489c301cd4fe69",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14326012507081032,
+  "peak_memory_gb": 22.001675202,
+  "approved_for_training": false
+}

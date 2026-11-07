@@ -1,0 +1,16 @@
+epoch 1: dev macro F1 0.5672, loss 1.1080, elapsed 91.4s
+epoch 2: dev macro F1 0.5765, loss 1.0300, elapsed 181.2s
+epoch 3: dev macro F1 0.5563, loss 0.9852, elapsed 276.0s
+epoch 4: dev macro F1 0.5707, loss 0.9597, elapsed 373.3s
+epoch 5: dev macro F1 0.5666, loss 0.9436, elapsed 472.1s
+epoch 6: dev macro F1 0.5828, loss 0.9353, elapsed 571.0s
+epoch 7: dev macro F1 0.5760, loss 0.9238, elapsed 670.2s
+epoch 8: dev macro F1 0.5616, loss 0.9201, elapsed 766.4s
+epoch 9: dev macro F1 0.5917, loss 0.9123, elapsed 860.1s
+epoch 10: dev macro F1 0.5494, loss 0.9067, elapsed 953.5s
+epoch 11: dev macro F1 0.5676, loss 0.9058, elapsed 1045.4s
+epoch 12: dev macro F1 0.5788, loss 0.8980, elapsed 1137.4s
+epoch 13: dev macro F1 0.5685, loss 0.8959, elapsed 1230.7s
+epoch 14: dev macro F1 0.5653, loss 0.8955, elapsed 1324.1s
+epoch 15: dev macro F1 0.5610, loss 0.8940, elapsed 1417.6s
+best epoch 9 dev macro F1 0.5916829881446781

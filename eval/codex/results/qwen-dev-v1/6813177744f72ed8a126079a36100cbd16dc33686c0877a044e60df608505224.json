@@ -1,0 +1,17 @@
+{
+  "id": "1054_TAI_SAD_XX",
+  "audio_sha256": "695e877e2e8a8681375023ab826c7736653dec82f1683be9adfa05d722438a10",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.06495277847626005,
+    0.008790402672089614,
+    0.20006864264661664,
+    0.015427637146207129,
+    0.6162548040202692,
+    0.09450573503855626
+  ],
+  "allowed_choice_mass": 0.9950122090421628,
+  "label_source": "machine",
+  "approved_for_training": false
+}

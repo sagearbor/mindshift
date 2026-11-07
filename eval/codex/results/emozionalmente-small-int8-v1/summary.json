@@ -1,0 +1,108 @@
+{
+  "protocol_sha256": "aa1c84abd08457abefbe50b6125bffaba4a72a633bf4fa04324434911c37d8d3",
+  "prediction_sha256": "a90dad668cb75fe04f658a27afaed64be18633b384bd724146d3bb019f237984",
+  "model_sha256": "62dadfe326f65e175b771a468318c17267402e401d131b41e344521c34c64855",
+  "scores": {
+    "n_total": 953,
+    "accuracy": 0.36621196222455404,
+    "macro_f1": 0.2629379758152089,
+    "balanced_accuracy": 0.3150039877452509,
+    "kappa": 0.18542743648490123,
+    "confusion_matrix": [
+      [
+        50,
+        6,
+        6,
+        1,
+        101,
+        0
+      ],
+      [
+        11,
+        2,
+        3,
+        0,
+        94,
+        3
+      ],
+      [
+        5,
+        2,
+        47,
+        0,
+        39,
+        3
+      ],
+      [
+        15,
+        1,
+        21,
+        7,
+        100,
+        1
+      ],
+      [
+        7,
+        1,
+        1,
+        0,
+        229,
+        1
+      ],
+      [
+        5,
+        0,
+        34,
+        0,
+        143,
+        14
+      ]
+    ],
+    "per_emotion": {
+      "anger": {
+        "precision": 0.5376344086021505,
+        "recall": 0.3048780487804878,
+        "f1": 0.38910505836575876,
+        "support": 164
+      },
+      "disgust": {
+        "precision": 0.16666666666666666,
+        "recall": 0.017699115044247787,
+        "f1": 0.032,
+        "support": 113
+      },
+      "fear": {
+        "precision": 0.41964285714285715,
+        "recall": 0.4895833333333333,
+        "f1": 0.4519230769230769,
+        "support": 96
+      },
+      "happiness": {
+        "precision": 0.875,
+        "recall": 0.04827586206896552,
+        "f1": 0.0915032679738562,
+        "support": 145
+      },
+      "neutral": {
+        "precision": 0.3243626062322946,
+        "recall": 0.9581589958158996,
+        "f1": 0.4846560846560847,
+        "support": 239
+      },
+      "sadness": {
+        "precision": 0.6363636363636364,
+        "recall": 0.07142857142857142,
+        "f1": 0.12844036697247707,
+        "support": 196
+      }
+    }
+  },
+  "elapsed_seconds": 89.952527792193,
+  "caveat": "Italian acted cross-language diagnostic; not natural English or proof of unknown pretraining independence",
+  "excluded": {
+    "tied_or_surprise_plurality": 358,
+    "longer_than_six_seconds": 23
+  },
+  "original_test_clips": 1334,
+  "note": "No Italian training. Hard perceived-label scoring, not renormalized six-class listener votes."
+}

@@ -1,0 +1,9 @@
+base C0.01-balancedFalse dev macro F1 0.5321
+base C0.1-balancedFalse dev macro F1 0.5379
+base C1-balancedFalse dev macro F1 0.5025
+base C10-balancedFalse dev macro F1 0.4892
+base C0.01-balancedTrue dev macro F1 0.4787
+base C0.1-balancedTrue dev macro F1 0.4469
+base C1-balancedTrue dev macro F1 0.4241
+base C10-balancedTrue dev macro F1 0.4185
+selected C0.1-balancedFalse saved eval/codex/results/base-all-v1

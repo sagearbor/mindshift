@@ -1,0 +1,16 @@
+{
+  "probabilities": [
+    0.9992584916708414,
+    0.0005191894132004007,
+    2.2109751920834727e-05,
+    4.4662926583950165e-05,
+    0.0001487502573609421,
+    6.795980092996693e-06
+  ],
+  "allowed_choice_mass": 1.0137485156927344e-05,
+  "id": "1001_DFA_HAP_XX",
+  "audio_sha256": "91d63d7a792a37b2ff8ac6267d3e5364bc1b10d5b0e0be288c0af0534d4fdae5",
+  "seconds": 0.8000586666166782,
+  "label_source": "machine",
+  "approved_for_training": false
+}

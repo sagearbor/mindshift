@@ -1,0 +1,17 @@
+{
+  "id": "1041_IWW_ANG_XX",
+  "audio_sha256": "a9fadc1e26bd648ee37bb16295b21ff9023cead57b610d53d42c2714ca337288",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.9334677649248196,
+    0.005214308237119233,
+    0.0010267581700021762,
+    0.0019182368003670721,
+    0.05605909661353543,
+    0.0023138352541552773
+  ],
+  "allowed_choice_mass": 0.9977172262823975,
+  "label_source": "machine",
+  "approved_for_training": false
+}

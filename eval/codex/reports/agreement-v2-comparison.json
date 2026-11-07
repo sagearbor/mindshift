@@ -1,0 +1,38 @@
+{
+  "rows": [
+    {
+      "size": "tiny",
+      "development": [
+        0.5440308135413686,
+        0.5327767507371801
+      ],
+      "regression": [
+        0.5795220382541032,
+        0.596222588270618
+      ]
+    },
+    {
+      "size": "base",
+      "development": [
+        0.5489783471122817,
+        0.5436249011659411
+      ],
+      "regression": [
+        0.5947560797656869,
+        0.6209615609128917
+      ]
+    },
+    {
+      "size": "small",
+      "development": [
+        0.5916829881446781,
+        0.5711060497028332
+      ],
+      "regression": [
+        0.6379003756472931,
+        0.6312440293101758
+      ]
+    }
+  ],
+  "caveat": "Previously inspected test; regression only, not independent confirmation. Selection remains development based."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "1020_ITH_FEA_XX",
+  "audio_sha256": "5fed69b32c7e5fabe5b61beefd023b01dcb6204382044293ca13ca5f735f5530",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.025445737018902258,
+    0.0026819609501974235,
+    0.3099925375584256,
+    0.006848627209360571,
+    0.3980382972085478,
+    0.2569928400545662
+  ],
+  "allowed_choice_mass": 0.9893371829682988,
+  "label_source": "machine",
+  "approved_for_training": false
+}

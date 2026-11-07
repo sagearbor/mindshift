@@ -1,0 +1,17 @@
+{
+  "id": "1050_TIE_ANG_XX",
+  "audio_sha256": "e02bcb90e740a6f188f6ff7de6a948cc44c647d5bed81846a01d85c7db7dfdf2",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.953440365383263,
+    0.0023633423810153313,
+    0.0011163638934669538,
+    0.0026780177631147927,
+    0.039353183754763196,
+    0.0010487268243761678
+  ],
+  "allowed_choice_mass": 0.99825858959688,
+  "label_source": "machine",
+  "approved_for_training": false
+}

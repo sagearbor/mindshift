@@ -1,0 +1,17 @@
+{
+  "id": "1062_TIE_HAP_XX",
+  "audio_sha256": "feb339eadcdcde3f7381e0e23ff60f442f9a52bd1e829e5ee05ceb4d943f29c0",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.028894988594633485,
+    0.0005996963561497238,
+    0.0017352789438894248,
+    0.010629872256848966,
+    0.9568706066525475,
+    0.001269557195931526
+  ],
+  "allowed_choice_mass": 0.9975765105759271,
+  "label_source": "machine",
+  "approved_for_training": false
+}

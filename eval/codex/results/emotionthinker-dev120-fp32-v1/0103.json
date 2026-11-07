@@ -1,0 +1,17 @@
+{
+  "probabilities": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "generated_text": "<think>The speaker\u2019s vocal delivery suggests an emotional state that is intense and confrontational. While the pitch level remains normal, the energy of the speech stands out as notably high, which often signals heightened emotional arousal. This elevated energy can be indicative of frustration or anger, especially when paired with the semantic content of the utterance, \"I'm on my way to the meeting,\" which carries a sense of urgency or impatience.\n\nThe stress placed on the word \u201cway\u201d further amplifies this impression. By emphasizing this particular word, the speaker may be signaling impatience or annoyance, possibly directed at someone else or their own situation. Stress patterns like these are common in emotionally charged speech, where certain words are highlighted to convey irritation or insistence.\n\nAdditionally, the speaker\u2019s profile\u2014being middle-aged and male\u2014might contribute to the perception of authority or assertiveness in tone, which aligns well with the prosodic cues observed. Despite the normal speed level, the combination of high energy and stressed phrasing creates a sense of tension, suggesting the speaker is emotionally invested in the situation. These acoustic features collectively point toward an expression of anger or frustration.</think>\n<answer>A</answer>",
+  "note": "One-hot decision, not calibrated probability",
+  "id": "1088_IOM_ANG_XX",
+  "audio_sha256": "95da1918aa156ee660c7ec8ef8d278dab2b404cd9a242b26285c835e4b6e6ebe",
+  "seconds": 15.461511624976993,
+  "label_source": "machine",
+  "approved_for_training": false
+}

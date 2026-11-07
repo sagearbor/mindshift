@@ -1,0 +1,17 @@
+{
+  "id": "1047_IWL_DIS_XX",
+  "audio_sha256": "dfd492a9e20b9fad162d7d7970df986d96da06bad69982bd69314b390284f3f5",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.06906393593978909,
+    0.4793987350491529,
+    0.01277554355325057,
+    0.08867984912318316,
+    0.2127318991343339,
+    0.13735003720028965
+  ],
+  "allowed_choice_mass": 0.9803124505997957,
+  "label_source": "machine",
+  "approved_for_training": false
+}

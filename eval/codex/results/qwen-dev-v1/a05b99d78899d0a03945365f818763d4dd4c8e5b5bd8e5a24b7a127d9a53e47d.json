@@ -1,0 +1,17 @@
+{
+  "id": "1016_ITS_DIS_XX",
+  "audio_sha256": "e4a7d89ca3d0820972683312a798180ecaf34165fc638d7a65f057fbe58a9758",
+  "config_hash": "03084ee7141ac9f806749a8e737d398b873548c946f7461b80a4cb5fb65fec7d",
+  "mode": "audio",
+  "probabilities": [
+    0.06911622029254762,
+    0.7430693957369375,
+    0.0016254577033680744,
+    0.021079256227664673,
+    0.15575580678994755,
+    0.00935386324953605
+  ],
+  "allowed_choice_mass": 0.9974899356133787,
+  "label_source": "machine",
+  "approved_for_training": false
+}

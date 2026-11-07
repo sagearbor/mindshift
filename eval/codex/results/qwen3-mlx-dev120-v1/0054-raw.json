@@ -1,0 +1,10 @@
+{
+  "id": "1001_WSI_ANG_XX",
+  "audio_sha256": "6201e4ae7356105720d784c0f7dc30098788a36ccd44f4d769aebd66a066a08c",
+  "text": "E",
+  "generated_tokens": 2,
+  "finish_reason": "stop",
+  "seconds": 0.14879791624844074,
+  "peak_memory_gb": 22.010987615,
+  "approved_for_training": false
+}
