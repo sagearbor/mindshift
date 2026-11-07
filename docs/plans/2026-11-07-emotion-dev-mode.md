@@ -55,7 +55,11 @@ live mic (16 kHz mono int16, the frames Live Coach already has)
 
 ## Setup: putting the (private) models on the phone — no git
 
-The weights live in the private `mindshift-emotion-private` repo and must never be copied into this repo. On the Mac:
+The weights live in the private `mindshift-emotion-private` repo and must never be copied into this repo.
+
+**Path 1 (no USB/adb): the in-app picker.** Get the two `.onnx` files onto the phone any way you like (Drive, download to `Downloads`). In Settings -> Advanced -> Emotion dev tester (switch on), tap **Choose TINY model file** and pick the tiny `.onnx`, then **Choose SMALL model file** for the small one. The app copies each (native file copy, nothing loaded into JS memory) to `<app documents>/emotion-models/` under the expected names (`emotion-tiny-int8.onnx` / `emotion-small-int8.onnx`), whatever the picked file is called. It refuses a non-`.onnx` file, a name that says it is the other model, a file under 5 MB (tiny) / 50 MB (small), a "tiny" of 50 MB or more, and a copy when free storage is below size + 10%; cancel is a no-op. Status text under the buttons says what happened; **Check again** re-probes. The prerequisites block lists developer mode, TINY, SMALL and Live Coach session separately, so a missing piece is always named. If a model changes while a session is running, toggle the switch or restart the Live Coach session to load it. The search order is the external app folder first: a stale file pushed there earlier by adb would shadow the picked copy.
+
+**Path 2 (adb), if you have it.** On the Mac:
 
 ```
 D=/sdcard/Android/data/com.sagearbor.mindshift.app/files/emotion
@@ -65,7 +69,7 @@ adb push $R/tiny-finetuned-v1/export/emotion-int8.onnx  $D/emotion-tiny-int8.onn
 adb push $R/small-finetuned-v1/export/emotion-int8.onnx $D/emotion-small-int8.onnx
 ```
 
-The app uses them in place (no 105 MB copy). Search order: that folder, then `<app documents>/emotion-models/`. A file smaller than 5 MB (tiny) / 50 MB (small) is reported as truncated. Without TINY the mode says "Models missing — …"; without SMALL it runs TINY-only and says so. Tap **Check again** after pushing. *Unverified: whether `adb push` into `Android/data` is allowed on the Pixel 10's Android version (restricted for some shells on 14+); if not, push to `/sdcard/Download/` and copy via the Files app into the app folder, or tell me and I will add an in-app file picker (`expo-document-picker` is already a dependency).*
+Files there are used in place. Search order: that folder, then `<app documents>/emotion-models/`. Without TINY the mode says "Models missing"; without SMALL it runs TINY-only and says so. Tap **Check again** after pushing. *Unverified: whether `adb push` into `Android/data` is allowed on the Pixel 10's Android version; and the picker path is untested on a device until the OTA ships.*
 
 ## Transport (phone <-> watch): decision
 
