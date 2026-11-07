@@ -35,7 +35,7 @@ android {
         // Play rejects any reuse, forever. The phone (Expo autoIncrement) is in
         // the tens; the watch lives at 1_000_000 + n so the two can never
         // collide. n continues the old gauge.wear sequence (last was 18).
-        versionCode = 1_000_019
+        versionCode = 1_000_020
         // Aligned with the phone release this ships beside (apps/mobile/app.json).
         versionName = "1.20.0"
 
