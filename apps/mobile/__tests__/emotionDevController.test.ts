@@ -249,4 +249,12 @@ describe("EmotionDevStore", () => {
     st.saveClip({ id: "a", reason: "x", atMs: 1, pcm: new Int16Array(100) });
     expect(st.exportLogText()).not.toMatch(/RIFF/);
   });
+
+  it("export includes every classified window, not just nudges", () => {
+    const st = new EmotionDevStore(new MemoryFs(), "file:///doc/e");
+    st.addWindow({ id: "w1", t: 1, tiny: P(0, 0, 0, 0, 1, 0), small: null });
+    st.addRecord({ id: "n1", t: 2, kind: "nudge", tiny: P(1, 0, 0, 0, 0, 0), small: null, nudged: true });
+    const ids = st.exportLogText().split("\n").filter(Boolean).map((l) => JSON.parse(l).id);
+    expect(ids).toEqual(expect.arrayContaining(["w1", "n1"]));
+  });
 });
