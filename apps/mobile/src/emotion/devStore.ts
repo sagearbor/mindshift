@@ -146,7 +146,12 @@ export class EmotionDevStore {
 
   /** The explicit-export payload: the log as JSON Lines text (no audio). */
   exportLogText(): string {
-    return this.fs.exists(this.logUri) ? this.fs.readText(this.logUri) : "";
+    const main = this.fs.exists(this.logUri) ? this.fs.readText(this.logUri) : "";
+    // Include every classified window too, so a scripted test (say each
+    // emotion in turn) can be scored; before this only nudges, disagreements
+    // and flags were exported and a quiet run came out nearly empty.
+    const wins = this.fs.exists(this.windowLogUri) ? this.fs.readText(this.windowLogUri) : "";
+    return main + wins;
   }
 
   // -- clips ----------------------------------------------------------------
