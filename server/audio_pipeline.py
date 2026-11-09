@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import coach_gate
+import coach_prompt_v3
 import coach_trigger
 import speak_verifier
 import guest_quota
@@ -1174,6 +1175,10 @@ class SuggestionJob:
     identity: str | None = None
     # Room mode at enqueue time: the turn goes to room_mode, not the coach.
     room: bool = False
+    # Quiet-coach triggers that fired on this turn and their evidence
+    # (coach_trigger.evaluate); only read by prompt v3.
+    triggers: tuple = ()
+    trigger_evidence: dict | None = None
     prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
     done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
 
@@ -2984,6 +2989,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     history=job.history, relationship=job.relationship,
                     session_context=job.session_context, library=library_ctx,
                     coach_language=job.coach_language,
+                    triggers=job.triggers, trigger_evidence=job.trigger_evidence,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -3066,9 +3072,17 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 session_context=job.session_context, library=library_ctx,
                 wearer_unknown=identity == WEARER_UNKNOWN,
                 coach_language=job.coach_language,
+                triggers=job.triggers, trigger_evidence=job.trigger_evidence,
+                identity=identity,
             )
         timing.llm_end = ctx.latency.now()
         note_hedge()
+        if not suggestion_texts and job.triggers and coach_prompt_v3.enabled():
+            # Prompt v3 chose SILENT (or the post-filter dropped the line):
+            # nothing further goes out, like a self turn that needs no nudge.
+            timing.sent = ctx.latency.now()
+            ctx.latency.record(timing, session_id)
+            return
         # Don't-nag gate: a first line that re-issues a recent coaching line
         # is demoted behind the model's first different alternative.
         suggestion_texts = _gate_suggestions(ctx, utterance, suggestion_texts)
@@ -3247,6 +3261,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # else is never sent to the LLM. Before latest-wins on purpose, like
         # the turn skip: an untriggered turn must not supersede a triggered
         # one still waiting in the queue. Room mode has its own rules.
+        job_triggers: tuple = ()
+        job_evidence: dict | None = None
         if ctx.room is None and coach_trigger.enabled():
             lib = ctx.library
             floor_s = _wearer_floor_s(ctx, utterance, identity)
@@ -3262,6 +3278,14 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 queue_stats["untriggered"] = queue_stats.get("untriggered", 0) + 1
                 logger.debug("Session %s: turn not coached (no trigger)", session_id)
                 return
+            if coach_prompt_v3.enabled() and coach_prompt_v3.line_type(verdict.triggers, identity) is None:
+                # Prompt v3: an unidentified speaker's turn (or a trigger with
+                # no line type for this identity) is never sent to the LLM -
+                # the speak gate would never voice the line anyway.
+                queue_stats["untriggered"] = queue_stats.get("untriggered", 0) + 1
+                logger.debug("Session %s: turn not coached (v3: no line type)", session_id)
+                return
+            job_triggers, job_evidence = verdict.triggers, dict(verdict.evidence)
             queue_stats["triggered"] = queue_stats.get("triggered", 0) + 1
             logger.debug("Session %s: coach trigger %s", session_id, ",".join(verdict.triggers))
 
@@ -3307,6 +3331,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             history=history,
             identity=identity,
             room=ctx.room is not None,
+            triggers=job_triggers,
+            trigger_evidence=job_evidence,
             prev_done=previous.done if previous is not None else None,
             done=asyncio.get_running_loop().create_future(),
         )
@@ -4865,6 +4891,9 @@ async def _generate_suggestions(
     session_context: str | None = None,
     library: LibraryContext | None = None,
     coach_language: str | None = None,
+    triggers: tuple = (),
+    trigger_evidence: dict | None = None,
+    identity: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4891,6 +4920,16 @@ async def _generate_suggestions(
     from main import empathy_system_prompt, unknown_wearer_prompt
 
     has_library = bool(library is not None and library.text)
+    if coach_prompt_v3.enabled() and triggers:
+        ltype = coach_prompt_v3.line_type(triggers, identity or ("unknown" if wearer_unknown else "other"))
+        if ltype is not None:
+            line, importance = await _generate_v3_line(
+                llm, utterance, ltype, empathy_slider, role, tone_context, speaker_name,
+                history=history, relationship=relationship, session_context=session_context,
+                library=library, coach_language=coach_language, triggers=triggers,
+                trigger_evidence=trigger_evidence, stats=stats,
+            )
+            return ([line] if line else []), importance
     if wearer_unknown:
         # Speaker-neutral cues only -- see main.COACH_UNKNOWN_WEARER_RULES.
         system = unknown_wearer_prompt(
@@ -4944,6 +4983,59 @@ async def _generate_suggestions(
     return suggestions, importance
 
 
+async def _generate_v3_line(
+    llm: LLMClient,
+    utterance: Utterance,
+    ltype: str,
+    empathy_slider: int,
+    role: str | None,
+    tone_context: dict | None,
+    speaker_name: str | None,
+    *,
+    history: dict | None,
+    relationship: str | None,
+    session_context: str | None,
+    library: LibraryContext | None,
+    coach_language: str | None,
+    triggers: tuple,
+    trigger_evidence: dict | None,
+    stats: dict | None = None,
+) -> tuple[str, int]:
+    """Prompt v3 (coach_prompt_v3, MINDSHIFT_COACH_PROMPT_V3): one trigger-
+    conditioned call, one line of one type, SILENT allowed, then the regex
+    post-filter. Returns ``(line, importance)``; ``("", 0)`` is silence.
+    No temperature is passed (the provider default / none on 5.x models)."""
+    system = coach_prompt_v3.system_prompt(
+        ltype, empathy_slider, role, relationship=relationship,
+        session_context=session_context, library=bool(library is not None and library.text),
+    )
+    system = with_language(system, coach_language)
+    user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
+    user_content += "\n\n" + coach_prompt_v3.trigger_block(triggers, trigger_evidence)
+    system, user_content = _with_library(system, user_content, library)
+    raw = await asyncio.to_thread(
+        llm.complete, system=system, user=user_content, max_tokens=SUGGESTION_MAX_TOKENS,
+    )
+    data = await _parse_or_repair(
+        llm, raw, keys='"line" (string), "type" (string), "importance" (integer)',
+        what="v3 line", utterance_text=utterance.text,
+    )
+    line, _ltype, importance = coach_prompt_v3.parse(data)
+    if not line:
+        return "", 0
+    overlapped = coach_prompt_v3.wearer_overlapped(
+        history, float(utterance.start_time), float(utterance.end_time),
+    ) if ltype == "heat" else False
+    line, why = coach_prompt_v3.post_filter(
+        line, ltype, coach_prompt_v3.context_text(utterance.text, history),
+        wearer_overlapped=overlapped,
+    )
+    if not line:
+        logger.debug("v3 line dropped by the post-filter (%s)", why)
+        return "", 0
+    return line, importance
+
+
 async def _generate_nudge(
     llm: LLMClient,
     utterance: Utterance,
@@ -4960,6 +5052,8 @@ async def _generate_nudge(
     session_context: str | None = None,
     library: LibraryContext | None = None,
     coach_language: str | None = None,
+    triggers: tuple = (),
+    trigger_evidence: dict | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4980,6 +5074,16 @@ async def _generate_nudge(
     it never fabricates a nudge.
     """
     from main import self_feedback_prompt
+
+    if coach_prompt_v3.enabled() and triggers:
+        ltype = coach_prompt_v3.line_type(triggers, WEARER_SELF)
+        if ltype is not None:
+            return await _generate_v3_line(
+                llm, utterance, ltype, empathy_slider, role, tone_context, speaker_name,
+                history=history, relationship=relationship, session_context=session_context,
+                library=library, coach_language=coach_language, triggers=triggers,
+                trigger_evidence=trigger_evidence, stats=stats,
+            )
 
     system = self_feedback_prompt(
         empathy_slider, role, voice_profile, relationship=relationship,
