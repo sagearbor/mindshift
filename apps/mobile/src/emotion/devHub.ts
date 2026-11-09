@@ -122,6 +122,20 @@ export class EmotionDevHub {
     }
   }
 
+  /** Build the runtime without waiting for Live Coach audio (scripted test). */
+  async ensureRuntime(): Promise<boolean> {
+    if (!this.settings.enabled) return false;
+    if (!this.runtime && !this.building) {
+      this.failed = null;
+      await this.start();
+    }
+    return this.runtime !== null;
+  }
+
+  async classifyClip(pcm: Int16Array, expect: string, round: number) {
+    return (await this.ensureRuntime()) ? this.runtime!.controller.classifyClip(pcm, expect, round) : null;
+  }
+
   /** A live session ended: finish pending flag clips with what exists. */
   sessionEnded(): void {
     this.runtime?.controller.stop();

@@ -12,6 +12,7 @@ import type { DevStatus } from "../emotion/devHub";
 import { emotionDevHub } from "../emotion/hub";
 import type { ModelKind, ModelStatus } from "../emotion/modelFiles";
 import { describePrerequisites } from "../emotion/modelImport";
+import { ScriptedEmotionTest } from "./ScriptedEmotionTest";
 
 export function describeStatus(s: DevStatus): string {
   switch (s.state) {
@@ -156,6 +157,7 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
 
       {settings.enabled ? (
         <>
+          <ScriptedEmotionTest />
           <View style={styles.buttons}>
             <TouchableOpacity testID="emotion-dev-pick-tiny" disabled={importing !== null} style={[styles.btn, importing !== null && styles.btnOff]} onPress={() => void chooseModel("tiny")}>
               <Text style={styles.btnText}>Choose TINY model file</Text>
