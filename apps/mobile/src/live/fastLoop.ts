@@ -365,7 +365,8 @@ export interface FastLoopDeps {
   earlyTurnLocal?: boolean;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
-   *  convention). Null disables the convention. Changeable mid-session via
+   *  convention). Default NULL since 2026-11-05 (wearer rule: no guess; only
+   *  an explicit choice enables it). Changeable mid-session via
    *  `setSelfSpeakerFallback` (the screen's "You: Speaker A ⇄" chip). */
   selfSpeakerFallback?: string | null;
   /** Seconds of PCM kept for segment extraction. */
@@ -594,8 +595,10 @@ export class FastLoop {
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
     this.vad = deps.vad;
-    this.selfSpeakerFallback =
-      deps.selfSpeakerFallback === undefined ? "Speaker A" : deps.selfSpeakerFallback;
+    // Wearer rule (2026-11-05): no 'Speaker A is you' GUESS by default - a
+    // wearer-addressed nudge needs a voiceprint verdict (or the user's own
+    // explicit choice via setSelfSpeakerFallback / the You: A chip).
+    this.selfSpeakerFallback = deps.selfSpeakerFallback === undefined ? null : deps.selfSpeakerFallback;
     this.speakerAudioSamples = Math.round(
       (deps.speakerAudioSeconds ?? DEFAULT_SPEAKER_AUDIO_SECONDS) * SILERO_SAMPLE_RATE,
     );
