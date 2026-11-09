@@ -175,6 +175,31 @@ export class EmotionDevController {
     this.publish();
   }
 
+  /** Scripted test: classify exactly one captured take (no ring, gate or nudge)
+   *  and log it next to the emotion that was asked for. Returns the raw
+   *  probabilities, or null when TINY is not loaded / the clip is unusable. */
+  async classifyClip(pcm: Int16Array, expect: string, round: number): Promise<{ tiny: number[]; small: number[] | null } | null> {
+    if (!this.d.tiny || pcm.length < RING_SAMPLE_RATE) return null;
+    const audio = int16ToFloat32(pcm.length > this.cfg.windowS * RING_SAMPLE_RATE ? pcm.subarray(pcm.length - this.cfg.windowS * RING_SAMPLE_RATE) : pcm);
+    if (waveformProblem(audio)) return null;
+    const mel = computeLogMel(audio);
+    const tiny = await this.d.tiny.classify(mel);
+    let small: number[] | null = null;
+    if (this.d.small) {
+      try {
+        small = await this.d.small.classify(mel);
+      } catch (e) {
+        this.fail(e);
+      }
+    }
+    if (!isProbVector(tiny)) return null;
+    this.d.store.addRecord({
+      id: this.id(), t: this.now(), kind: "scripted", tiny, small: small && isProbVector(small) ? small : null,
+      nudged: false, expect, round,
+    });
+    return { tiny: Array.from(tiny), small: small && isProbVector(small) ? Array.from(small) : null };
+  }
+
   // -- one window -----------------------------------------------------------
 
   /** Classify the latest window now (exposed so tests can drive it deterministically). */

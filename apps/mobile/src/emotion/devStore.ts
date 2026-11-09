@@ -11,7 +11,7 @@ import { buildWavHeader, int16ToBytes } from "../recorder/wav";
 import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type Probs } from "./config";
 
 export type FlagValue = "bad" | "good" | "ignore" | "unrated";
-export type RecordKind = "window" | "nudge" | "disagree";
+export type RecordKind = "window" | "nudge" | "disagree" | "scripted";
 
 export interface EmotionRecord {
   id: string;
@@ -27,6 +27,9 @@ export interface EmotionRecord {
   nudgeReason?: string;
   flag: FlagValue | null;
   clip?: string;
+  /** Scripted test only: the emotion the owner was asked to act, and the round. */
+  expect?: string;
+  round?: number;
 }
 
 type LogLine =
@@ -92,6 +95,8 @@ export class EmotionDevStore {
     tinyAdjusted?: Probs;
     nudged: boolean;
     nudgeReason?: string;
+    expect?: string;
+    round?: number;
   }): void {
     this.append({
       op: "rec",
@@ -103,6 +108,7 @@ export class EmotionDevStore {
       ...(r.tinyAdjusted ? { tinyAdjusted: round4(r.tinyAdjusted)! } : {}),
       nudged: r.nudged,
       ...(r.nudgeReason ? { nudgeReason: r.nudgeReason } : {}),
+      ...(r.expect ? { expect: r.expect, round: r.round } : {}),
       // A nudge is "unrated" until the owner says otherwise (✓ is optional).
       flag: r.nudged ? "unrated" : null,
     });
