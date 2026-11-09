@@ -76,6 +76,26 @@ done
 if ! ls "$DIST"/assets/*silero* "$DIST"/assets/**/*silero* >/dev/null 2>&1 && ! find "$DIST/assets" -name '*.onnx' | grep -q .; then
   echo "web_deploy: the Silero VAD asset (.onnx) is not in the export" >&2; exit 1
 fi
+# The phone downloads the speaker-ID model from Hosting (apps/mobile/src/api/
+# liveSessions.ts ecapaModelUrl). `firebase deploy` REPLACES the whole site with
+# dist/, so the model must be in every export: a deploy without it made that URL
+# fall through to the SPA index.html (1176 bytes) and turned speaker-ID off for
+# everyone (2026-11-04 deploy). ECAPA_REVISION is read from the client source so
+# the two cannot drift. Source: ECAPA_ONNX_SRC, else the server export cache.
+ECAPA_REV=$(grep -o 'ECAPA_REVISION = "[0-9a-f]*"' "$MOBILE/src/api/liveSessions.ts" | grep -o '[0-9a-f]\{40\}')
+[ -n "$ECAPA_REV" ] || { echo "web_deploy: cannot read ECAPA_REVISION from liveSessions.ts" >&2; exit 1; }
+ECAPA_SRC="${ECAPA_ONNX_SRC:-}"
+if [ -z "$ECAPA_SRC" ]; then
+  for d in "$ROOT/server/.ecapa_cache" "$HOME/projects/githubs/mindshift/server/.ecapa_cache"; do
+    [ -f "$d/ecapa_$ECAPA_REV.onnx" ] && ECAPA_SRC="$d/ecapa_$ECAPA_REV.onnx" && break
+  done
+fi
+[ -f "$ECAPA_SRC" ] || { echo "web_deploy: ECAPA model ecapa_$ECAPA_REV.onnx not found (set ECAPA_ONNX_SRC)" >&2; exit 1; }
+ECAPA_BYTES=$(wc -c < "$ECAPA_SRC" | tr -d ' ')
+[ "$ECAPA_BYTES" -gt 50000000 ] || { echo "web_deploy: $ECAPA_SRC is only $ECAPA_BYTES bytes — not the model" >&2; exit 1; }
+mkdir -p "$DIST/models"
+cp "$ECAPA_SRC" "$DIST/models/ecapa_$ECAPA_REV.onnx"
+echo "web_deploy: ECAPA model included (${ECAPA_BYTES} bytes)"
 echo "web_deploy: export verified ($(du -sh "$DIST" | cut -f1))"
 
 # 2b. Headless-Chrome smoke (mount + self-hosted ONNX Runtime) when Chrome exists.
