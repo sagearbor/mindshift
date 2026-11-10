@@ -41,3 +41,7 @@
 # (upload build/outputs/mapping/release/mapping.txt with the AAB).
 -keepattributes SourceFile, LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# ONNX Runtime (Android): JNI looks classes/fields up by name.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

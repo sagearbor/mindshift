@@ -11,7 +11,7 @@ import { buildWavHeader, int16ToBytes } from "../recorder/wav";
 import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type Probs } from "./config";
 
 export type FlagValue = "bad" | "good" | "ignore" | "unrated";
-export type RecordKind = "window" | "nudge" | "disagree" | "scripted";
+export type RecordKind = "window" | "nudge" | "disagree" | "scripted" | "watch";
 
 export interface EmotionRecord {
   id: string;

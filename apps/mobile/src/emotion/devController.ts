@@ -355,6 +355,13 @@ export class EmotionDevController {
     if (c.action === "pause") this.setPaused(true);
     else if (c.action === "resume") this.setPaused(false);
     else if (c.action === "flag" && c.flag) this.flag(c.flag, c.nudgeId ?? null);
+    else if (c.action === "windows" && c.rows) {
+      // On-watch TINY (Phase 2): the watch classified these itself. Log them beside the phone's own
+      // rows (kind "watch", small null) so one export holds both; they never drive a buzz here.
+      for (const r of c.rows) {
+        this.d.store.addRecord({ id: `watch-${r.t}`, t: r.t, kind: "watch", tiny: r.p, small: null, nudged: r.nudged });
+      }
+    }
   }
 
   /** Session ended / mode turned off: finish pending flag clips with the audio that exists. */

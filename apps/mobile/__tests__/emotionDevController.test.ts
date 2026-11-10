@@ -179,6 +179,25 @@ describe("EmotionDevController", () => {
     expect(await poller.pollOnce()).toBe(0); // already consumed
   });
 
+  it("windows the watch classified itself are logged as kind 'watch' and never buzz or drive the phone", async () => {
+    const s = setup();
+    s.link.queue.push({
+      seq: 1, action: "windows", t: 1,
+      rows: [
+        { t: 5000, p: P(0.7, 0.1, 0.05, 0.05, 0.05, 0.05), ms: 41, battery: 80, nudged: true },
+        { t: 8000, p: P(0.02, 0.02, 0.02, 0.02, 0.9, 0.02), ms: 38, battery: 80, nudged: false },
+      ],
+    });
+    const poller = new ControlPoller(s.link, (c) => s.ctl.handleControl(c));
+    expect(await poller.pollOnce()).toBe(1);
+    const recs = s.store.readRecords().filter((r) => r.kind === "watch");
+    expect(recs).toHaveLength(2);
+    expect(recs[0].tiny[0]).toBeCloseTo(0.7, 4);
+    expect(recs[0].small).toBeNull();
+    expect(recs[0].nudged).toBe(true);
+    expect(s.link.sent).toHaveLength(0); // nothing pushed back down to the wrist
+  });
+
   it("quiet windows do not spam the watch; a label change does", async () => {
     const s = setup();
     await s.feed(30);

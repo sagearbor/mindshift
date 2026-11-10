@@ -40,6 +40,12 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- On-watch emotion mode (off by default; started only by the Settings toggle). -->
+        <service
+            android:name=".emotion.EmotionLocalService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <service
             android:name=".tile.GaugeTileService"
             android:exported="true"

@@ -108,3 +108,38 @@ def test_unauthenticated_caller_is_refused():
     client = TestClient(create_watch_test_app(store=MemoryLiveSessionStore(), allow_legacy=False))
     assert client.post("/emotion/event", json=EVENT).status_code in (401, 403)
     assert client.get("/emotion/ctl").status_code in (401, 403)
+
+
+WIN = {"t": 1700000000000, "p": [0.7, 0.1, 0.05, 0.05, 0.05, 0.05], "ms": 41, "b": 80, "n": True}
+
+
+def test_on_watch_windows_reach_the_phone_queue_numbers_only():
+    client = _client()
+    r = client.post("/emotion/watch-windows?account=alice", json={"v": 1, "rows": [WIN, {**WIN, "t": 1700000003000, "n": False, "why": "neutral"}]})
+    assert r.status_code == 200 and r.json() == {"accepted": 2}
+    items = client.get("/emotion/ctl?account=alice&after=0").json()["items"]
+    assert len(items) == 1 and items[0]["action"] == "windows"
+    assert [row["t"] for row in items[0]["rows"]] == [1700000000000, 1700000003000]
+    assert set(items[0]["rows"][0]) == {"t", "p", "ms", "b", "n", "why"}  # no audio field exists
+    # another account sees nothing
+    assert client.get("/emotion/ctl?account=bob&after=0").json()["items"] == []
+
+
+def test_on_watch_windows_reject_non_probability_rows_and_oversize_batches():
+    client = _client()
+    bad = {**WIN, "p": [0.9, 0.9, 0.9, 0.9, 0.9, 0.9]}
+    assert client.post("/emotion/watch-windows?account=alice", json={"rows": [bad]}).json() == {"accepted": 0}
+    assert client.post("/emotion/watch-windows?account=alice", json={"rows": [{**WIN, "p": [1.0]}]}).status_code == 422
+    too_many = [WIN] * (emotion_bridge.MAX_WATCH_ROWS + 1)
+    assert client.post("/emotion/watch-windows?account=alice", json={"rows": too_many}).status_code == 422
+    assert client.get("/emotion/ctl?account=alice&after=0").json()["items"] == []
+
+
+def test_windows_cannot_be_injected_over_the_websocket_ctl_path():
+    assert emotion_bridge.push_ctl("alice", {"action": "windows", "rows": [WIN]}) is False
+    assert parse_ctl({"action": "windows"}) == {"action": "windows"}  # parse alone is shape-only; push_ctl blocks it
+
+
+def test_watch_windows_requires_auth():
+    client = TestClient(create_watch_test_app(store=MemoryLiveSessionStore(), allow_legacy=False))
+    assert client.post("/emotion/watch-windows", json={"rows": [WIN]}).status_code in (401, 403)

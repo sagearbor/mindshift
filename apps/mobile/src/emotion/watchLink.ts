@@ -29,7 +29,21 @@ export interface WatchEmotionState {
   suggestion: string | null;
 }
 
-export type WatchControlAction = "pause" | "resume" | "flag";
+export type WatchControlAction = "pause" | "resume" | "flag" | "windows";
+
+/** One window the WATCH classified itself (Phase 2, on-watch TINY). Numbers only. */
+export interface WatchWindowRow {
+  /** Epoch ms. */
+  t: number;
+  /** TINY probabilities, EMOTION_LABELS order. */
+  p: number[];
+  /** Watch-side log-mel + inference wall time, ms. */
+  ms: number;
+  /** Watch battery % when classified, -1 unknown. */
+  battery: number;
+  /** The watch buzzed for this window. */
+  nudged: boolean;
+}
 
 /** Watch -> phone. */
 export interface WatchControl {
@@ -38,6 +52,8 @@ export interface WatchControl {
   flag?: Exclude<FlagValue, "unrated">;
   nudgeId?: string | null;
   t: number;
+  /** action "windows" only. */
+  rows?: WatchWindowRow[];
 }
 
 export interface WatchLink {
@@ -86,7 +102,16 @@ export class ServerWatchLink implements WatchLink {
       const out: WatchControl[] = [];
       for (const it of body.items ?? []) {
         const action = it.action;
-        if ((action !== "pause" && action !== "resume" && action !== "flag") || typeof it.seq !== "number") continue;
+        if (
+          (action !== "pause" && action !== "resume" && action !== "flag" && action !== "windows") ||
+          typeof it.seq !== "number"
+        )
+          continue;
+        if (action === "windows") {
+          const rows = parseWindowRows(it.rows);
+          if (rows.length) out.push({ seq: it.seq, action, rows, t: typeof it.t === "number" ? it.t : 0 });
+          continue;
+        }
         const flag = it.flag;
         out.push({
           seq: it.seq,
@@ -101,6 +126,26 @@ export class ServerWatchLink implements WatchLink {
       return [];
     }
   }
+}
+
+/** Keep only rows that are a believable probability vector; never repair a bad one. */
+export function parseWindowRows(raw: unknown): WatchWindowRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WatchWindowRow[] = [];
+  for (const r of raw as Array<Record<string, unknown>>) {
+    const p = r?.p;
+    if (!Array.isArray(p) || p.length !== 6 || typeof r.t !== "number") continue;
+    if (!p.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1)) continue;
+    if (Math.abs((p as number[]).reduce((a, b) => a + b, 0) - 1) > 0.01) continue;
+    out.push({
+      t: r.t,
+      p: p as number[],
+      ms: typeof r.ms === "number" ? r.ms : 0,
+      battery: typeof r.b === "number" ? r.b : -1,
+      nudged: r.n === true,
+    });
+  }
+  return out;
 }
 
 /** In-memory link for tests: records sent states, serves queued controls. */

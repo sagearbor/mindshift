@@ -4,7 +4,7 @@ import { parseSettings } from "../src/emotion/devPrefs";
 import { OnnxEmotionEngine } from "../src/emotion/engine";
 import { N_FRAMES, N_MELS } from "../src/emotion/logMel";
 import { androidExternalEmotionDir, modelSearchDirs, resolveBoth, resolveEmotionModel } from "../src/emotion/modelFiles";
-import { ServerWatchLink } from "../src/emotion/watchLink";
+import { ServerWatchLink, parseWindowRows } from "../src/emotion/watchLink";
 import type { OnnxSession } from "../src/live/ort";
 import { describeStatus } from "../src/components/EmotionDevPanel";
 
@@ -218,5 +218,32 @@ describe("EmotionDevHub", () => {
     expect(t).toMatch(/PAUSED/);
     expect(t).toMatch(/SMALL off \(small not found\)/);
     expect(describeStatus({ state: "models-missing", message: "Models missing — nope" })).toContain("Models missing");
+  });
+});
+
+
+describe("on-watch window rows", () => {
+  it("parses a windows control and drops rows that are not probability vectors", async () => {
+    const link = new ServerWatchLink("https://api.test", async () => ({}), async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          { seq: 3, t: 1, action: "windows", rows: [
+            { t: 10, p: [0.7, 0.1, 0.05, 0.05, 0.05, 0.05], ms: 40, b: 77, n: true },
+            { t: 11, p: [0.9, 0.9, 0.9, 0.9, 0.9, 0.9], ms: 40, b: 77, n: false },
+          ] },
+          { seq: 4, t: 1, action: "windows", rows: [] },
+        ],
+      }),
+    }));
+    const out = await link.pollControls(0);
+    expect(out).toHaveLength(1);
+    expect(out[0].rows).toEqual([{ t: 10, p: [0.7, 0.1, 0.05, 0.05, 0.05, 0.05], ms: 40, battery: 77, nudged: true }]);
+  });
+
+  it("parseWindowRows ignores garbage", () => {
+    expect(parseWindowRows(undefined)).toEqual([]);
+    expect(parseWindowRows([{ t: 1, p: [1] }, null])).toEqual([]);
   });
 });

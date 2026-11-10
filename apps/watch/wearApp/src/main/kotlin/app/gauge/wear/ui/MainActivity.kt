@@ -216,6 +216,9 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStart() {
         super.onStart()
+        // On-watch emotion: a foreground-service start is only legal from a visible activity, so
+        // this is where "the toggle is on" is re-asserted after a process death or reboot.
+        runCatching { app.gauge.wear.emotion.EmotionLocalService.apply(this) }
         if (previewJob != null) return // already running (e.g. a config change didn't tear us down)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED

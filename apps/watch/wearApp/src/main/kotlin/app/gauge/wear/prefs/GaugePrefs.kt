@@ -152,4 +152,18 @@ object GaugePrefs {
             .remove(KEY_JOURNAL_CONSENT_TS)
             .apply()
     }
+
+    private const val KEY_EMOTION_LOCAL = "emotion_local_enabled"
+
+    /**
+     * On-watch emotion (TINY model running on the wrist, no phone needed). **Default OFF**, and it
+     * stays off until the wearer flips the Settings toggle: it keeps the mic open and costs battery.
+     * See docs/plans/2026-11-10-emotion-on-watch-phase2.md.
+     */
+    fun emotionLocalEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_EMOTION_LOCAL, false)
+
+    fun setEmotionLocalEnabled(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_EMOTION_LOCAL, value).apply()
+    }
 }
