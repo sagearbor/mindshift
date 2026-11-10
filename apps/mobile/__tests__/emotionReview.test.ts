@@ -1,5 +1,6 @@
 import { DEFAULT_USER_SETTINGS, EMOTION_DEV_DEFAULTS, type EmotionDevUserSettings } from "../src/emotion/config";
 import { EmotionDevController } from "../src/emotion/devController";
+import { EmotionDevHub } from "../src/emotion/devHub";
 import { EmotionDevStore } from "../src/emotion/devStore";
 import type { EmotionEngine } from "../src/emotion/engine";
 import { NudgeGate } from "../src/emotion/logic";
@@ -245,7 +246,6 @@ describe("ReviewSession", () => {
 
 describe("hub review controls work with the store alone", () => {
   it("rate() writes flag + truth and the queue shrinks", async () => {
-    const { EmotionDevHub } = await import("../src/emotion/devHub");
     const s = setup(P(0, 0, 0, 0.9, 0.1, 0), NOT_SURE, { saveAudio: true });
     await s.feed(9);
     const hub = new EmotionDevHub(async () => ({ ok: false, code: "error", message: "n/a" }), () => s.store);
