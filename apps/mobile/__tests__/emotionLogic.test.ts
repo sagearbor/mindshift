@@ -11,6 +11,14 @@ import {
 } from "../src/emotion/logic";
 import { ClipScheduler, PcmRing } from "../src/emotion/pcmRing";
 
+/** These cases cover the original TINY-only rule (still a setting); the default
+ *  "both models agree" rule is covered in emotionReview.test.ts. */
+function tinyGate(cfg: typeof EMOTION_DEV_DEFAULTS): NudgeGate {
+  const g = new NudgeGate(cfg);
+  g.setRule("tiny");
+  return g;
+}
+
 const P = (anger = 0, disgust = 0, fear = 0, happiness = 0, neutral = 0, sadness = 0) => [anger, disgust, fear, happiness, neutral, sadness];
 const H = 3_600_000;
 
@@ -91,26 +99,26 @@ describe("nudge gate (TINY)", () => {
   const cfg = { ...EMOTION_DEV_DEFAULTS, nudgeConfirmWindows: 2, maxNudgesPerHour: 2, minNudgeGapS: 0 };
   const angry = P(0.7, 0, 0, 0, 0.3, 0);
   it("never nudges on neutral or below threshold", () => {
-    const g = new NudgeGate(cfg);
+    const g = tinyGate(cfg);
     expect(g.decide(P(0, 0, 0, 0, 0.9, 0.1), 0).reason).toBe("neutral");
     expect(g.decide(P(0.4, 0, 0, 0, 0.35, 0.25), 1).reason).toBe("below-threshold");
   });
   it("needs the same class on consecutive windows", () => {
-    const g = new NudgeGate(cfg);
+    const g = tinyGate(cfg);
     expect(g.decide(angry, 0)).toEqual({ nudge: false, reason: "unconfirmed" });
     expect(g.decide(angry, 3000).nudge).toBe(true);
-    const g2 = new NudgeGate(cfg);
+    const g2 = tinyGate(cfg);
     g2.decide(angry, 0);
     g2.decide(P(0, 0, 0, 0, 1, 0), 3000); // a neutral window breaks the streak
     expect(g2.decide(angry, 6000).nudge).toBe(false);
   });
   it("different classes do not confirm each other", () => {
-    const g = new NudgeGate(cfg);
+    const g = tinyGate(cfg);
     g.decide(angry, 0);
     expect(g.decide(P(0, 0, 0.7, 0, 0.3, 0), 3000).nudge).toBe(false);
   });
   it("is rate-capped per hour", () => {
-    const g = new NudgeGate(cfg);
+    const g = tinyGate(cfg);
     const fire = (t: number) => {
       const a = g.decide(angry, t).nudge;
       return a || g.decide(angry, t + 1).nudge;
@@ -122,7 +130,7 @@ describe("nudge gate (TINY)", () => {
     expect(fire(H + 30_000)).toBe(true);
   });
   it("honours the allowed-label list", () => {
-    const g = new NudgeGate({ ...cfg, nudgeLabels: ["anger"] });
+    const g = tinyGate({ ...cfg, nudgeLabels: ["anger"] });
     g.decide(P(0, 0, 0, 0.8, 0.2, 0), 0);
     expect(g.decide(P(0, 0, 0, 0.8, 0.2, 0), 1).nudge).toBe(false);
   });

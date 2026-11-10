@@ -11,7 +11,7 @@ import { buildWavHeader, int16ToBytes } from "../recorder/wav";
 import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type Probs } from "./config";
 
 export type FlagValue = "bad" | "good" | "ignore" | "unrated";
-export type RecordKind = "window" | "nudge" | "disagree" | "scripted";
+export type RecordKind = "window" | "nudge" | "disagree" | "scripted" | "saved" | "mark";
 
 export interface EmotionRecord {
   id: string;
@@ -27,6 +27,8 @@ export interface EmotionRecord {
   nudgeReason?: string;
   flag: FlagValue | null;
   clip?: string;
+  /** Review mode: what the listener says it really was (optional). */
+  truth?: string;
   /** Scripted test only: the emotion the owner was asked to act, and the round. */
   expect?: string;
   round?: number;
@@ -35,12 +37,24 @@ export interface EmotionRecord {
 type LogLine =
   | ({ op: "rec" } & Omit<EmotionRecord, "flag"> & { flag: FlagValue | null })
   | { op: "flag"; id: string; flag: FlagValue; t: number }
-  | { op: "clip"; id: string; clip: string };
+  | { op: "clip"; id: string; clip: string }
+  | { op: "truth"; id: string; truth: string };
 
 const enc = new TextEncoder();
 const round4 = (p: Probs | null): number[] | null => (p ? Array.from(p, (v) => Math.round(v * 1e4) / 1e4) : null);
 
+export interface ReviewItem {
+  id: string;
+  clip: string;
+  uri: string;
+  t: number;
+  kind: RecordKind;
+  tiny: number[];
+  small: number[] | null;
+}
+
 export class EmotionDevStore {
+  private capBytes: number;
   private readonly logUri: string;
   private readonly windowLogUri: string;
   private readonly clipDir: string;
@@ -56,6 +70,7 @@ export class EmotionDevStore {
     // nudges/flags/disagreements, so trimming one can never eat the other.
     this.windowLogUri = `${dir}/emotion-windows.jsonl`;
     this.clipDir = `${dir}/clips`;
+    this.capBytes = cfg.maxClipBytes;
   }
 
   // -- log ------------------------------------------------------------------
@@ -118,6 +133,34 @@ export class EmotionDevStore {
     this.append({ op: "flag", id, flag, t: this.now() });
   }
 
+  /** Review mode: "what was it really?" (one of the six emotion labels). */
+  setTruth(id: string, truth: string): void {
+    this.append({ op: "truth", id, truth });
+  }
+
+  /** Saved clips nobody has rated yet (no thumbs, no flag), oldest first.
+   *  A clip whose file was evicted is skipped. */
+  reviewQueue(): ReviewItem[] {
+    const out: ReviewItem[] = [];
+    for (const r of this.readRecords()) {
+      if (!r.clip || (r.flag !== null && r.flag !== "unrated")) continue;
+      const uri = this.clipUri(r.clip);
+      if (!this.fs.exists(uri)) continue;
+      out.push({ id: r.id, clip: r.clip, uri, t: r.t, kind: r.kind, tiny: r.tiny, small: r.small });
+    }
+    return out;
+  }
+
+  clipUri(name: string): string {
+    return `${this.clipDir}/${name}`;
+  }
+
+  /** Raise/lower the clip storage cap (save-audio mode); evicts at once if now over. */
+  setClipCapBytes(bytes: number): void {
+    this.capBytes = Math.max(1, bytes);
+    this.evictClips();
+  }
+
   /** Records with later flag/clip lines folded in, oldest first. */
   readRecords(): EmotionRecord[] {
     return this.parse(this.logUri);
@@ -142,6 +185,9 @@ export class EmotionDevStore {
       } else if (line.op === "flag") {
         const r = byId.get(line.id);
         if (r) r.flag = line.flag;
+      } else if (line.op === "truth") {
+        const r = byId.get(line.id);
+        if (r) r.truth = line.truth;
       } else if (line.op === "clip") {
         const r = byId.get(line.id);
         if (r) r.clip = line.clip;
@@ -167,7 +213,7 @@ export class EmotionDevStore {
   saveClip(p: { id: string; reason: string; atMs: number; pcm: Int16Array; sampleRate?: number }): string | null {
     const sr = p.sampleRate ?? 16000;
     const bytes = 44 + p.pcm.length * 2;
-    if (bytes > this.cfg.maxClipBytes) return null;
+    if (bytes > this.capBytes) return null;
     this.fs.ensureDir(this.clipDir);
     const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, "_");
     const name = `${String(p.atMs).padStart(13, "0")}-${safe(p.id)}-${safe(p.reason)}.wav`;
@@ -201,11 +247,16 @@ export class EmotionDevStore {
     };
   }
 
+  /** Over the cap: delete oldest UNRATED clips first, rated ones only if that is not enough. */
   private evictClips(): void {
     const clips = this.listClips(); // oldest first (epoch-prefixed names)
     let total = clips.reduce((a, c) => a + c.bytes, 0);
-    for (const c of clips) {
-      if (total <= this.cfg.maxClipBytes) break;
+    if (total <= this.capBytes) return;
+    const rated = new Set<string>();
+    for (const r of this.readRecords()) if (r.clip && r.flag !== null && r.flag !== "unrated") rated.add(r.clip);
+    const order = [...clips.filter((c) => !rated.has(c.name)), ...clips.filter((c) => rated.has(c.name))];
+    for (const c of order) {
+      if (total <= this.capBytes) break;
       try {
         this.fs.deleteRecursive(`${this.clipDir}/${c.name}`);
         total -= c.bytes;

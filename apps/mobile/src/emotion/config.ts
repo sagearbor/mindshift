@@ -41,6 +41,16 @@ export const EMOTION_DEV_DEFAULTS = {
   /** …and never closer together than this. */
   minNudgeGapS: 120,
 
+  /** --- Nudge rule "both" (default): TINY and SMALL must name the SAME
+   *  negative class, each at >= this probability. TINY's disgust alone never
+   *  buzzes (scripted test 2026-11: TINY says disgust on almost anything). --- */
+  nudgeBothMinProb: 0.6,
+
+  /** --- Save-audio mode (default OFF) --- */
+  saveAudioClipS: 6,
+  saveAudioDefaultMinProb: 0.5,
+  saveAudioDefaultCapMb: 500,
+
   /** --- Flag capture --- */
   flagBeforeS: 45,
   flagAfterS: 15,
@@ -66,12 +76,25 @@ export interface EmotionDevUserSettings {
   enabled: boolean;
   maxNudgesPerHour: number;
   nudgeSuggestion: boolean; // show the (optional) suggestion text on the watch
+  /** "both" = both models must agree (default); "tiny" = the old TINY-only rule. */
+  nudgeRule: NudgeRule;
+  /** Save-audio mode: keep a 6 s clip whenever either model hears a non-neutral emotion. */
+  saveAudio: boolean;
+  saveAudioMinProb: number;
+  /** Storage cap for saved clips, in MB (oldest unrated deleted first). */
+  storageCapMb: number;
 }
+
+export type NudgeRule = "both" | "tiny";
 
 export const DEFAULT_USER_SETTINGS: EmotionDevUserSettings = {
   enabled: false,
   maxNudgesPerHour: EMOTION_DEV_DEFAULTS.maxNudgesPerHour,
   nudgeSuggestion: false,
+  nudgeRule: "both",
+  saveAudio: false,
+  saveAudioMinProb: EMOTION_DEV_DEFAULTS.saveAudioDefaultMinProb,
+  storageCapMb: EMOTION_DEV_DEFAULTS.saveAudioDefaultCapMb,
 };
 
 export const MODEL_FILES = {
