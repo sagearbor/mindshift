@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Linking,
   ActivityIndicator,
+  Keyboard,
+  Platform,
 } from "react-native";
 import { showAlert } from "../utils/showAlert";
 
@@ -191,6 +193,23 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
     void attemptPair(code);
   }, [attemptPair, code]);
 
+  // The keyboard covered the code box and the page could not scroll past it.
+  // iOS: ScrollView's automaticallyAdjustKeyboardInsets handles it (padding
+  // manually too would double the inset). Android has no such prop, so pad the
+  // bottom by the keyboard height to leave room to scroll.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const show = Keyboard.addListener("keyboardDidShow", (e) =>
+      setKbHeight(e.endCoordinates?.height ?? 0),
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   const paired = result?.ok === true;
   // Locked once paired: a stray re-tap/re-edit must never fire a redundant
   // claim — the code was already consumed server-side, so a second attempt
@@ -201,7 +220,9 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
   return (
     <ScrollView
       style={styles.flex}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: 40 + kbHeight }]}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
       testID="watch-setup-screen"
     >
       <TouchableOpacity

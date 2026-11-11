@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Linking } from "react-native";
+import { Alert, Keyboard, Linking, Platform } from "react-native";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import WatchSetupScreen from "../src/screens/WatchSetupScreen";
 import { claimWatchPairing, disconnectWatch } from "../src/api/watchPairing";
@@ -432,5 +432,40 @@ describe("WatchSetupScreen — paired-state awareness", () => {
 
     alertSpy.mockRestore();
     act(() => comp.unmount());
+  });
+});
+
+describe("keyboard padding (Android)", () => {
+  const origOS = Platform.OS;
+  afterEach(() => {
+    Platform.OS = origOS;
+  });
+
+  function bottomPadding(comp: renderer.ReactTestRenderer): number {
+    const sv = queryId(comp, "watch-setup-screen")!;
+    const style = ([] as unknown[]).concat(sv.props.contentContainerStyle);
+    return Object.assign({}, ...style.flat()).paddingBottom;
+  }
+
+  it("grows the bottom padding on keyboardDidShow and resets on hide", async () => {
+    Platform.OS = "android";
+    const handlers: Record<string, (e?: unknown) => void> = {};
+    jest.spyOn(Keyboard, "addListener").mockImplementation(((
+      name: string,
+      cb: (e?: unknown) => void,
+    ) => {
+      handlers[name] = cb;
+      return { remove: jest.fn() };
+    }) as never);
+    const comp = await render();
+    const base = bottomPadding(comp);
+    await act(async () => {
+      handlers.keyboardDidShow({ endCoordinates: { height: 300 } });
+    });
+    expect(bottomPadding(comp)).toBe(base + 300);
+    await act(async () => {
+      handlers.keyboardDidHide();
+    });
+    expect(bottomPadding(comp)).toBe(base);
   });
 });
