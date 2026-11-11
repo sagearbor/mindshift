@@ -14,7 +14,8 @@ import type { EmotionEngine } from "./engine";
 import { computeLogMel, int16ToFloat32, waveformProblem } from "./logMel";
 import { DailyCap, NudgeGate, applyOffsets, isProbVector, modelsDisagree, topClass, windowHasSpeechEnergy } from "./logic";
 import { ClipScheduler, PcmRing, RING_SAMPLE_RATE } from "./pcmRing";
-import type { EmotionDevStore, FlagValue } from "./devStore";
+import type { CapState, EmotionDevStore, EpisodeInfo, EpisodeWindow, FlagValue } from "./devStore";
+import type { RecordContext } from "./context";
 import type { WatchControl, WatchEmotionState, WatchLink } from "./watchLink";
 
 export type DevFlag = Exclude<FlagValue, "unrated">;
@@ -41,6 +42,16 @@ export interface DevSnapshot {
   marks: number;
   lastNudgeId: string | null;
   lastError: string | null;
+  /** Save-audio is on (clips are being kept). */
+  saveAudio: boolean;
+  /** Clips written to disk this run (episodes, neutral samples, marks, flags). */
+  clipsSaved: number;
+  /** Saves REFUSED this run (storage full / write error): each is also a `skip` line in the log. */
+  skippedSaves: number;
+  episodes: number;
+  neutralSamples: number;
+  storage: CapState;
+  lastSkipReason: string | null;
 }
 
 export interface DevControllerDeps {
@@ -55,6 +66,22 @@ export interface DevControllerDeps {
   /** Per-class logit offsets for TINY's nudge decision (default: the config constant, all zero). */
   offsets?: readonly number[];
   onSnapshot?: (s: DevSnapshot) => void;
+  /** What the Live Coach session knows right now (talk share, pace, mode...); null/absent = nothing. */
+  context?: () => RecordContext | null;
+  /** Randomness for neutral sampling (tests inject a fixed one). */
+  rand?: () => number;
+}
+
+interface Episode {
+  id: string;
+  startT: number;
+  clipStartAbs: number;
+  lastTriggerEndAbs: number;
+  windows: EpisodeWindow[];
+  triggers: Set<string>;
+  nudgeIds: string[];
+  context: RecordContext | null;
+  peak: { win: RecentWindow; score: number };
 }
 
 interface RecentWindow {
@@ -81,6 +108,12 @@ export class EmotionDevController {
   private flaggedIds = new Set<string>();
   private saveAudio = false;
   private saveAudioMinProb = EMOTION_DEV_DEFAULTS.saveAudioDefaultMinProb;
+  private neutralEveryS = EMOTION_DEV_DEFAULTS.neutralSampleDefaultEveryMin * 60;
+  private episode: Episode | null = null;
+  private speechSinceNeutralS = 0;
+  private nextNeutralAtS: number | null = null;
+  private contextFn: (() => RecordContext | null) | null = null;
+  private snapListener: (() => void) | null = null;
   private nudgeIds = new Set<string>();
   private lastNudge: { id: string; t: number } | null = null;
   private snap: DevSnapshot = {
@@ -95,6 +128,13 @@ export class EmotionDevController {
     marks: 0,
     lastNudgeId: null,
     lastError: null,
+    saveAudio: false,
+    clipsSaved: 0,
+    skippedSaves: 0,
+    episodes: 0,
+    neutralSamples: 0,
+    storage: "ok",
+    lastSkipReason: null,
   };
 
   constructor(private readonly d: DevControllerDeps) {
@@ -112,6 +152,24 @@ export class EmotionDevController {
 
   private publish(): void {
     this.d.onSnapshot?.(this.snapshot());
+    this.snapListener?.();
+  }
+
+  /** The hub subscribes here so the status line / panel refresh as windows and clips happen. */
+  setSnapshotListener(fn: (() => void) | null): void {
+    this.snapListener = fn;
+  }
+
+  setContextProvider(fn: (() => RecordContext | null) | null): void {
+    this.contextFn = fn;
+  }
+
+  private context(): RecordContext | null {
+    try {
+      return (this.d.context ?? this.contextFn)?.() ?? null;
+    } catch {
+      return null; // context is a nice-to-have; never let it break a record
+    }
   }
 
   private id(): string {
@@ -127,8 +185,13 @@ export class EmotionDevController {
     this.gate.setMaxPerHour(s.maxNudgesPerHour);
     this.gate.setRule(s.nudgeRule);
     this.saveAudio = s.saveAudio;
+    this.snap.saveAudio = s.saveAudio;
     this.saveAudioMinProb = s.saveAudioMinProb;
-    this.d.store.setClipCapBytes(s.saveAudio ? s.storageCapMb * 1024 * 1024 : this.cfg.maxClipBytes);
+    this.neutralEveryS = Math.max(0, s.neutralSampleEveryMin) * 60;
+    this.nextNeutralAtS = null;
+    // One cap for everything (episodes, samples, marks, flags). Reaching it stops NEW saves; nothing unrated is deleted.
+    this.d.store.setClipCapBytes(s.storageCapMb * 1024 * 1024);
+    this.refreshStorage();
   }
 
   // -- pause ----------------------------------------------------------------
@@ -138,7 +201,9 @@ export class EmotionDevController {
     this.paused = paused;
     if (paused) {
       // Paused = not listening, not buffering: drop the ring so a later flag
-      // can never reach back across the pause.
+      // can never reach back across the pause. Close an open episode FIRST,
+      // while its audio is still in the ring.
+      this.closeEpisode();
       this.resetAudio();
       this.gate.reset();
     }
@@ -150,6 +215,7 @@ export class EmotionDevController {
     this.ring = new PcmRing(this.cfg.ringS * RING_SAMPLE_RATE);
     this.clips = new ClipScheduler(this.ring);
     this.sinceTick = 0;
+    this.episode = null;
   }
 
   /** Resolves when the in-flight window (if any) has finished. */
@@ -166,7 +232,7 @@ export class EmotionDevController {
   pushPcm(pcm: Int16Array): void {
     if (this.paused || pcm.length === 0) return;
     this.ring.push(pcm);
-    for (const clip of this.clips.onPcm(pcm)) this.persistClip(clip.id, clip.reason, clip.atMs, clip.pcm);
+    for (const clip of this.clips.onPcm(pcm)) this.persistClip(clip.id, clip.reason, clip.atMs, clip.pcm, true);
     this.sinceTick += pcm.length;
     if (this.sinceTick >= this.cfg.hopS * RING_SAMPLE_RATE && !this.busy) {
       this.sinceTick = 0;
@@ -174,11 +240,30 @@ export class EmotionDevController {
     }
   }
 
-  private persistClip(id: string, reason: string, atMs: number, pcm: Int16Array): void {
+  /** Save a clip and COUNT the outcome: a refusal (storage full) or a write error is never silent. */
+  private persistClip(id: string, reason: string, atMs: number, pcm: Int16Array, userInitiated = false): string | null {
     try {
-      this.d.store.saveClip({ id, reason, atMs, pcm });
+      const name = this.d.store.saveClip({ id, reason, atMs, pcm, userInitiated });
+      if (name) this.snap.clipsSaved++;
+      else {
+        this.snap.skippedSaves++;
+        this.snap.lastSkipReason = this.d.store.lastSkipReason;
+      }
+      this.refreshStorage();
+      return name;
     } catch (e) {
+      this.snap.skippedSaves++;
+      this.snap.lastSkipReason = "write-error";
       this.fail(e);
+      return null;
+    }
+  }
+
+  private refreshStorage(): void {
+    try {
+      this.snap.storage = this.d.store.capState();
+    } catch {
+      // keep the previous value
     }
   }
 
@@ -221,9 +306,11 @@ export class EmotionDevController {
     this.busy = true;
     try {
       const pcm = this.ring.tail(this.cfg.windowS * RING_SAMPLE_RATE);
+      const endAbs = this.ring.total;
       if (pcm.length < RING_SAMPLE_RATE * 1.5 || !windowHasSpeechEnergy(pcm, this.cfg)) {
         this.snap.skippedSilent++;
         this.gate.reset();
+        this.maybeCloseEpisode();
         this.publish();
         return;
       }
@@ -231,6 +318,7 @@ export class EmotionDevController {
       const problem = waveformProblem(audio);
       if (problem) {
         this.snap.skippedSilent++;
+        this.maybeCloseEpisode();
         this.publish();
         return;
       }
@@ -246,7 +334,7 @@ export class EmotionDevController {
         }
       }
       if (this.paused) return; // paused while the models were running: discard
-      this.afterInference(t, tinyRaw, smallRaw, pcm);
+      this.afterInference(t, tinyRaw, smallRaw, pcm, endAbs);
     } catch (e) {
       this.fail(e);
     } finally {
@@ -254,7 +342,7 @@ export class EmotionDevController {
     }
   }
 
-  private afterInference(t: number, tinyRaw: number[], smallRaw: number[] | null, windowPcm: Int16Array): void {
+  private afterInference(t: number, tinyRaw: number[], smallRaw: number[] | null, windowPcm: Int16Array, endAbs: number): void {
     if (!isProbVector(tinyRaw)) {
       this.fail(new Error("tiny output is not a probability vector"));
       return;
@@ -287,18 +375,23 @@ export class EmotionDevController {
         id, t, kind: "nudge", tiny: tinyRaw, small,
         ...(adjustedDiffers ? { tinyAdjusted: adjusted } : {}),
         nudged: true,
+        context: this.context(),
       });
-    } else if (clipDisagreement) {
-      this.d.store.addRecord({ id, t, kind: "disagree", tiny: tinyRaw, small, nudged: false, nudgeReason: decision.reason });
     }
-    if (heard && !decision.nudge && !clipDisagreement) {
-      this.d.store.addRecord({ id, t, kind: "saved", tiny: tinyRaw, small, nudged: false, nudgeReason: decision.reason });
-    }
-    if (clipDisagreement || heard) {
-      // Independent of whether TINY also buzzed: the disagreement itself is the finding.
-      // One clip per window even when several reasons apply.
-      const secs = heard && !clipDisagreement ? this.cfg.saveAudioClipS : this.cfg.disagreeClipS;
-      this.persistClip(id, clipDisagreement ? "disagree" : "heard", t, windowPcm.subarray(Math.max(0, windowPcm.length - secs * RING_SAMPLE_RATE)));
+    // Episode clips: consecutive/overlapping triggered windows become ONE clip.
+    const triggers: string[] = [];
+    if (clipDisagreement) triggers.push("disagree");
+    if (heard) triggers.push("heard");
+    if (this.saveAudio && decision.nudge) triggers.push("nudge");
+    const win: EpisodeWindow = { t, tiny: Array.from(tinyRaw), small: small ? Array.from(small) : null, triggers, nudged: decision.nudge };
+    if (triggers.length) {
+      this.addTriggeredWindow(id, win, tinyRaw, small, endAbs, windowPcm.length);
+    } else {
+      if (this.episode) {
+        this.episode.windows.push(win); // lead/tail window: keep its probabilities with the episode
+        this.maybeCloseEpisode();
+      }
+      this.maybeNeutralSample(id, t, tinyRaw, small, endAbs);
     }
     this.publish();
     void this.pushState({
@@ -308,6 +401,112 @@ export class EmotionDevController {
       suggestion: decision.nudge && this.d.showSuggestion ? SUGGESTIONS[top.label] ?? null : null,
       id,
     });
+  }
+
+  // -- episodes ---------------------------------------------------------------
+
+  private addTriggeredWindow(id: string, win: EpisodeWindow, tiny: Probs, small: Probs | null, endAbs: number, winSamples: number): void {
+    const sr = RING_SAMPLE_RATE;
+    const tailAbs = Math.round(this.cfg.episodeTailS * sr);
+    const maxAbs = Math.round(this.cfg.episodeMaxS * sr);
+    const ep0 = this.episode;
+    // Beyond ~45 s the episode is closed and a new one starts (split).
+    if (ep0 && endAbs + tailAbs - ep0.clipStartAbs > maxAbs) this.closeEpisode();
+    if (!this.episode) {
+      const winStart = Math.max(0, endAbs - winSamples);
+      this.episode = {
+        id: `ep-${id}`,
+        startT: win.t,
+        clipStartAbs: Math.max(0, winStart - Math.round(this.cfg.episodeLeadS * sr)),
+        lastTriggerEndAbs: endAbs,
+        windows: [],
+        triggers: new Set(),
+        nudgeIds: [],
+        context: this.context(),
+        peak: { win: { id, t: win.t, tiny, small }, score: -1 },
+      };
+    }
+    const ep = this.episode;
+    ep.windows.push(win);
+    ep.lastTriggerEndAbs = endAbs;
+    for (const tr of win.triggers) ep.triggers.add(tr);
+    if (win.nudged) ep.nudgeIds.push(id);
+    const score = Math.max(nonNeutralTop(tiny), small ? nonNeutralTop(small) : 0);
+    if (score > ep.peak.score) ep.peak = { win: { id, t: win.t, tiny, small }, score };
+  }
+
+  /** Close the open episode once the tail has elapsed (the next window did not trigger). */
+  private maybeCloseEpisode(): void {
+    const ep = this.episode;
+    if (!ep) return;
+    if (this.ring.total >= ep.lastTriggerEndAbs + Math.round(this.cfg.episodeTailS * RING_SAMPLE_RATE)) this.closeEpisode();
+  }
+
+  /** Write the episode record and its clip with whatever audio exists. */
+  private closeEpisode(): void {
+    const ep = this.episode;
+    this.episode = null;
+    if (!ep) return;
+    const sr = RING_SAMPLE_RATE;
+    const endAbs = Math.min(ep.lastTriggerEndAbs + Math.round(this.cfg.episodeTailS * sr), this.ring.total);
+    const pcm = this.ring.read(ep.clipStartAbs, endAbs);
+    const pk = ep.peak.win;
+    const peakOf = (idx: 0 | 1) => {
+      let best: { label: string; prob: number } | null = null;
+      for (const w of ep.windows) {
+        const p = idx === 0 ? w.tiny : w.small;
+        if (!p) continue;
+        const top = topClass(p);
+        if (top.label !== "neutral" && (!best || top.prob > best.prob)) best = { label: top.label, prob: top.prob };
+      }
+      return best ?? (idx === 0 ? topClass(pk.tiny) : pk.small ? topClass(pk.small) : null);
+    };
+    const info: EpisodeInfo = {
+      startT: ep.startT,
+      endT: ep.windows[ep.windows.length - 1]?.t ?? ep.startT,
+      clipS: Math.round((pcm.length / sr) * 10) / 10,
+      windows: ep.windows,
+      peakTiny: peakOf(0)!,
+      peakSmall: peakOf(1),
+      nudge: ep.nudgeIds.length > 0,
+      nudgeIds: ep.nudgeIds,
+      triggers: [...ep.triggers],
+    };
+    const kind = ep.triggers.has("disagree") && !ep.triggers.has("heard") && !ep.triggers.has("nudge") ? "disagree" : "saved";
+    this.snap.episodes++;
+    try {
+      this.d.store.addRecord({
+        id: ep.id, t: ep.startT, kind, tiny: pk.tiny, small: pk.small, nudged: info.nudge, episode: info, context: ep.context,
+      });
+    } catch (e) {
+      this.fail(e);
+      return;
+    }
+    if (pcm.length > 0) this.persistClip(ep.id, kind === "disagree" ? "disagree" : "heard", ep.startT, pcm);
+    this.publish();
+  }
+
+  /** Neutral sampling: about one `neutralSampleClipS` clip per `neutralEveryS` of speech, when BOTH models say neutral. */
+  private maybeNeutralSample(id: string, t: number, tiny: Probs, small: Probs | null, endAbs: number): void {
+    this.speechSinceNeutralS += this.cfg.hopS;
+    if (!this.saveAudio || this.neutralEveryS <= 0 || this.episode) return;
+    const rand = this.d.rand ?? Math.random;
+    if (this.nextNeutralAtS === null) this.nextNeutralAtS = this.neutralEveryS * (0.5 + rand());
+    if (this.speechSinceNeutralS < this.nextNeutralAtS) return;
+    if (topClass(tiny).label !== "neutral" || (small && topClass(small).label !== "neutral")) return;
+    this.speechSinceNeutralS = 0;
+    this.nextNeutralAtS = this.neutralEveryS * (0.5 + rand());
+    const sr = RING_SAMPLE_RATE;
+    const pcm = this.ring.read(endAbs - Math.round(this.cfg.neutralSampleClipS * sr), endAbs);
+    if (pcm.length < sr * 2) return;
+    const nid = `ns-${id}`;
+    try {
+      this.d.store.addRecord({ id: nid, t, kind: "neutral-sample", tiny, small, nudged: false, context: this.context() });
+    } catch (e) {
+      this.fail(e);
+      return;
+    }
+    if (this.persistClip(nid, "neutral-sample", t, pcm)) this.snap.neutralSamples++;
   }
 
   /** Save-audio trigger: EITHER model's top class is non-neutral with prob >= threshold. */
@@ -369,7 +568,7 @@ export class EmotionDevController {
     const isNudge = this.nudgeIds.has(targetId);
     const w = this.recent.find((r) => r.id === targetId);
     if (!isNudge && w && !this.flaggedIds.has(targetId)) {
-      this.d.store.addRecord({ id: w.id, t: w.t, kind: "window", tiny: w.tiny, small: w.small, nudged: false });
+      this.d.store.addRecord({ id: w.id, t: w.t, kind: "window", tiny: w.tiny, small: w.small, nudged: false, context: this.context() });
     }
     this.d.store.setFlag(targetId, flag);
     if (!this.flaggedIds.has(targetId)) {
@@ -390,7 +589,7 @@ export class EmotionDevController {
     const t = this.now();
     const id = `mark-${this.id()}`;
     const w = this.recent[this.recent.length - 1];
-    this.d.store.addRecord({ id, t, kind: "mark", tiny: w?.tiny ?? [], small: w?.small ?? null, nudged: false });
+    this.d.store.addRecord({ id, t, kind: "mark", tiny: w?.tiny ?? [], small: w?.small ?? null, nudged: false, context: this.context() });
     this.clips.request({ id, reason: "mark", atMs: t }, this.cfg.flagBeforeS, this.cfg.flagAfterS);
     this.snap.marks++;
     this.publish();
@@ -414,6 +613,13 @@ export class EmotionDevController {
 
   /** Session ended / mode turned off: finish pending flag clips with the audio that exists. */
   stop(): void {
-    for (const clip of this.clips.flushAll()) this.persistClip(clip.id, clip.reason, clip.atMs, clip.pcm);
+    this.closeEpisode();
+    for (const clip of this.clips.flushAll()) this.persistClip(clip.id, clip.reason, clip.atMs, clip.pcm, true);
   }
+}
+
+/** Highest probability among the non-neutral classes (how "emotional" a reading is). */
+function nonNeutralTop(p: Probs): number {
+  const top = topClass(p);
+  return top.label === "neutral" ? 0 : top.prob;
 }

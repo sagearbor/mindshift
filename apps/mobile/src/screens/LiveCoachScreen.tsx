@@ -24,7 +24,7 @@ import CallPanel from "../components/CallPanel";
 import JournalPanel, { type JournalGate } from "../components/JournalPanel";
 import RoomPanel from "../components/RoomPanel";
 import { MarkMomentButton } from "../components/MarkMomentButton";
-import { LiveCoachMoreOptions, MoreOptionsGroup, DevOptionsBanner } from "../components/LiveCoachMoreOptions";
+import { LiveCoachMoreOptions, MoreOptionsGroup, DevOptionsBanner, EmotionRecStatus } from "../components/LiveCoachMoreOptions";
 import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
@@ -881,6 +881,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       <DevOptionsBanner />
+      <EmotionRecStatus sessionActive={sessionActive} />
       {keepAudio && !isJournal && !isRoom ? (
         <Text style={styles.audioSavedNote} testID="live-audio-saved-note">
           Audio from this session is saved

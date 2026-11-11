@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import type { DevStatus } from "../emotion/devHub";
+import { describeRecorder, type DevStatus } from "../emotion/devHub";
 import { emotionDevHub } from "../emotion/hub";
 
 // Session-only memory (resets when the app restarts).
@@ -76,6 +76,24 @@ export function DevOptionsBanner() {
   );
 }
 
+/**
+ * One line, only while a session runs with the Emotion tester on: whether clips
+ * are actually being kept ("Recording emotion clips: 12 saved") or why not
+ * (red "Not recording: ..."). A failed start is never silent.
+ */
+export function EmotionRecStatus({ sessionActive }: { sessionActive: boolean }) {
+  const [status, setStatus] = useState<DevStatus>(() => emotionDevHub.status());
+  useEffect(() => emotionDevHub.subscribe(setStatus), []);
+  if (!sessionActive) return null;
+  const line = describeRecorder(status, emotionDevHub.userSettings);
+  if (!line) return null;
+  return (
+    <View style={[styles.banner, line.level === "error" && styles.recError, line.level === "ok" && styles.recOk]} testID="live-emotion-rec-status" accessibilityLiveRegion="polite">
+      <Text style={[styles.bannerText, line.level === "error" && styles.recErrorText, line.level === "ok" && styles.recOkText]}>{line.text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrap: { marginTop: 8 },
   header: {
@@ -105,4 +123,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEF3C7",
   },
   bannerText: { fontSize: 13, fontWeight: "600", color: "#92400E" },
+  recError: { backgroundColor: "#FEE2E2" },
+  recErrorText: { color: "#B91C1C" },
+  recOk: { backgroundColor: "#DCFCE7" },
+  recOkText: { color: "#166534" },
 });

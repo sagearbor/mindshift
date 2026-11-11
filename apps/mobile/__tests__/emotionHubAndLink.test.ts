@@ -126,8 +126,10 @@ describe("EmotionDevHub", () => {
         pushPcm: () => { rt.pushed++; },
         stop: () => { rt.stopped++; },
         applySettings: (s: { maxNudgesPerHour: number }) => { rt.maxPerHour = s.maxNudgesPerHour; },
-        snapshot: () => ({ paused: false, windows: 0, skippedSilent: 0, errors: 0, lastLabel: null, lastProb: null, lastSmallLabel: null, nudges: 0, marks: 0, lastNudgeId: null, lastError: null }),
+        snapshot: () => ({ paused: false, windows: 0, skippedSilent: 0, errors: 0, lastLabel: null, lastProb: null, lastSmallLabel: null, nudges: 0, marks: 0, lastNudgeId: null, lastError: null, saveAudio: false, clipsSaved: 0, skippedSaves: 0, episodes: 0, neutralSamples: 0, storage: "ok" as const, lastSkipReason: null }),
         setPaused: () => {},
+        setContextProvider: () => {},
+        setSnapshotListener: () => {},
         flag: () => "id",
       },
       store: { usage: () => ({ clips: 0, clipBytes: 0, logBytes: 0 }), deleteAll: jest.fn(), exportLogText: () => "" },
@@ -206,14 +208,14 @@ describe("EmotionDevHub", () => {
   it("delete-all and usage work without a runtime (mode off / models missing)", () => {
     const store = { usage: () => ({ clips: 2, clipBytes: 5, logBytes: 1 }), deleteAll: jest.fn(), exportLogText: () => "log" };
     const hub = new EmotionDevHub(async () => ({ ok: false, code: "error", message: "x" }), () => store as never);
-    expect(hub.usage()).toEqual({ clips: 2, clipBytes: 5, logBytes: 1 });
+    expect(hub.usage()).toMatchObject({ clips: 2, clipBytes: 5, logBytes: 1 });
     hub.deleteAll();
     expect(store.deleteAll).toHaveBeenCalled();
     expect(hub.exportLogText()).toBe("log");
   });
 
   it("status text is honest about SMALL missing and about pause", () => {
-    const snap = { paused: true, windows: 3, skippedSilent: 0, errors: 0, lastLabel: "anger" as const, lastProb: 0.6, lastSmallLabel: null, nudges: 1, marks: 0, lastNudgeId: null, lastError: null };
+    const snap = { paused: true, windows: 3, skippedSilent: 0, errors: 0, lastLabel: "anger" as const, lastProb: 0.6, lastSmallLabel: null, nudges: 1, marks: 0, lastNudgeId: null, lastError: null, saveAudio: false, clipsSaved: 0, skippedSaves: 0, episodes: 0, neutralSamples: 0, storage: "ok" as const, lastSkipReason: null };
     const t = describeStatus({ state: "running", models: { tiny: true, small: false, smallReason: "small not found" }, snapshot: snap });
     expect(t).toMatch(/PAUSED/);
     expect(t).toMatch(/SMALL off \(small not found\)/);

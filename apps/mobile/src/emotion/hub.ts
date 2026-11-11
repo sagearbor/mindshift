@@ -22,3 +22,9 @@ export const emotionDevHub = new EmotionDevHub(
     }
   },
 );
+
+/** Load the saved tester settings and apply them (call at app start and when the account changes). */
+export async function startEmotionDevFromPrefs(userId: string | null | undefined): Promise<void> {
+  const [{ initEmotionDevFromPrefs }, { loadEmotionDevSettings }] = await Promise.all([import("./startup"), import("./devPrefs")]);
+  await initEmotionDevFromPrefs(emotionDevHub, userId, loadEmotionDevSettings);
+}
