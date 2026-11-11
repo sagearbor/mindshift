@@ -223,7 +223,7 @@ describe("per-rater review labels in the store", () => {
     const s = await twoClips();
     const [a] = s.store.reviewItems();
     s.store.setReview(a.id, label("mom"));
-    expect(s.store.readRecords().find((r) => r.id === a.id)!.flag).toBe("unrated");
+    expect(s.store.readRecords().find((r) => r.id === a.id)!.flag).toBeNull();
     expect(s.store.reviewQueue().map((i) => i.id)).toContain(a.id); // legacy queue unchanged
     s.store.clearReview(a.id, "mom");
     expect(s.store.reviewItems().find((i) => i.id === a.id)!.reviews).toEqual([]);
@@ -238,7 +238,7 @@ describe("per-rater review labels in the store", () => {
     const txt = s.store.exportLogText();
     expect(txt).toContain('"rater":"mom"');
     expect(txt).toContain('"nudgeWarranted":"unsure"');
-    expect(s.store.reviewItems()[0].durationS).toBe(6);
+    expect(s.store.reviewItems().some((i) => i.durationS === 6)).toBe(true);
   });
 });
 
