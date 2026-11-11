@@ -33,8 +33,11 @@ _DOCKERFILE = _REPO_ROOT / "Dockerfile"
 # it is not something an operator is expected to flip MINDSHIFT_TONE_BACKEND
 # to in this deployment. If that ever changes, add it here AND to the
 # Dockerfile's bake line in the same change.
-PRODUCTION_BACKENDS = ("odyssey_dim", "iemocap")
-NOT_BAKED_BACKENDS = ("superb_er",)
+PRODUCTION_BACKENDS = ("odyssey_dim",)
+# iemocap: selectable via MINDSHIFT_TONE_BACKEND but NOT baked by default (prod
+# runs odyssey_dim; ~0.5 GB saved). It loads by downloading its pinned snapshot
+# at first use. Re-baking = change the Dockerfile's TONE_BACKENDS default.
+NOT_BAKED_BACKENDS = ("superb_er", "iemocap")
 
 
 def _dockerfile_text() -> str:
@@ -112,3 +115,14 @@ def test_new_backend_must_be_classified():
         "add it to PRODUCTION_BACKENDS (and the Dockerfile) or NOT_BAKED_BACKENDS "
         "(with a reason) in server/tests/test_dockerfile_tone_prefetch.py"
     )
+
+
+def test_default_bake_is_only_the_production_backend():
+    """The Dockerfile's TONE_BACKENDS default must be exactly the production
+    backends — baking an unused backend costs ~0.5 GB per image."""
+    import re
+
+    m = re.search(r'^ARG TONE_BACKENDS="([^"]*)"', _dockerfile_text(), re.M)
+    assert m, "Dockerfile must declare ARG TONE_BACKENDS"
+    assert tuple(m.group(1).split()) == PRODUCTION_BACKENDS
+    assert "python tone_id.py ${TONE_BACKENDS}" in _dockerfile_text()

@@ -53,10 +53,20 @@ RUN if [ "$INSTALL_VOICE" = "1" ]; then \
 # (correctly) when tone_id.py's own pins change. `prefetch()` calls the
 # SAME `_snapshot`/`BACKEND_INFO` constants the runtime loaders use, so the
 # Dockerfile and the app can never drift onto different revisions.
+#
+# TONE_BACKENDS (space-separated) picks which backends get baked. Default is
+# ONLY `odyssey_dim`: production runs MINDSHIFT_TONE_AUDIO=on with
+# MINDSHIFT_TONE_BACKEND unset (= odyssey_dim). `iemocap` (round-1 model; two
+# ~380 MB wav2vec2 checkpoints, roughly 0.5 GB of the image) is no longer baked
+# by default. If an operator selects it via MINDSHIFT_TONE_BACKEND=iemocap,
+# tone_id still loads it — it downloads the pinned snapshot on first use —
+# so to bake it again set the default below to "odyssey_dim iemocap"
+# (`gcloud run deploy --source` cannot pass --build-arg).
+ARG TONE_BACKENDS="odyssey_dim"
 COPY server/tone_id.py ./server/tone_id.py
 ENV MINDSHIFT_TONE_CACHE=/app/server/.tone_cache
 RUN if [ "$INSTALL_VOICE" = "1" ]; then \
-      cd server && python tone_id.py odyssey_dim iemocap ; \
+      cd server && python tone_id.py ${TONE_BACKENDS} ; \
     fi
 
 # Local Whisper STT (faster-whisper) is optional but ON by default: it powers
