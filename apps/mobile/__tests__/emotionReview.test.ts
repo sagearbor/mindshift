@@ -290,6 +290,10 @@ describe("review queue helpers", () => {
     const context = { mode: "room", sessionS: 10, turns: 3, talk: { windowS: 120, selfS: 74, otherS: 40, unknownS: 0, selfShare: 0.62 }, lastTurn: { speaker: "a", isSelf: true, durationS: 4, words: 10, paceWpm: 141.6, overlapped: false, endedAgoS: 2 }, coach: { text: "slow down", kind: null, spoken: false } };
     expect(contextDetail({ context })).toBe("You 62% of the last 2 min · pace 142 wpm · coach: slow down");
     expect(contextDetail({})).toBe("");
+    // hidden guess: no coach line, no nudge text, no kind that reveals the models' behaviour
+    expect(contextDetail({ context }, true)).toBe("You 62% of the last 2 min · pace 142 wpm");
+    expect(contextLine({ t: D(10, 19), kind: "disagree", durationS: 30, nudged: true, nudgeReason: "x" }, true)).toBe("7:05 pm · 30 s");
+    expect(contextLine({ t: D(10, 19), kind: "mark" }, true)).toBe("7:05 pm · marked moment");
     expect(contextDetail({ context: { ...context, talk: { ...context.talk, selfShare: null }, lastTurn: null, coach: null } })).toBe("");
   });
 });

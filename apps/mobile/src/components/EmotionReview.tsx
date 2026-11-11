@@ -286,9 +286,9 @@ export function EmotionReview({ visible, onClose, backend }: { visible: boolean;
           ) : cur && s ? (
             <>
               <Text style={[styles.said, { color: c.text }]} testID="review-said">{said}</Text>
-              <Text style={[styles.hint, { color: c.sub }]} testID="review-context">{contextLine(cur)}</Text>
-              {contextDetail(cur) ? <Text style={[styles.hint, { color: c.sub }]} testID="review-context-detail">{contextDetail(cur)}</Text> : null}
-              {cur.kind === "neutral-sample" ? <Text style={[styles.hint, { color: c.link, fontWeight: "700" }]} testID="review-neutral-prompt">{NEUTRAL_SAMPLE_PROMPT}</Text> : null}
+              <Text style={[styles.hint, { color: c.sub }]} testID="review-context">{contextLine(cur, hideGuess)}</Text>
+              {contextDetail(cur, hideGuess) ? <Text style={[styles.hint, { color: c.sub }]} testID="review-context-detail">{contextDetail(cur, hideGuess)}</Text> : null}
+              {cur.kind === "neutral-sample" && !hideGuess ? <Text style={[styles.hint, { color: c.link, fontWeight: "700" }]} testID="review-neutral-prompt">{NEUTRAL_SAMPLE_PROMPT}</Text> : null}
 
               {s.stage === "emotion" ? (
                 <>

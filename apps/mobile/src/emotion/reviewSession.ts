@@ -89,17 +89,18 @@ function clock(t: number): string {
 }
 
 /** "7:42 pm · 12 s · emotion · nudge fired: take a breath" (only fields that exist). */
-export function contextLine(item: Partial<Omit<ReviewItemFull, "kind">> & { t: number; kind: string }): string {
+export function contextLine(item: Partial<Omit<ReviewItemFull, "kind">> & { t: number; kind: string }, hideModel = false): string {
   const parts = [clock(item.t)];
   if (item.durationS) parts.push(`${item.durationS} s`);
-  parts.push(kindLabel(item.kind));
-  if (item.nudged) parts.push(item.nudgeReason ? `nudge fired: ${item.nudgeReason}` : "nudge fired");
+  // With the guess hidden, only a human-made mark is named (other kinds reveal what the models did).
+  if (!hideModel || item.kind === "mark") parts.push(kindLabel(item.kind));
+  if (item.nudged && !hideModel) parts.push(item.nudgeReason ? `nudge fired: ${item.nudgeReason}` : "nudge fired");
   return parts.join(" · ");
 }
 
 /** Second line from the Live Coach context, when the clip has one:
  *  "You 62% of the last 2 min · pace 140 wpm · coach: slow down". */
-export function contextDetail(item: Pick<ReviewItemFull, "context">): string {
+export function contextDetail(item: Pick<ReviewItemFull, "context">, hideModel = false): string {
   const c = item.context;
   if (!c) return "";
   const parts: string[] = [];
@@ -110,7 +111,7 @@ export function contextDetail(item: Pick<ReviewItemFull, "context">): string {
   }
   const pace = c.lastTurn?.paceWpm;
   if (typeof pace === "number") parts.push(`pace ${Math.round(pace)} wpm`);
-  if (c.coach?.text) parts.push(`coach: ${c.coach.text}`);
+  if (c.coach?.text && !hideModel) parts.push(`coach: ${c.coach.text}`);
   return parts.join(" · ");
 }
 
