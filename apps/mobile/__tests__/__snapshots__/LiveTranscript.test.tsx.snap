@@ -177,6 +177,8 @@ exports[`LiveTranscript renders empty state 1`] = `
         "color": "#9CA3AF",
         "fontSize": 15,
         "fontStyle": "italic",
+        "paddingHorizontal": 16,
+        "textAlign": "center",
       }
     }
   >
