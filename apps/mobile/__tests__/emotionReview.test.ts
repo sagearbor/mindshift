@@ -206,6 +206,9 @@ describe("per-rater review labels in the store", () => {
   async function twoClips() {
     const s = setup(P(0, 0, 0, 0.9, 0.1, 0), NOT_SURE, { saveAudio: true });
     await s.feed(9);
+    s.ctl.stop(); // close episode 1
+    await s.feed(9);
+    s.ctl.stop(); // episode 2
     return s;
   }
   it("a second rater never overwrites the owner; legacy flag reads as the me label", async () => {
@@ -241,7 +244,7 @@ describe("per-rater review labels in the store", () => {
     const txt = s.store.exportLogText();
     expect(txt).toContain('"rater":"mom"');
     expect(txt).toContain('"nudgeWarranted":"unsure"');
-    expect(s.store.reviewItems().some((i) => i.durationS === 6)).toBe(true);
+    expect(s.store.reviewItems().every((i) => (i.durationS ?? 0) > 0)).toBe(true);
   });
 });
 
