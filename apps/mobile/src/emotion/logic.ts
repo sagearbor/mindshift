@@ -10,6 +10,7 @@ import {
   LOGIT_OFFSETS,
   type EmotionDevConfig,
   type EmotionLabel,
+  type NudgeRule,
   type Probs,
 } from "./config";
 
@@ -148,6 +149,7 @@ export class NudgeGate {
   private streakLabel: EmotionLabel | null = null;
   private streak = 0;
   private readonly cap: RollingRateCap;
+  private rule: NudgeRule = "both";
 
   constructor(private cfg: EmotionDevConfig = EMOTION_DEV_DEFAULTS) {
     this.cap = new RollingRateCap(cfg.maxNudgesPerHour, 3_600_000, cfg.minNudgeGapS * 1000);
@@ -163,9 +165,37 @@ export class NudgeGate {
     this.streak = 0;
   }
 
-  decide(tiny: Probs, nowMs: number): NudgeDecision {
+  setRule(rule: NudgeRule): void {
+    if (rule !== this.rule) this.reset();
+    this.rule = rule;
+  }
+
+  /**
+   * Rule "both" (default): TINY and SMALL must name the SAME allowed class,
+   * each at >= nudgeBothMinProb (0.6). TINY's disgust on its own therefore
+   * never buzzes. Rule "tiny": the original TINY-only gate.
+   */
+  decide(tiny: Probs, nowMs: number, small: Probs | null = null): NudgeDecision {
     const top = topClass(tiny);
-    if (top.label === "neutral" || !this.cfg.nudgeLabels.includes(top.label) || top.prob < this.cfg.nudgeMinProb) {
+    if (this.rule === "both") {
+      if (!small) {
+        this.reset();
+        return { nudge: false, reason: "no-small" };
+      }
+      const s = topClass(small);
+      if (top.label === "neutral" || !this.cfg.nudgeLabels.includes(top.label)) {
+        this.reset();
+        return { nudge: false, reason: "neutral" };
+      }
+      if (s.label !== top.label) {
+        this.reset();
+        return { nudge: false, reason: "models-disagree" };
+      }
+      if (Math.min(top.prob, s.prob) < this.cfg.nudgeBothMinProb) {
+        this.reset();
+        return { nudge: false, reason: "below-threshold" };
+      }
+    } else if (top.label === "neutral" || !this.cfg.nudgeLabels.includes(top.label) || top.prob < this.cfg.nudgeMinProb) {
       this.reset();
       return { nudge: false, reason: top.label === "neutral" ? "neutral" : "below-threshold" };
     }

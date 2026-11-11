@@ -8,8 +8,8 @@
  * boolean check per audio frame and zero memory.
  */
 import type { DevSnapshot, DevFlag, EmotionDevController } from "./devController";
-import type { EmotionDevStore } from "./devStore";
-import { DEFAULT_USER_SETTINGS, type EmotionDevUserSettings } from "./config";
+import type { EmotionDevStore, ReviewItem } from "./devStore";
+import { DEFAULT_USER_SETTINGS, type EmotionDevUserSettings, type EmotionLabel } from "./config";
 
 export interface EmotionRuntime {
   controller: EmotionDevController;
@@ -76,7 +76,7 @@ export class EmotionDevHub {
   async configure(next: EmotionDevUserSettings): Promise<void> {
     const wasEnabled = this.settings.enabled;
     this.settings = next;
-    this.runtime?.controller.setMaxNudgesPerHour(next.maxNudgesPerHour);
+    this.runtime?.controller.applySettings(next);
     if (wasEnabled && !next.enabled) await this.teardown();
     if (!wasEnabled && next.enabled) this.failed = null;
     this.emit();
@@ -110,7 +110,7 @@ export class EmotionDevHub {
       }
       if (r.ok) {
         this.runtime = r.runtime;
-        r.runtime.controller.setMaxNudgesPerHour(this.settings.maxNudgesPerHour);
+        r.runtime.controller.applySettings(this.settings);
       } else {
         this.failed = r.code === "models-missing" ? { state: "models-missing", message: r.message } : { state: "error", message: r.message };
       }
@@ -162,6 +162,22 @@ export class EmotionDevHub {
     const id = this.runtime?.controller.flag(flag) ?? null;
     this.emit();
     return id;
+  }
+  mark(): string | null {
+    const id = this.runtime?.controller.mark() ?? null;
+    this.emit();
+    return id;
+  }
+  /** Unrated saved clips for Review mode (works with the tester off: it only reads the store). */
+  reviewQueue(): ReviewItem[] {
+    return this.store()?.reviewQueue() ?? [];
+  }
+  rate(id: string, rating: "good" | "bad", truth?: EmotionLabel | null): void {
+    const st = this.store();
+    if (!st) return;
+    if (truth) st.setTruth(id, truth);
+    st.setFlag(id, rating);
+    this.emit();
   }
   usage() {
     return this.store()?.usage() ?? null;

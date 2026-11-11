@@ -1,4 +1,4 @@
-import { EMOTION_DEV_DEFAULTS } from "../src/emotion/config";
+import { DEFAULT_USER_SETTINGS, EMOTION_DEV_DEFAULTS, type EmotionDevUserSettings } from "../src/emotion/config";
 import { EmotionDevController } from "../src/emotion/devController";
 import { EmotionDevStore } from "../src/emotion/devStore";
 import type { EmotionEngine } from "../src/emotion/engine";
@@ -23,7 +23,7 @@ class FakeEngine implements EmotionEngine {
 
 const loud = (s: number, v = 6000) => Int16Array.from({ length: s * SR }, (_, i) => Math.round(v * Math.sin(i / 6)));
 
-function setup(over: Partial<typeof EMOTION_DEV_DEFAULTS> = {}, opts: { tinyOut?: number[]; smallOut?: number[]; small?: boolean } = {}) {
+function setup(over: Partial<typeof EMOTION_DEV_DEFAULTS> = {}, opts: { tinyOut?: number[]; smallOut?: number[]; small?: boolean; settings?: Partial<EmotionDevUserSettings> } = {}) {
   const cfg = { ...EMOTION_DEV_DEFAULTS, minNudgeGapS: 0, nudgeConfirmWindows: 1, ...over };
   const fs = new MemoryFs();
   let t = 1_000_000;
@@ -33,6 +33,7 @@ function setup(over: Partial<typeof EMOTION_DEV_DEFAULTS> = {}, opts: { tinyOut?
   const link = new FakeWatchLink();
   let n = 0;
   const ctl = new EmotionDevController({ tiny, small, store, link, cfg, now: () => t, newId: () => `w${++n}`, showSuggestion: true });
+  ctl.applySettings({ ...DEFAULT_USER_SETTINGS, maxNudgesPerHour: cfg.maxNudgesPerHour, nudgeRule: "tiny", ...opts.settings });
   const feed = async (seconds: number, v = 6000) => {
     for (let i = 0; i < seconds; i++) {
       ctl.pushPcm(loud(1, v));

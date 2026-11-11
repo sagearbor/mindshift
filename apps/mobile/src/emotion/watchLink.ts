@@ -29,7 +29,7 @@ export interface WatchEmotionState {
   suggestion: string | null;
 }
 
-export type WatchControlAction = "pause" | "resume" | "flag";
+export type WatchControlAction = "pause" | "resume" | "flag" | "mark";
 
 /** Watch -> phone. */
 export interface WatchControl {

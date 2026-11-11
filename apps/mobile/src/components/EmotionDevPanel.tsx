@@ -12,6 +12,7 @@ import type { DevStatus } from "../emotion/devHub";
 import { emotionDevHub } from "../emotion/hub";
 import type { ModelKind, ModelStatus } from "../emotion/modelFiles";
 import { describePrerequisites } from "../emotion/modelImport";
+import { EmotionReview } from "./EmotionReview";
 import { ScriptedEmotionTest } from "./ScriptedEmotionTest";
 
 export function describeStatus(s: DevStatus): string {
@@ -38,6 +39,7 @@ export function describeStatus(s: DevStatus): string {
 export function EmotionDevPanel({ userId }: { userId: string | null }) {
   const [settings, setSettings] = useState<EmotionDevUserSettings>(DEFAULT_USER_SETTINGS);
   const [status, setStatus] = useState<DevStatus>({ state: "off" });
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [usage, setUsage] = useState<{ clips: number; clipBytes: number; logBytes: number } | null>(null);
 
   useEffect(() => {
@@ -191,6 +193,69 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
             <Text style={styles.label}>Show a one-line suggestion on the watch</Text>
             <Switch value={settings.nudgeSuggestion} onValueChange={(v) => update({ ...settings, nudgeSuggestion: v })} />
           </View>
+
+          <View style={styles.line}>
+            <View style={styles.switchText}>
+              <Text style={styles.label}>Buzz only when BOTH models agree</Text>
+              <Text style={styles.sub}>
+                On (recommended): the watch buzzes only when TINY and SMALL name the same negative emotion at 60% or more. TINY saying “disgust” by
+                itself never buzzes. Off: the old rule, TINY alone.
+              </Text>
+            </View>
+            <Switch testID="emotion-dev-rule" value={settings.nudgeRule === "both"} onValueChange={(v) => update({ ...settings, nudgeRule: v ? "both" : "tiny" })} />
+          </View>
+
+          <View style={styles.line}>
+            <View style={styles.switchText}>
+              <Text style={styles.label}>Save audio</Text>
+              <Text style={styles.sub} testID="emotion-dev-save-consent">
+                Keeps a 6-second recording whenever either model hears a non-neutral emotion, so you can listen and rate it later. Audio stays on this
+                phone only and is never uploaded. Only record people who know and have agreed (family dinners: tell everyone first). Off by default.
+              </Text>
+            </View>
+            <Switch testID="emotion-dev-save-audio" value={settings.saveAudio} onValueChange={(v) => update({ ...settings, saveAudio: v })} />
+          </View>
+          {settings.saveAudio ? (
+            <>
+              <View style={styles.line}>
+                <Text style={styles.label}>Save when a model is at least</Text>
+                <View style={styles.stepper}>
+                  <TouchableOpacity testID="emotion-dev-thr-less" onPress={() => update({ ...settings, saveAudioMinProb: Math.max(0.1, Math.round((settings.saveAudioMinProb - 0.05) * 100) / 100) })}>
+                    <Text style={styles.stepBtn}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.stepVal} testID="emotion-dev-thr">{Math.round(settings.saveAudioMinProb * 100)}%</Text>
+                  <TouchableOpacity testID="emotion-dev-thr-more" onPress={() => update({ ...settings, saveAudioMinProb: Math.min(0.95, Math.round((settings.saveAudioMinProb + 0.05) * 100) / 100) })}>
+                    <Text style={styles.stepBtn}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={styles.line}>
+                <Text style={styles.label}>Storage cap (oldest unrated deleted first)</Text>
+                <View style={styles.stepper}>
+                  <TouchableOpacity testID="emotion-dev-cap-less" onPress={() => update({ ...settings, storageCapMb: Math.max(100, settings.storageCapMb - 100) })}>
+                    <Text style={styles.stepBtn}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.stepVal} testID="emotion-dev-cap">{settings.storageCapMb} MB</Text>
+                  <TouchableOpacity testID="emotion-dev-cap-more" onPress={() => update({ ...settings, storageCapMb: Math.min(5000, settings.storageCapMb + 100) })}>
+                    <Text style={styles.stepBtn}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.sub} testID="emotion-dev-storage-used">
+                {`Storage used: ${mb(usage?.clipBytes ?? 0)} MB of ${settings.storageCapMb} MB (${usage?.clips ?? 0} clips)`}
+              </Text>
+            </>
+          ) : null}
+
+          <View style={styles.buttons}>
+            <TouchableOpacity testID="emotion-dev-review" style={styles.btn} onPress={() => setReviewOpen(true)}>
+              <Text style={styles.btnText}>Review saved clips</Text>
+            </TouchableOpacity>
+            <TouchableOpacity testID="emotion-dev-mark" disabled={!running || paused} style={[styles.btn, (!running || paused) && styles.btnOff]} onPress={() => emotionDevHub.mark()}>
+              <Text style={styles.btnText}>Mark this moment</Text>
+            </TouchableOpacity>
+          </View>
+          <EmotionReview visible={reviewOpen} onClose={() => setReviewOpen(false)} />
 
           <View style={styles.buttons}>
             <TouchableOpacity testID="emotion-dev-pause" disabled={!running} style={[styles.btn, !running && styles.btnOff]} onPress={() => emotionDevHub.setPaused(!paused)}>
