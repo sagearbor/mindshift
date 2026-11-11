@@ -1,10 +1,10 @@
 import { DEFAULT_USER_SETTINGS, EMOTION_DEV_DEFAULTS, type EmotionDevUserSettings } from "../src/emotion/config";
 import { EmotionDevController } from "../src/emotion/devController";
 import { EmotionDevHub } from "../src/emotion/devHub";
-import { EmotionDevStore } from "../src/emotion/devStore";
+import { EmotionDevStore, type ReviewItemFull, type ReviewLabel } from "../src/emotion/devStore";
 import type { EmotionEngine } from "../src/emotion/engine";
 import { NudgeGate } from "../src/emotion/logic";
-import { ReviewSession, describeItem } from "../src/emotion/reviewSession";
+import { ALL_DAYS, ReviewSession, buildQueue, contextDetail, contextLine, defaultDay, defaultHideGuess, describeItem, listDays, raterKey, type ReviewMode } from "../src/emotion/reviewSession";
 import { parseSettings } from "../src/emotion/settingsParse";
 import { FakeWatchLink } from "../src/emotion/watchLink";
 import { MemoryFs } from "../src/recorder/memoryFs";
@@ -201,51 +201,188 @@ describe("review ratings in the log", () => {
   });
 });
 
+describe("per-rater review labels in the store", () => {
+  const label = (rater: string, extra = {}) => ({ rater, rating: "bad" as const, truth: "fear", t: 5, ...extra });
+  async function twoClips() {
+    const s = setup(P(0, 0, 0, 0.9, 0.1, 0), NOT_SURE, { saveAudio: true });
+    await s.feed(9);
+    s.ctl.stop(); // close episode 1
+    await s.feed(9);
+    s.ctl.stop(); // episode 2
+    return s;
+  }
+  it("a second rater never overwrites the owner; legacy flag reads as the me label", async () => {
+    const s = await twoClips();
+    const [a] = s.store.reviewItems();
+    s.store.setReview(a.id, label("me", { nudgeWarranted: "no" }));
+    s.store.setReview(a.id, label("mom", { truth: "sadness", nudgeWarranted: "yes" }));
+    const got = s.store.reviewItems().find((i) => i.id === a.id)!;
+    expect(got.reviews.map((r) => r.rater).sort()).toEqual(["me", "mom"]);
+    expect(got.reviews.find((r) => r.rater === "me")).toMatchObject({ truth: "fear", nudgeWarranted: "no" });
+    expect(got.flag).toBe("bad"); // legacy field still written for "me"
+    expect(got.truth).toBe("fear");
+    // same rater again replaces, not duplicates
+    s.store.setReview(a.id, label("mom", { truth: "anger" }));
+    expect(s.store.reviewItems().find((i) => i.id === a.id)!.reviews.filter((r) => r.rater === "mom")).toHaveLength(1);
+  });
+  it("only a non-owner label does not touch the legacy fields; clear undoes", async () => {
+    const s = await twoClips();
+    const [a] = s.store.reviewItems();
+    s.store.setReview(a.id, label("mom"));
+    expect(s.store.readRecords().find((r) => r.id === a.id)!.flag).toBeNull();
+    expect(s.store.reviewQueue().map((i) => i.id)).toContain(a.id); // legacy queue unchanged
+    s.store.clearReview(a.id, "mom");
+    expect(s.store.reviewItems().find((i) => i.id === a.id)!.reviews).toEqual([]);
+    s.store.setReview(a.id, label("me"));
+    s.store.clearReview(a.id, "me");
+    expect(s.store.reviewQueue().map((i) => i.id)).toContain(a.id);
+  });
+  it("export includes rater and nudgeWarranted; clip length is derived", async () => {
+    const s = await twoClips();
+    const [a] = s.store.reviewItems();
+    s.store.setReview(a.id, label("mom", { nudgeWarranted: "unsure" }));
+    const txt = s.store.exportLogText();
+    expect(txt).toContain('"rater":"mom"');
+    expect(txt).toContain('"nudgeWarranted":"unsure"');
+    expect(s.store.reviewItems().every((i) => (i.durationS ?? 0) > 0)).toBe(true);
+  });
+});
+
+describe("review queue helpers", () => {
+  const D = (day: number, hour = 12) => new Date(2026, 10, day, hour, 5).getTime();
+  const mkItem = (id: string, t: number, over = {}): ReviewItemFull => ({
+    id, clip: `${id}.wav`, uri: `u/${id}.wav`, t, kind: "saved", tiny: P(0.7, 0, 0, 0, 0.3, 0), small: P(0, 0, 0, 0, 0.8, 0.2), reviews: [], ...over,
+  });
+  const lbl = (rater: string): ReviewLabel => ({ rater, rating: "good", t: 1 });
+  const items = [
+    mkItem("a", D(9)),
+    mkItem("b", D(10), { reviews: [lbl("me")] }),
+    mkItem("c", D(10, 13)),
+    mkItem("d", D(11), { flag: "good" }), // legacy "me" label
+  ];
+  it("raterKey / hide-guess default", () => {
+    expect(raterKey("me")).toBe("me");
+    expect(raterKey("other", "  Aunt  Jo ")).toBe("other:aunt jo");
+    expect(raterKey("other", "")).toBe("other");
+    expect(defaultHideGuess("me")).toBe(false);
+    expect(defaultHideGuess("mom")).toBe(true);
+  });
+  it("legacy flag counts as a me label, not as mom's", () => {
+    expect(buildQueue(items, "me").map((i) => i.id)).toEqual(["a", "c"]);
+    expect(buildQueue(items, "mom").map((i) => i.id)).toEqual(["a", "b", "c", "d"]);
+  });
+  it("days: newest with unrated is the default; all is available", () => {
+    expect(listDays(items, "me").map((d) => [d.day, d.unrated, d.total])).toEqual([
+      ["2026-11-11", 0, 1], ["2026-11-10", 1, 2], ["2026-11-09", 1, 1],
+    ]);
+    expect(defaultDay(items, "me")).toBe("2026-11-10");
+    expect(defaultDay([items[3]], "me")).toBe("all");
+    expect(buildQueue(items, "me", "2026-11-10").map((i) => i.id)).toEqual(["c"]);
+    expect(buildQueue(items, "me", ALL_DAYS)).toHaveLength(2);
+  });
+  it("context line shows only the fields that exist", () => {
+    expect(contextLine({ t: D(10, 19), kind: "saved" })).toBe("7:05 pm · emotion");
+    expect(contextLine({ t: D(10, 0), kind: "mark", durationS: 60, nudged: true, nudgeReason: "anger" })).toBe(
+      "12:05 am · 60 s · marked moment · nudge fired: anger",
+    );
+    expect(contextLine({ t: D(10, 9), kind: "neutral-sample", durationS: 45 })).toBe("9:05 am · 45 s · neutral sample");
+    expect(contextLine({ t: D(10, 9), kind: "future-kind" })).toBe("9:05 am · future-kind");
+    const context = { mode: "room", sessionS: 10, turns: 3, talk: { windowS: 120, selfS: 74, otherS: 40, unknownS: 0, selfShare: 0.62 }, lastTurn: { speaker: "a", isSelf: true, durationS: 4, words: 10, paceWpm: 141.6, overlapped: false, endedAgoS: 2 }, coach: { text: "slow down", kind: null, spoken: false } };
+    expect(contextDetail({ context })).toBe("You 62% of the last 2 min · pace 142 wpm · coach: slow down");
+    expect(contextDetail({})).toBe("");
+    // hidden guess: no coach line, no nudge text, no kind that reveals the models' behaviour
+    expect(contextDetail({ context }, true)).toBe("You 62% of the last 2 min · pace 142 wpm");
+    expect(contextLine({ t: D(10, 19), kind: "disagree", durationS: 30, nudged: true, nudgeReason: "x" }, true)).toBe("7:05 pm · 30 s");
+    expect(contextLine({ t: D(10, 19), kind: "mark" }, true)).toBe("7:05 pm · marked moment");
+    expect(contextDetail({ context: { ...context, talk: { ...context.talk, selfShare: null }, lastTurn: null, coach: null } })).toBe("");
+  });
+});
+
 describe("ReviewSession", () => {
-  const items = ["a", "b", "c"].map((id, k) => ({ id, clip: `${id}.wav`, uri: `u/${id}.wav`, t: k, kind: "saved" as const, tiny: P(0.7, 0, 0, 0, 0.3, 0), small: P(0, 0, 0, 0, 0.8, 0.2) }));
-  const mk = () => {
-    const rated: [string, string, unknown][] = [];
-    const s = new ReviewSession(items, { rate: (id, r, t) => rated.push([id, r, t ?? null]) });
-    return { s, rated };
+  const items = ["a", "b", "c"].map((id, k) => ({
+    id, clip: `${id}.wav`, uri: `u/${id}.wav`, t: k, kind: "saved", reviews: [], tiny: P(0.7, 0, 0, 0, 0.3, 0), small: P(0, 0, 0, 0, 0.8, 0.2),
+  })) as ReviewItemFull[];
+  const mk = (mode: ReviewMode, rater = "me") => {
+    const saved: [string, ReviewLabel][] = [];
+    const cleared: [string, string][] = [];
+    const s = new ReviewSession(items, { save: (id, l) => saved.push([id, l]), clear: (id, r) => cleared.push([id, r]), now: () => 99 }, { rater, mode });
+    return { s, saved, cleared };
   };
-  it("thumbs up = good, down = bad (+ optional truth), each advances", () => {
-    const { s, rated } = mk();
-    expect(s.current()!.id).toBe("a");
-    s.thumb(true);
-    s.setTruth("fear");
-    s.thumb(false);
-    expect(rated).toEqual([["a", "good", null], ["b", "bad", "fear"]]);
+  it("emotion-only: ONE tap per clip; Right = good with TINY's emotion, a chip = bad + truth", () => {
+    const { s, saved } = mk("emotion");
+    expect(s.answer({ right: "both" })).toBe("saved");
+    expect(s.answer({ truth: "fear" })).toBe("saved");
+    expect(saved).toEqual([
+      ["a", { rater: "me", rating: "good", truth: "anger", t: 99 }],
+      ["b", { rater: "me", rating: "bad", truth: "fear", t: 99 }],
+    ]);
     expect(s.current()!.id).toBe("c");
-    expect(s.rated).toBe(2);
+    expect(s.position).toBe(3);
   });
-  it("truth does not leak to the next clip; tapping it twice clears it", () => {
-    const { s, rated } = mk();
-    s.setTruth("anger");
-    s.setTruth("anger");
-    s.thumb(false);
-    s.setTruth("fear");
+  it("a chip equal to TINY's top is a thumbs up; 'SMALL right' picks SMALL's emotion", () => {
+    const { s, saved } = mk("emotion");
+    s.answer({ truth: "anger" });
+    s.answer({ right: "small" });
+    expect(saved[0][1]).toMatchObject({ rating: "good", truth: "anger" });
+    expect(saved[1][1]).toMatchObject({ rating: "bad", truth: "neutral" });
+  });
+  it("emotion + nudge: TWO taps, saved only after the second, nudgeWarranted stored", () => {
+    const { s, saved } = mk("emotion+nudge", "mom");
+    expect(s.answer({ truth: "sadness" })).toBe("await-nudge");
+    expect(s.stage).toBe("nudge");
+    expect(saved).toEqual([]);
+    expect(s.answerNudge("yes")).toBe(true);
+    expect(saved).toEqual([["a", { rater: "mom", rating: "bad", truth: "sadness", nudgeWarranted: "yes", t: 99 }]]);
+    expect(s.stage).toBe("emotion");
+    expect(s.current()!.id).toBe("b");
+    expect(s.answerNudge("no")).toBe(false); // nothing pending
+  });
+  it("undo: drops a pending answer, then returns to the previous clip and clears its label", () => {
+    const { s, cleared } = mk("emotion+nudge");
+    s.answer({ truth: "fear" });
+    expect(s.undo()).toBe(true);
+    expect(s.stage).toBe("emotion");
+    s.answer({ right: "both" });
+    s.answerNudge("no");
     s.skip();
-    s.thumb(true);
-    expect(rated).toEqual([["a", "bad", null], ["c", "good", null]]);
-    expect(s.skipped).toBe(1);
+    expect(s.current()!.id).toBe("c");
+    expect(s.undo()).toBe(true); // undo the skip
+    expect(s.current()!.id).toBe("b");
+    expect(cleared).toEqual([]);
+    expect(s.undo()).toBe(true); // undo clip a's label
+    expect(s.current()!.id).toBe("a");
+    expect(cleared).toEqual([["a", "me"]]);
+    expect(s.undo()).toBe(false);
   });
-  it("auto-advances after a clip plays twice with no tap; ends with done", () => {
-    const { s, rated } = mk();
+  it("auto-advances after two plays with no tap, never while an answer is pending; ends done", () => {
+    const { s } = mk("emotion+nudge");
     expect(s.onEnded()).toBe("replay");
     expect(s.onEnded()).toBe("advance");
     expect(s.current()!.id).toBe("b");
+    s.answer({ truth: "fear" });
+    expect(s.onEnded()).toBe("replay");
+    expect(s.onEnded()).toBe("replay");
+    expect(s.current()!.id).toBe("b");
+    s.answerNudge("unsure");
     s.skip();
-    s.onEnded();
-    expect(s.onEnded()).toBe("done");
     expect(s.current()).toBeNull();
-    expect(s.thumb(true)).toBe(false);
-    expect(rated).toEqual([]);
+    expect(s.onEnded()).toBe("done");
+    expect(s.answer({ right: "both" })).toBe(false);
+  });
+  it("summary: rated count and agreement with TINY and SMALL", () => {
+    const { s } = mk("emotion");
+    s.answer({ right: "both" }); // truth anger: tiny yes, small no
+    s.answer({ truth: "neutral" }); // tiny no, small yes
+    s.skip();
+    expect(s.summary()).toEqual({ rated: 2, skipped: 1, tiny: { agree: 1, of: 2 }, small: { agree: 1, of: 2 } });
+    expect(s.ratio).toBe(1);
   });
   it("describes what the models said", () => {
     expect(describeItem(items[0])).toBe("TINY: anger 70% · SMALL: neutral 80%");
     expect(describeItem({ ...items[0], small: null, kind: "mark" })).toBe("Marked moment. TINY: anger 70% · SMALL: —");
   });
 });
+
 
 describe("hub review controls work with the store alone", () => {
   it("rate() writes flag + truth and the queue shrinks", async () => {
