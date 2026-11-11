@@ -623,6 +623,7 @@ export default function App({ initialUrl }: AppProps = {}) {
             }
             onOpenPeople={() => setScreen({ name: "people", returnTo: screen })}
             onOpenLibrary={() => setScreen({ name: "library", returnTo: screen })}
+            onOpenLiveCoach={() => setScreen({ name: "live-coach" })}
             onSetProfilePhoto={() =>
               setScreen({
                 name: "avatar-capture",

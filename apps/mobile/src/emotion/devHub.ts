@@ -69,6 +69,11 @@ export class EmotionDevHub {
     return { state: "running", models: this.runtime.models, snapshot: this.runtime.controller.snapshot() };
   }
 
+  /** The tester settings currently applied (read-only view for the UI). */
+  get userSettings(): EmotionDevUserSettings {
+    return this.settings;
+  }
+
   get enabled(): boolean {
     return this.settings.enabled;
   }

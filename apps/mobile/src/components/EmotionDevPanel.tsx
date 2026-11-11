@@ -36,7 +36,15 @@ export function describeStatus(s: DevStatus): string {
   }
 }
 
-export function EmotionDevPanel({ userId }: { userId: string | null }) {
+export function EmotionDevPanel({
+  userId,
+  onStartLiveCoach,
+}: {
+  userId: string | null;
+  /** Opens the Live Coach screen (where Start Listening is). Optional: the
+   *  shortcut only shows when the caller can navigate. */
+  onStartLiveCoach?: () => void;
+}) {
   const [settings, setSettings] = useState<EmotionDevUserSettings>(DEFAULT_USER_SETTINGS);
   const [status, setStatus] = useState<DevStatus>({ state: "off" });
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -156,6 +164,17 @@ export function EmotionDevPanel({ userId }: { userId: string | null }) {
           liveSessionActive: status.state === "running",
         }).join("\n")}
       </Text>
+
+      {settings.enabled && onStartLiveCoach && status.state !== "running" ? (
+        <TouchableOpacity
+          testID="emotion-dev-start-live-coach"
+          accessibilityRole="button"
+          style={[styles.btn, styles.startBtn]}
+          onPress={onStartLiveCoach}
+        >
+          <Text style={styles.btnText}>Start Live Coach</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {settings.enabled ? (
         <>
@@ -307,6 +326,7 @@ const styles = StyleSheet.create({
   stepVal: { fontSize: 17, fontWeight: "600", minWidth: 24, textAlign: "center" },
   buttons: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   btn: { backgroundColor: "#2563EB", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 },
+  startBtn: { marginTop: 12, minHeight: 48, justifyContent: "center", alignItems: "center" },
   btnOff: { backgroundColor: "#9CA3AF" },
   btnDanger: { backgroundColor: "#B91C1C" },
   btnText: { color: "#FFFFFF", fontWeight: "600", fontSize: 14.5 },
