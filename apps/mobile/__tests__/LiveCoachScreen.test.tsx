@@ -871,3 +871,100 @@ describe("LiveCoachScreen — Use from library", () => {
     expect(onOpenLibrary).toHaveBeenCalled();
   });
 });
+
+describe("LiveCoachScreen — simple default view, everything else under More options", () => {
+  const flushAll = () => act(async () => { await Promise.resolve(); });
+  const all = (c: renderer.ReactTestRenderer, id: string) => c.root.findAll((n) => n.props?.testID === id);
+  const first = (c: renderer.ReactTestRenderer, id: string) => all(c, id)[0];
+  const inside = (node: renderer.ReactTestInstance, ancestorId: string): boolean => {
+    for (let p: renderer.ReactTestInstance | null = node.parent; p; p = p.parent) {
+      if (p.props?.testID === ancestorId) return true;
+    }
+    return false;
+  };
+  const mount = async () => {
+    let component!: renderer.ReactTestRenderer;
+    act(() => {
+      component = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flushAll();
+    return component;
+  };
+
+  afterEach(async () => {
+    const { emotionDevHub } = require("../src/emotion/hub");
+    const { DEFAULT_USER_SETTINGS } = require("../src/emotion/config");
+    await act(async () => {
+      await emotionDevHub.configure(DEFAULT_USER_SETTINGS);
+    });
+  });
+
+  it("More options is collapsed by default and toggles open and closed", async () => {
+    const c = await mount();
+    const body = () => first(c, "live-more-options-body");
+    expect(first(c, "live-more-options-toggle")).toBeTruthy();
+    expect(body().props.style).toEqual({ display: "none" });
+    act(() => first(c, "live-more-options-toggle").props.onPress());
+    expect(body().props.style).toBeUndefined();
+    act(() => first(c, "live-more-options-toggle").props.onPress());
+    expect(body().props.style).toEqual({ display: "none" });
+  });
+
+  it("every advanced control lives inside the More options body", async () => {
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, liveCapable: true, liveStatus: "live" });
+    const c = await mount();
+    for (const id of [
+      "coach-options-toggle",
+      "coach-options-body",
+      "coach-options-sliders",
+      "keep-audio-switch",
+      "speak-aloud-switch",
+      "scoreboard-switch",
+      "live-mode-switch",
+      "interject-slider",
+      "library-picker",
+    ]) {
+      const nodes = all(c, id);
+      expect(nodes.length).toBeGreaterThan(0);
+      expect(inside(nodes[0], "live-more-options-body")).toBe(true);
+    }
+  });
+
+  it("Start/Stop and the status stay outside More options, visible without expanding", async () => {
+    const c = await mount();
+    expect(inside(first(c, "mic-toggle"), "live-more-options-body")).toBe(false);
+    expect(inside(first(c, "connection-status"), "live-more-options-body")).toBe(false);
+  });
+
+  it("Mark this moment shows in the default view while running with the tester on", async () => {
+    const { emotionDevHub } = require("../src/emotion/hub");
+    const { DEFAULT_USER_SETTINGS } = require("../src/emotion/config");
+    await act(async () => {
+      await emotionDevHub.configure({ ...DEFAULT_USER_SETTINGS, enabled: true });
+    });
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true, isRecording: true, connectionStatus: "live" });
+    const c = await mount();
+    const mark = first(c, "mark-moment");
+    expect(mark).toBeTruthy();
+    expect(inside(mark, "live-more-options-body")).toBe(false);
+  });
+
+  it("no developer banner by default", async () => {
+    const c = await mount();
+    expect(all(c, "live-dev-banner")).toHaveLength(0);
+  });
+
+  it("developer banner lists Save audio and the Emotion tester when they are on", async () => {
+    const { emotionDevHub } = require("../src/emotion/hub");
+    const { DEFAULT_USER_SETTINGS } = require("../src/emotion/config");
+    await act(async () => {
+      await emotionDevHub.configure({ ...DEFAULT_USER_SETTINGS, enabled: true, saveAudio: true });
+    });
+    const c = await mount();
+    const banner = first(c, "live-dev-banner");
+    expect(banner).toBeTruthy();
+    expect(inside(banner, "live-more-options-body")).toBe(false);
+    const { Text: RNText } = require("react-native");
+    expect([].concat(banner.findByType(RNText).props.children).join("")).toBe("Developer options on: Save audio, Emotion tester");
+  });
+});

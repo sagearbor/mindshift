@@ -487,239 +487,34 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
         </Text>
       </View>
       <View
-        accessibilityRole="button"
-        accessibilityState={
-          {
-            "busy": undefined,
-            "checked": undefined,
-            "disabled": undefined,
-            "expanded": false,
-            "selected": undefined,
-          }
-        }
-        accessibilityValue={
-          {
-            "max": undefined,
-            "min": undefined,
-            "now": undefined,
-            "text": undefined,
-          }
-        }
-        accessible={true}
-        collapsable={false}
-        focusable={true}
-        onClick={[Function]}
-        onResponderGrant={[Function]}
-        onResponderMove={[Function]}
-        onResponderRelease={[Function]}
-        onResponderTerminate={[Function]}
-        onResponderTerminationRequest={[Function]}
-        onStartShouldSetResponder={[Function]}
         style={
           {
             "alignItems": "center",
-            "flexDirection": "row",
-            "gap": 8,
-            "opacity": 1,
-            "paddingHorizontal": 16,
-            "paddingVertical": 10,
+            "flex": 1,
+            "justifyContent": "center",
+            "paddingVertical": 40,
           }
         }
-        testID="coach-options-toggle"
+        testID="live-transcript-empty"
       >
         <Text
           style={
             {
-              "color": "#374151",
-              "fontSize": 14,
-              "fontWeight": "700",
+              "color": "#9CA3AF",
+              "fontSize": 15,
+              "fontStyle": "italic",
             }
           }
         >
-          Coaching options ▸
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={
-            {
-              "color": "#6B7280",
-              "flex": 1,
-              "fontSize": 12,
-            }
-          }
-          testID="coach-options-summary"
-        >
-          speaks aloud · keeps audio · balanced · every turn
+          Tap Start Listening — the conversation appears here as it happens.
         </Text>
       </View>
       <View
         style={
           {
-            "display": "none",
+            "marginTop": 8,
           }
         }
-        testID="coach-options-body"
-      >
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="speak-aloud-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Speak aloud
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="speak-aloud-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            coach speaks — use an earbud
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="keep-audio-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Keep audio
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            disabled={false}
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="keep-audio-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            saved with the session — replay + re-analyze
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="scoreboard-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Scoreboard
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="scoreboard-switch"
-            value={false}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            off
-          </Text>
-        </View>
-      </View>
-      <View
-        style={
-          {
-            "paddingHorizontal": 16,
-            "paddingVertical": 6,
-          }
-        }
-        testID="library-picker"
       >
         <View
           accessibilityRole="button"
@@ -752,169 +547,515 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
           onStartShouldSetResponder={[Function]}
           style={
             {
+              "justifyContent": "center",
+              "minHeight": 48,
               "opacity": 1,
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
             }
           }
-          testID="library-picker-toggle"
+          testID="live-more-options-toggle"
         >
           <Text
             style={
               {
                 "color": "#374151",
-                "fontSize": 13,
-                "fontWeight": "600",
-                "marginBottom": 6,
+                "fontSize": 15,
+                "fontWeight": "700",
               }
             }
           >
-            ▸
-             Use from library
+            More options ▸
           </Text>
-        </View>
-      </View>
-      <View
-        style={
-          {
-            "display": "none",
-          }
-        }
-        testID="coach-options-sliders"
-      >
-        <View
-          style={
-            {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
-            }
-          }
-        >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Empathy: 
-            50
-             — 
-            Balanced
-          </Text>
-          <View
-            testID="empathy-slider"
-          />
-          <View
-            style={
-              {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
-              }
-            }
-          >
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Assertive
-            </Text>
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Full Empathy
-            </Text>
-          </View>
         </View>
         <View
           style={
             {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
+              "display": "none",
             }
           }
+          testID="live-more-options-body"
         >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Interject: 
-            0
-             — 
-            Every turn
-          </Text>
-          <View
-            testID="interject-slider"
-          />
           <View
             style={
               {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
+                "marginTop": 4,
               }
             }
           >
             <Text
+              accessibilityRole="header"
               style={
                 {
                   "color": "#6B7280",
                   "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
                 }
               }
             >
-              Every turn
+              Coaching
             </Text>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": undefined,
+                  "expanded": false,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onClick={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                {
+                  "alignItems": "center",
+                  "flexDirection": "row",
+                  "gap": 8,
+                  "opacity": 1,
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 10,
+                }
+              }
+              testID="coach-options-toggle"
+            >
+              <Text
+                style={
+                  {
+                    "color": "#374151",
+                    "fontSize": 14,
+                    "fontWeight": "700",
+                  }
+                }
+              >
+                Coaching options ▸
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={
+                  {
+                    "color": "#6B7280",
+                    "flex": 1,
+                    "fontSize": 12,
+                  }
+                }
+                testID="coach-options-summary"
+              >
+                speaks aloud · keeps audio · balanced · every turn
+              </Text>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-body"
+            >
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="speak-aloud-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Speak aloud
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="speak-aloud-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  coach speaks — use an earbud
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="keep-audio-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Keep audio
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  disabled={false}
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="keep-audio-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  saved with the session — replay + re-analyze
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="scoreboard-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Scoreboard
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="scoreboard-switch"
+                  value={false}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  off
+                </Text>
+              </View>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-sliders"
+            >
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Empathy: 
+                  50
+                   — 
+                  Balanced
+                </Text>
+                <View
+                  testID="empathy-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Assertive
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Full Empathy
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Interject: 
+                  0
+                   — 
+                  Every turn
+                </Text>
+                <View
+                  testID="interject-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Every turn
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Critical only
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
             <Text
+              accessibilityRole="header"
               style={
                 {
                   "color": "#6B7280",
                   "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
                 }
               }
             >
-              Critical only
+              This conversation
+            </Text>
+            <View
+              style={
+                {
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 6,
+                }
+              }
+              testID="library-picker"
+            >
+              <View
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": undefined,
+                    "expanded": false,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onClick={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "opacity": 1,
+                  }
+                }
+                testID="library-picker-toggle"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 13,
+                      "fontWeight": "600",
+                      "marginBottom": 6,
+                    }
+                  }
+                >
+                  ▸
+                   Use from library
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              Developer
             </Text>
           </View>
         </View>
-      </View>
-      <View
-        style={
-          {
-            "alignItems": "center",
-            "flex": 1,
-            "justifyContent": "center",
-            "paddingVertical": 40,
-          }
-        }
-        testID="live-transcript-empty"
-      >
-        <Text
-          style={
-            {
-              "color": "#9CA3AF",
-              "fontSize": 15,
-              "fontStyle": "italic",
-            }
-          }
-        >
-          Tap Start Listening — the conversation appears here as it happens.
-        </Text>
       </View>
     </View>
   </RCTScrollView>
@@ -1459,413 +1600,6 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         >
           Earbuds in — the coach whispers to you privately. For phone or Teams calls, put the call on another device's speaker.
         </Text>
-      </View>
-      <View
-        accessibilityRole="button"
-        accessibilityState={
-          {
-            "busy": undefined,
-            "checked": undefined,
-            "disabled": undefined,
-            "expanded": false,
-            "selected": undefined,
-          }
-        }
-        accessibilityValue={
-          {
-            "max": undefined,
-            "min": undefined,
-            "now": undefined,
-            "text": undefined,
-          }
-        }
-        accessible={true}
-        collapsable={false}
-        focusable={true}
-        onClick={[Function]}
-        onResponderGrant={[Function]}
-        onResponderMove={[Function]}
-        onResponderRelease={[Function]}
-        onResponderTerminate={[Function]}
-        onResponderTerminationRequest={[Function]}
-        onStartShouldSetResponder={[Function]}
-        style={
-          {
-            "alignItems": "center",
-            "flexDirection": "row",
-            "gap": 8,
-            "opacity": 1,
-            "paddingHorizontal": 16,
-            "paddingVertical": 10,
-          }
-        }
-        testID="coach-options-toggle"
-      >
-        <Text
-          style={
-            {
-              "color": "#374151",
-              "fontSize": 14,
-              "fontWeight": "700",
-            }
-          }
-        >
-          Coaching options ▸
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={
-            {
-              "color": "#6B7280",
-              "flex": 1,
-              "fontSize": 12,
-            }
-          }
-          testID="coach-options-summary"
-        >
-          speaks aloud · keeps audio · balanced · every turn
-        </Text>
-      </View>
-      <View
-        style={
-          {
-            "display": "none",
-          }
-        }
-        testID="coach-options-body"
-      >
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="speak-aloud-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Speak aloud
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="speak-aloud-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            coach speaks — use an earbud
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="keep-audio-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Keep audio
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            disabled={false}
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="keep-audio-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            saved with the session — replay + re-analyze
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="scoreboard-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Scoreboard
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="scoreboard-switch"
-            value={false}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            off
-          </Text>
-        </View>
-      </View>
-      <View
-        style={
-          {
-            "paddingHorizontal": 16,
-            "paddingVertical": 6,
-          }
-        }
-        testID="library-picker"
-      >
-        <View
-          accessibilityRole="button"
-          accessibilityState={
-            {
-              "busy": undefined,
-              "checked": undefined,
-              "disabled": undefined,
-              "expanded": false,
-              "selected": undefined,
-            }
-          }
-          accessibilityValue={
-            {
-              "max": undefined,
-              "min": undefined,
-              "now": undefined,
-              "text": undefined,
-            }
-          }
-          accessible={true}
-          collapsable={false}
-          focusable={true}
-          onClick={[Function]}
-          onResponderGrant={[Function]}
-          onResponderMove={[Function]}
-          onResponderRelease={[Function]}
-          onResponderTerminate={[Function]}
-          onResponderTerminationRequest={[Function]}
-          onStartShouldSetResponder={[Function]}
-          style={
-            {
-              "opacity": 1,
-            }
-          }
-          testID="library-picker-toggle"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 13,
-                "fontWeight": "600",
-                "marginBottom": 6,
-              }
-            }
-          >
-            ▸
-             Use from library
-          </Text>
-        </View>
-      </View>
-      <View
-        style={
-          {
-            "display": "none",
-          }
-        }
-        testID="coach-options-sliders"
-      >
-        <View
-          style={
-            {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
-            }
-          }
-        >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Empathy: 
-            50
-             — 
-            Balanced
-          </Text>
-          <View
-            testID="empathy-slider"
-          />
-          <View
-            style={
-              {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
-              }
-            }
-          >
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Assertive
-            </Text>
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Full Empathy
-            </Text>
-          </View>
-        </View>
-        <View
-          style={
-            {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
-            }
-          }
-        >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Interject: 
-            0
-             — 
-            Every turn
-          </Text>
-          <View
-            testID="interject-slider"
-          />
-          <View
-            style={
-              {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
-              }
-            }
-          >
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Every turn
-            </Text>
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Critical only
-            </Text>
-          </View>
-        </View>
       </View>
       <View
         style={
@@ -2798,6 +2532,554 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
           Tap Start Listening — the conversation appears here as it happens.
         </Text>
       </View>
+      <View
+        style={
+          {
+            "marginTop": 8,
+          }
+        }
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "justifyContent": "center",
+              "minHeight": 48,
+              "opacity": 1,
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+            }
+          }
+          testID="live-more-options-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 15,
+                "fontWeight": "700",
+              }
+            }
+          >
+            More options ▸
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "display": "none",
+            }
+          }
+          testID="live-more-options-body"
+        >
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              Coaching
+            </Text>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": undefined,
+                  "expanded": false,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onClick={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                {
+                  "alignItems": "center",
+                  "flexDirection": "row",
+                  "gap": 8,
+                  "opacity": 1,
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 10,
+                }
+              }
+              testID="coach-options-toggle"
+            >
+              <Text
+                style={
+                  {
+                    "color": "#374151",
+                    "fontSize": 14,
+                    "fontWeight": "700",
+                  }
+                }
+              >
+                Coaching options ▸
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={
+                  {
+                    "color": "#6B7280",
+                    "flex": 1,
+                    "fontSize": 12,
+                  }
+                }
+                testID="coach-options-summary"
+              >
+                speaks aloud · keeps audio · balanced · every turn
+              </Text>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-body"
+            >
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="speak-aloud-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Speak aloud
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="speak-aloud-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  coach speaks — use an earbud
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="keep-audio-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Keep audio
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  disabled={false}
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="keep-audio-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  saved with the session — replay + re-analyze
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="scoreboard-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Scoreboard
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="scoreboard-switch"
+                  value={false}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  off
+                </Text>
+              </View>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-sliders"
+            >
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Empathy: 
+                  50
+                   — 
+                  Balanced
+                </Text>
+                <View
+                  testID="empathy-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Assertive
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Full Empathy
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Interject: 
+                  0
+                   — 
+                  Every turn
+                </Text>
+                <View
+                  testID="interject-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Every turn
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Critical only
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              This conversation
+            </Text>
+            <View
+              style={
+                {
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 6,
+                }
+              }
+              testID="library-picker"
+            >
+              <View
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": undefined,
+                    "expanded": false,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onClick={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "opacity": 1,
+                  }
+                }
+                testID="library-picker-toggle"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 13,
+                      "fontWeight": "600",
+                      "marginBottom": 6,
+                    }
+                  }
+                >
+                  ▸
+                   Use from library
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              Developer
+            </Text>
+          </View>
+        </View>
+      </View>
     </View>
   </RCTScrollView>
   <View
@@ -3410,232 +3692,6 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         </Text>
       </View>
       <View
-        accessibilityRole="button"
-        accessibilityState={
-          {
-            "busy": undefined,
-            "checked": undefined,
-            "disabled": undefined,
-            "expanded": false,
-            "selected": undefined,
-          }
-        }
-        accessibilityValue={
-          {
-            "max": undefined,
-            "min": undefined,
-            "now": undefined,
-            "text": undefined,
-          }
-        }
-        accessible={true}
-        collapsable={false}
-        focusable={true}
-        onClick={[Function]}
-        onResponderGrant={[Function]}
-        onResponderMove={[Function]}
-        onResponderRelease={[Function]}
-        onResponderTerminate={[Function]}
-        onResponderTerminationRequest={[Function]}
-        onStartShouldSetResponder={[Function]}
-        style={
-          {
-            "alignItems": "center",
-            "flexDirection": "row",
-            "gap": 8,
-            "opacity": 1,
-            "paddingHorizontal": 16,
-            "paddingVertical": 10,
-          }
-        }
-        testID="coach-options-toggle"
-      >
-        <Text
-          style={
-            {
-              "color": "#374151",
-              "fontSize": 14,
-              "fontWeight": "700",
-            }
-          }
-        >
-          Coaching options ▸
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={
-            {
-              "color": "#6B7280",
-              "flex": 1,
-              "fontSize": 12,
-            }
-          }
-          testID="coach-options-summary"
-        >
-          speaks aloud · keeps audio · balanced · every turn
-        </Text>
-      </View>
-      <View
-        style={
-          {
-            "display": "none",
-          }
-        }
-        testID="coach-options-body"
-      >
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="speak-aloud-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Speak aloud
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="speak-aloud-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            coach speaks — use an earbud
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="keep-audio-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Keep audio
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            disabled={false}
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="keep-audio-switch"
-            value={true}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            saved with the session — replay + re-analyze
-          </Text>
-        </View>
-        <View
-          style={
-            {
-              "alignItems": "center",
-              "flexDirection": "row",
-              "gap": 8,
-              "paddingHorizontal": 16,
-              "paddingVertical": 6,
-            }
-          }
-          testID="scoreboard-row"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 14,
-                "fontWeight": "600",
-                "marginRight": 4,
-              }
-            }
-          >
-            Scoreboard
-          </Text>
-          <RCTSwitch
-            accessibilityRole="switch"
-            onChange={[Function]}
-            onResponderTerminationRequest={[Function]}
-            onStartShouldSetResponder={[Function]}
-            style={
-              {
-                "alignSelf": "flex-start",
-              }
-            }
-            testID="scoreboard-switch"
-            value={false}
-          />
-          <Text
-            numberOfLines={1}
-            style={
-              {
-                "color": "#6B7280",
-                "flex": 1,
-                "fontSize": 12,
-              }
-            }
-          >
-            off
-          </Text>
-        </View>
-      </View>
-      <View
         style={
           {
             "flexDirection": "row",
@@ -3803,187 +3859,6 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         >
           escalations: 0
         </Text>
-      </View>
-      <View
-        style={
-          {
-            "paddingHorizontal": 16,
-            "paddingVertical": 6,
-          }
-        }
-        testID="library-picker"
-      >
-        <View
-          accessibilityRole="button"
-          accessibilityState={
-            {
-              "busy": undefined,
-              "checked": undefined,
-              "disabled": undefined,
-              "expanded": false,
-              "selected": undefined,
-            }
-          }
-          accessibilityValue={
-            {
-              "max": undefined,
-              "min": undefined,
-              "now": undefined,
-              "text": undefined,
-            }
-          }
-          accessible={true}
-          collapsable={false}
-          focusable={true}
-          onClick={[Function]}
-          onResponderGrant={[Function]}
-          onResponderMove={[Function]}
-          onResponderRelease={[Function]}
-          onResponderTerminate={[Function]}
-          onResponderTerminationRequest={[Function]}
-          onStartShouldSetResponder={[Function]}
-          style={
-            {
-              "opacity": 1,
-            }
-          }
-          testID="library-picker-toggle"
-        >
-          <Text
-            style={
-              {
-                "color": "#374151",
-                "fontSize": 13,
-                "fontWeight": "600",
-                "marginBottom": 6,
-              }
-            }
-          >
-            ▸
-             Use from library
-          </Text>
-        </View>
-      </View>
-      <View
-        style={
-          {
-            "display": "none",
-          }
-        }
-        testID="coach-options-sliders"
-      >
-        <View
-          style={
-            {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
-            }
-          }
-        >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Empathy: 
-            50
-             — 
-            Balanced
-          </Text>
-          <View
-            testID="empathy-slider"
-          />
-          <View
-            style={
-              {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
-              }
-            }
-          >
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Assertive
-            </Text>
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Full Empathy
-            </Text>
-          </View>
-        </View>
-        <View
-          style={
-            {
-              "marginVertical": 12,
-              "paddingHorizontal": 16,
-            }
-          }
-        >
-          <Text
-            style={
-              {
-                "color": "#1F2937",
-                "fontSize": 16,
-                "fontWeight": "600",
-                "marginBottom": 8,
-              }
-            }
-          >
-            Interject: 
-            0
-             — 
-            Every turn
-          </Text>
-          <View
-            testID="interject-slider"
-          />
-          <View
-            style={
-              {
-                "flexDirection": "row",
-                "justifyContent": "space-between",
-              }
-            }
-          >
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Every turn
-            </Text>
-            <Text
-              style={
-                {
-                  "color": "#6B7280",
-                  "fontSize": 12,
-                }
-              }
-            >
-              Critical only
-            </Text>
-          </View>
-        </View>
       </View>
       <RCTScrollView
         style={
@@ -4310,6 +4185,554 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           </View>
         </View>
       </RCTScrollView>
+      <View
+        style={
+          {
+            "marginTop": 8,
+          }
+        }
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "justifyContent": "center",
+              "minHeight": 48,
+              "opacity": 1,
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+            }
+          }
+          testID="live-more-options-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 15,
+                "fontWeight": "700",
+              }
+            }
+          >
+            More options ▸
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "display": "none",
+            }
+          }
+          testID="live-more-options-body"
+        >
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              Coaching
+            </Text>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": undefined,
+                  "expanded": false,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onClick={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                {
+                  "alignItems": "center",
+                  "flexDirection": "row",
+                  "gap": 8,
+                  "opacity": 1,
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 10,
+                }
+              }
+              testID="coach-options-toggle"
+            >
+              <Text
+                style={
+                  {
+                    "color": "#374151",
+                    "fontSize": 14,
+                    "fontWeight": "700",
+                  }
+                }
+              >
+                Coaching options ▸
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={
+                  {
+                    "color": "#6B7280",
+                    "flex": 1,
+                    "fontSize": 12,
+                  }
+                }
+                testID="coach-options-summary"
+              >
+                speaks aloud · keeps audio · balanced · every turn
+              </Text>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-body"
+            >
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="speak-aloud-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Speak aloud
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="speak-aloud-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  coach speaks — use an earbud
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="keep-audio-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Keep audio
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  disabled={false}
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="keep-audio-switch"
+                  value={true}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  saved with the session — replay + re-analyze
+                </Text>
+              </View>
+              <View
+                style={
+                  {
+                    "alignItems": "center",
+                    "flexDirection": "row",
+                    "gap": 8,
+                    "paddingHorizontal": 16,
+                    "paddingVertical": 6,
+                  }
+                }
+                testID="scoreboard-row"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                      "marginRight": 4,
+                    }
+                  }
+                >
+                  Scoreboard
+                </Text>
+                <RCTSwitch
+                  accessibilityRole="switch"
+                  onChange={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignSelf": "flex-start",
+                    }
+                  }
+                  testID="scoreboard-switch"
+                  value={false}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={
+                    {
+                      "color": "#6B7280",
+                      "flex": 1,
+                      "fontSize": 12,
+                    }
+                  }
+                >
+                  off
+                </Text>
+              </View>
+            </View>
+            <View
+              style={
+                {
+                  "display": "none",
+                }
+              }
+              testID="coach-options-sliders"
+            >
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Empathy: 
+                  50
+                   — 
+                  Balanced
+                </Text>
+                <View
+                  testID="empathy-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Assertive
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Full Empathy
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={
+                  {
+                    "marginVertical": 12,
+                    "paddingHorizontal": 16,
+                  }
+                }
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#1F2937",
+                      "fontSize": 16,
+                      "fontWeight": "600",
+                      "marginBottom": 8,
+                    }
+                  }
+                >
+                  Interject: 
+                  0
+                   — 
+                  Every turn
+                </Text>
+                <View
+                  testID="interject-slider"
+                />
+                <View
+                  style={
+                    {
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Every turn
+                  </Text>
+                  <Text
+                    style={
+                      {
+                        "color": "#6B7280",
+                        "fontSize": 12,
+                      }
+                    }
+                  >
+                    Critical only
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              This conversation
+            </Text>
+            <View
+              style={
+                {
+                  "paddingHorizontal": 16,
+                  "paddingVertical": 6,
+                }
+              }
+              testID="library-picker"
+            >
+              <View
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": undefined,
+                    "expanded": false,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onClick={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "opacity": 1,
+                  }
+                }
+                testID="library-picker-toggle"
+              >
+                <Text
+                  style={
+                    {
+                      "color": "#374151",
+                      "fontSize": 13,
+                      "fontWeight": "600",
+                      "marginBottom": 6,
+                    }
+                  }
+                >
+                  ▸
+                   Use from library
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "marginTop": 4,
+              }
+            }
+          >
+            <Text
+              accessibilityRole="header"
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5,
+                  "paddingHorizontal": 16,
+                  "paddingTop": 10,
+                  "textTransform": "uppercase",
+                }
+              }
+            >
+              Developer
+            </Text>
+          </View>
+        </View>
+      </View>
     </View>
   </RCTScrollView>
   <View

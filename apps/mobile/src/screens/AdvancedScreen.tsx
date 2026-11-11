@@ -129,6 +129,8 @@ interface AdvancedScreenProps {
   /** Open the coach Library (notes + documents the live coach can draw on).
    *  Optional; the row hides without it. */
   onOpenLibrary?: () => void;
+  /** Jump to Live Coach (the Emotion tester card's "Start Live Coach"). Optional. */
+  onOpenLiveCoach?: () => void;
   /** Open the selfie-capture flow (Task N6 of P3-10) — the same flow the
    *  avatar menu's "Set profile photo" row opens. "Remove photo" doesn't
    *  need navigation (see the Account section below) — it clears
@@ -176,6 +178,7 @@ export default function AdvancedScreen({
   onOpenHomeDesign,
   onOpenPeople,
   onOpenLibrary,
+  onOpenLiveCoach,
   onSetProfilePhoto,
   initialSection,
 }: AdvancedScreenProps) {
@@ -875,7 +878,7 @@ export default function AdvancedScreen({
         expanded={!!openSections["emotion-dev"]}
         onToggle={() => toggleSection("emotion-dev")}
       >
-      <EmotionDevPanel userId={experimentalUid} />
+      <EmotionDevPanel userId={experimentalUid} onStartLiveCoach={onOpenLiveCoach} />
       </AccordionSection>
       </>
       ) : null}

@@ -24,6 +24,7 @@ import CallPanel from "../components/CallPanel";
 import JournalPanel, { type JournalGate } from "../components/JournalPanel";
 import RoomPanel from "../components/RoomPanel";
 import { MarkMomentButton } from "../components/MarkMomentButton";
+import { LiveCoachMoreOptions, MoreOptionsGroup, DevOptionsBanner } from "../components/LiveCoachMoreOptions";
 import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
@@ -831,6 +832,8 @@ export default function LiveCoachScreen({
         </View>
       ) : null}
 
+      <DevOptionsBanner />
+
       {/* The one choice that shapes the session: who's on the mic and whether
           the coach speaks. Locked while a session runs (the loop reads it at
           start). Persisted per account. */}
@@ -900,95 +903,12 @@ export default function LiveCoachScreen({
         />
       ) : null}
 
-      {devMode && liveCapable && !isJournal && !isRoom ? (
-        <View style={styles.modeRow} testID="live-mode-row">
-          <Text style={styles.modeLabel}>On-device coaching</Text>
-          <Switch
-            testID="live-mode-switch"
-            value={Boolean(liveMode)}
-            onValueChange={setLiveMode}
-            disabled={sessionActive}
-          />
-          <Text style={styles.modeHint} numberOfLines={1}>
-            {liveMode ? "phone does the work" : "server does the work"}
-          </Text>
-        </View>
-      ) : null}
-
       {devMode && sessionActive && !isJournal ? <MarkMomentButton /> : null}
-
-      {/* What the loop actually loaded (or why it isn't running). */}
-      {devMode && liveStatus && !isJournal && !isRoom ? (
-        <Text style={styles.speechUnavailableText} testID="live-status">
-          {liveStatus}
-        </Text>
-      ) : null}
 
       {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
           per account. A race to be nicer — both lines climbing is the win. */}
       {isJournal || isRoom ? null : (
       <>
-      <TouchableOpacity
-        testID="coach-options-toggle"
-        accessibilityRole="button"
-        accessibilityState={{ expanded: optionsOpen }}
-        style={styles.optionsHeader}
-        onPress={() => setOptionsOpen((v) => !v)}
-      >
-        <Text style={styles.optionsTitle}>
-          {optionsOpen ? "Coaching options ▾" : "Coaching options ▸"}
-        </Text>
-        {optionsOpen ? null : (
-          <Text style={styles.optionsSummary} numberOfLines={1} testID="coach-options-summary">
-            {[
-              sessionMode === "therapist" ? "on-screen only" : speakAloud ? "speaks aloud" : "on-screen only",
-              keepAudio ? "keeps audio" : "audio not kept",
-              getEmpathyLabel(empathyLevel).toLowerCase(),
-              getInterjectLabel(interjectLevel).toLowerCase(),
-            ].join(" · ")}
-          </Text>
-        )}
-      </TouchableOpacity>
-      <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-body">
-      {/* Speak aloud — only meaningful in a mode that would speak (therapist
-          is always silent). Off keeps nudges on screen without any TTS. */}
-      {sessionMode !== "therapist" ? (
-        <View style={styles.modeRow} testID="speak-aloud-row">
-          <Text style={styles.modeLabel}>Speak aloud</Text>
-          <Switch
-            testID="speak-aloud-switch"
-            value={speakAloud}
-            onValueChange={setSpeakAloud}
-          />
-          <Text style={styles.modeHint} numberOfLines={1}>
-            {speakAloud ? "coach speaks — use an earbud" : "silent — nudges on screen"}
-          </Text>
-        </View>
-      ) : null}
-      <View style={styles.modeRow} testID="keep-audio-row">
-        <Text style={styles.modeLabel}>Keep audio</Text>
-        <Switch
-          testID="keep-audio-switch"
-          value={keepAudio}
-          onValueChange={handleKeepAudioToggle}
-          disabled={liveStatus === "live"}
-        />
-        <Text style={styles.modeHint} numberOfLines={1}>
-          {keepAudio ? "saved with the session — replay + re-analyze" : "off — transcribed and thrown away"}
-        </Text>
-      </View>
-      <View style={styles.modeRow} testID="scoreboard-row">
-        <Text style={styles.modeLabel}>Scoreboard</Text>
-        <Switch
-          testID="scoreboard-switch"
-          value={scoreboardOn}
-          onValueChange={handleScoreboardToggle}
-        />
-        <Text style={styles.modeHint} numberOfLines={1}>
-          {scoreboardOn ? "who's being nicer — a race to be kind" : "off"}
-        </Text>
-      </View>
-      </View>
       {scoreboardOn || isTherapistCall ? (
         <ScoreboardPanel
           board={scoreboard ?? null}
@@ -1117,40 +1037,6 @@ export default function LiveCoachScreen({
             : "No headset connected — the coach is silent (earpiece mode never uses the phone speaker). Reconnect it to hear suggestions."}
         </Text>
       ) : null}
-
-      {/* About this conversation (optional, generic by default): before Start
-          and editable mid-session. Not for an observer or the journal. */}
-      {!isTherapist && !isJournal && !isRoom && setRelationship ? (
-        <ConversationContextPanel
-          relationship={relationship ?? null}
-          onRelationshipChange={setRelationship}
-          sessionContext={contextText}
-          onSessionContextChange={handleContextChange}
-          onClearSessionContext={handleContextClear}
-        />
-      ) : null}
-      {!isTherapist && !isJournal ? (
-        <LibraryPicker
-          selectedIds={libraryIds}
-          onChange={handleLibraryChange}
-          onManage={onOpenLibrary}
-          ignoredCount={libraryIgnored}
-        />
-      ) : null}
-
-      {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
-      {isJournal || isRoom ? null : (
-        <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-sliders">
-          <EmpathySlider
-            value={empathyLevel}
-            onValueChange={handleEmpathyChange}
-          />
-          <InterjectSlider
-            value={interjectLevel}
-            onValueChange={handleInterjectChange}
-          />
-        </View>
-      )}
 
       {/* Idle: the honest pre-flight (what will run on this phone, who the
           loop expects to hear) and the short how-to. Disappears the moment a
@@ -1323,14 +1209,6 @@ export default function LiveCoachScreen({
         </>
       ) : null}
 
-      {/* Latency report from the on-device loop (printed in full to the
-          console at session end; the headline lands here). */}
-      {devMode && !sessionActive && latencySummary ? (
-        <Text style={styles.speechUnavailableText} testID="latency-summary">
-          {latencySummary}
-        </Text>
-      ) : null}
-
       {/* Post-session review handoff: after a session ends with something to
           review, offer a prominent jump to the async-review Session screen. */}
       {!sessionActive && !isJournal && transcript.length > 0 && (
@@ -1344,6 +1222,146 @@ export default function LiveCoachScreen({
           </Text>
         </TouchableOpacity>
       )}
+
+      {/* Everything else lives under one collapsed expander so the default
+          view is just Start/Stop, status, nudges and Mark this moment. */}
+      <LiveCoachMoreOptions>
+        {isJournal || isRoom ? null : (
+        <MoreOptionsGroup title="Coaching">
+      <TouchableOpacity
+        testID="coach-options-toggle"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: optionsOpen }}
+        style={styles.optionsHeader}
+        onPress={() => setOptionsOpen((v) => !v)}
+      >
+        <Text style={styles.optionsTitle}>
+          {optionsOpen ? "Coaching options ▾" : "Coaching options ▸"}
+        </Text>
+        {optionsOpen ? null : (
+          <Text style={styles.optionsSummary} numberOfLines={1} testID="coach-options-summary">
+            {[
+              sessionMode === "therapist" ? "on-screen only" : speakAloud ? "speaks aloud" : "on-screen only",
+              keepAudio ? "keeps audio" : "audio not kept",
+              getEmpathyLabel(empathyLevel).toLowerCase(),
+              getInterjectLabel(interjectLevel).toLowerCase(),
+            ].join(" · ")}
+          </Text>
+        )}
+      </TouchableOpacity>
+      <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-body">
+      {/* Speak aloud — only meaningful in a mode that would speak (therapist
+          is always silent). Off keeps nudges on screen without any TTS. */}
+      {sessionMode !== "therapist" ? (
+        <View style={styles.modeRow} testID="speak-aloud-row">
+          <Text style={styles.modeLabel}>Speak aloud</Text>
+          <Switch
+            testID="speak-aloud-switch"
+            value={speakAloud}
+            onValueChange={setSpeakAloud}
+          />
+          <Text style={styles.modeHint} numberOfLines={1}>
+            {speakAloud ? "coach speaks — use an earbud" : "silent — nudges on screen"}
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.modeRow} testID="keep-audio-row">
+        <Text style={styles.modeLabel}>Keep audio</Text>
+        <Switch
+          testID="keep-audio-switch"
+          value={keepAudio}
+          onValueChange={handleKeepAudioToggle}
+          disabled={liveStatus === "live"}
+        />
+        <Text style={styles.modeHint} numberOfLines={1}>
+          {keepAudio ? "saved with the session — replay + re-analyze" : "off — transcribed and thrown away"}
+        </Text>
+      </View>
+      <View style={styles.modeRow} testID="scoreboard-row">
+        <Text style={styles.modeLabel}>Scoreboard</Text>
+        <Switch
+          testID="scoreboard-switch"
+          value={scoreboardOn}
+          onValueChange={handleScoreboardToggle}
+        />
+        <Text style={styles.modeHint} numberOfLines={1}>
+          {scoreboardOn ? "who's being nicer — a race to be kind" : "off"}
+        </Text>
+      </View>
+      </View>
+      {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
+      {isJournal || isRoom ? null : (
+        <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-sliders">
+          <EmpathySlider
+            value={empathyLevel}
+            onValueChange={handleEmpathyChange}
+          />
+          <InterjectSlider
+            value={interjectLevel}
+            onValueChange={handleInterjectChange}
+          />
+        </View>
+      )}
+
+        </MoreOptionsGroup>
+        )}
+        <MoreOptionsGroup title="This conversation">
+      {/* About this conversation (optional, generic by default): before Start
+          and editable mid-session. Not for an observer or the journal. */}
+      {!isTherapist && !isJournal && !isRoom && setRelationship ? (
+        <ConversationContextPanel
+          relationship={relationship ?? null}
+          onRelationshipChange={setRelationship}
+          sessionContext={contextText}
+          onSessionContextChange={handleContextChange}
+          onClearSessionContext={handleContextClear}
+        />
+      ) : null}
+      {!isTherapist && !isJournal ? (
+        <LibraryPicker
+          selectedIds={libraryIds}
+          onChange={handleLibraryChange}
+          onManage={onOpenLibrary}
+          ignoredCount={libraryIgnored}
+        />
+      ) : null}
+
+        </MoreOptionsGroup>
+        {devMode ? (
+        <MoreOptionsGroup title="Developer">
+      {devMode && liveCapable && !isJournal && !isRoom ? (
+        <View style={styles.modeRow} testID="live-mode-row">
+          <Text style={styles.modeLabel}>On-device coaching</Text>
+          <Switch
+            testID="live-mode-switch"
+            value={Boolean(liveMode)}
+            onValueChange={setLiveMode}
+            disabled={sessionActive}
+          />
+          <Text style={styles.modeHint} numberOfLines={1}>
+            {liveMode ? "phone does the work" : "server does the work"}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* What the loop actually loaded (or why it isn't running). */}
+      {devMode && liveStatus && !isJournal && !isRoom ? (
+        <Text style={styles.speechUnavailableText} testID="live-status">
+          {liveStatus}
+        </Text>
+      ) : null}
+
+      {/* Latency report from the on-device loop (printed in full to the
+          console at session end; the headline lands here). */}
+      {devMode && !sessionActive && latencySummary ? (
+        <Text style={styles.speechUnavailableText} testID="latency-summary">
+          {latencySummary}
+        </Text>
+      ) : null}
+
+        </MoreOptionsGroup>
+        ) : null}
+      </LiveCoachMoreOptions>
 
       </ScrollView>
 
