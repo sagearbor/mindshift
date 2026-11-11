@@ -968,3 +968,94 @@ describe("LiveCoachScreen — simple default view, everything else under More op
     expect([].concat(banner.findByType(RNText).props.children).join("")).toBe("Developer options on: Save audio, Emotion tester");
   });
 });
+
+describe("LiveCoachScreen — second pass: Start first, compact default view", () => {
+  const flushAll = () => act(async () => { await Promise.resolve(); });
+  const all = (c: renderer.ReactTestRenderer, id: string) => c.root.findAll((n) => n.props?.testID === id);
+  const first = (c: renderer.ReactTestRenderer, id: string) => all(c, id)[0];
+  const inside = (node: renderer.ReactTestInstance, ancestorId: string): boolean => {
+    for (let p: renderer.ReactTestInstance | null = node.parent; p; p = p.parent) {
+      if (p.props?.testID === ancestorId) return true;
+    }
+    return false;
+  };
+  /** Hidden by an ancestor with display: none (or inside the closed More options body). */
+  const hiddenByAncestor = (node: renderer.ReactTestInstance): boolean => {
+    for (let p: renderer.ReactTestInstance | null = node; p; p = p.parent) {
+      const st = p.props?.style;
+      const parts = ([] as any[]).concat(st ?? []);
+      if (parts.some((x) => x && typeof x === "object" && x.display === "none")) return true;
+    }
+    return false;
+  };
+  const mount = async () => {
+    let component!: renderer.ReactTestRenderer;
+    act(() => {
+      component = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flushAll();
+    await flushAll();
+    return component;
+  };
+  const order = (c: renderer.ReactTestRenderer, id: string) =>
+    c.root.findAll(() => true).findIndex((n) => n.props?.testID === id);
+
+  it("Start Listening comes before the mood check and More options, which follows in the default view", async () => {
+    const c = await mount();
+    const start = order(c, "mic-toggle");
+    expect(start).toBeGreaterThan(-1);
+    expect(start).toBeLessThan(order(c, "mood-check-before"));
+    expect(start).toBeLessThan(order(c, "live-more-options-toggle"));
+    expect(order(c, "mood-check-before")).toBeLessThan(order(c, "live-more-options-toggle"));
+    expect(start).toBeLessThan(order(c, "live-mode-line"));
+  });
+
+  it("shows one compact mode line; Change reveals the chip row, same testIDs", async () => {
+    const c = await mount();
+    const line = first(c, "live-mode-line");
+    expect(JSON.stringify(c.toJSON())).toContain("Mode: ");
+    expect(hiddenByAncestor(first(c, "session-mode-speaker"))).toBe(true);
+    act(() => first(c, "live-mode-change").props.onPress());
+    expect(hiddenByAncestor(first(c, "session-mode-speaker"))).toBe(false);
+    expect(line).toBeTruthy();
+  });
+
+  it("Who's here: nothing in the default view when people failed to load; error kept under More options", async () => {
+    mockListVoicePeople.mockResolvedValue({ people: [], error: "people unreachable (Failed to fetch)" });
+    const c = await mount();
+    expect(all(c, "live-people-line")).toHaveLength(0);
+    const err = first(c, "whos-here-empty");
+    expect(inside(err, "live-more-options-body")).toBe(true);
+    // The default (visible) tree never shows the raw error.
+    expect(all(c, "preflight-plain").every((n) => hiddenByAncestor(n))).toBe(true);
+  });
+
+  it("Who's here: a one-line summary appears in the default view when people loaded", async () => {
+    mockListVoicePeople.mockResolvedValue({
+      people: [{ personId: "p1", displayName: "Mom", isSelf: false, settings: 0, enrollCount: 0 }],
+      error: null,
+    });
+    const c = await mount();
+    const line = all(c, "live-people-line");
+    expect(line.length).toBeGreaterThan(0);
+    expect(inside(line[0], "live-more-options-body")).toBe(false);
+  });
+
+  it("the long how-to is behind a disclosure", async () => {
+    const c = await mount();
+    expect(hiddenByAncestor(first(c, "idle-explainer"))).toBe(true);
+    act(() => first(c, "live-how-toggle").props.onPress());
+    expect(hiddenByAncestor(first(c, "idle-explainer"))).toBe(false);
+  });
+
+  it("the audio-saved note follows Keep audio", async () => {
+    const c = await mount();
+    expect(all(c, "live-audio-saved-note").length).toBeGreaterThan(0);
+    expect(inside(first(c, "live-audio-saved-note"), "live-more-options-body")).toBe(false);
+    await act(async () => {
+      first(c, "keep-audio-switch").props.onValueChange(false);
+    });
+    await flushAll();
+    expect(all(c, "live-audio-saved-note")).toHaveLength(0);
+  });
+});

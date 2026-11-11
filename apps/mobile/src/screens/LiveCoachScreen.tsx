@@ -285,6 +285,8 @@ export default function LiveCoachScreen({
   // The header row summarizes what they are set to; every control keeps
   // rendering (display: none) so nothing about their behavior changes.
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [modePickerOpen, setModePickerOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
   const scoreboardLoadedRef = useRef(false);
   const [who, setWho] = useState<{ speaker: string; label: string } | null>(null);
   const [sheetPeople, setSheetPeople] = useState<ApiVoicePerson[]>([]);
@@ -741,20 +743,22 @@ export default function LiveCoachScreen({
     };
   }, [isCall, idle]);
 
+  const preflightPanel = (
+    <LivePreflightPanel
+      liveCapable={liveCapable}
+      liveCapabilityReason={liveCapabilityReason ?? ""}
+      liveMode={Boolean(liveMode)}
+      preflight={preflight ?? null}
+      people={people}
+      peopleError={peopleError}
+      isCall={isCall}
+      iceProbe={iceProbe}
+      iceProbing={iceProbing}
+    />
+  );
+
   return (
     <View style={styles.container}>
-      {/* Everything above the Start/Stop button scrolls: the setup content
-          (mode, toggles, sliders, pre-flight card, tips) is taller than the
-          screen on a phone, and before this it was clipped under the tab bar
-          with no way to reach it (regression found on a Pixel 10, 2026-08-26).
-          The Start/Stop button stays OUTSIDE the ScrollView as a fixed footer
-          so the primary action is always reachable. */}
-      <ScrollView
-        style={styles.scrollArea}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        testID="live-coach-scroll"
-      >
       <ListeningPill active={sessionActive} />
       {/* Header with connection status. The heading takes the flexible space
           and the status pins to the right at a fixed width, so a long status
@@ -788,6 +792,50 @@ export default function LiveCoachScreen({
         </View>
       </View>
 
+      {/* Start/Stop button — fixed right under the heading, outside the
+          ScrollView, so it is the first big control and always reachable. Call mode starts from the call panel (Start a
+          call / Join / Answer) and stops by hanging up. */}
+      {isCall && !sessionActive ? null : (
+        <TouchableOpacity
+          testID="mic-toggle"
+          style={[
+            styles.micButton,
+            isRecording && styles.micButtonRecording,
+            journalBlocked && styles.micButtonDisabled,
+          ]}
+          disabled={journalBlocked}
+          accessibilityState={{ disabled: journalBlocked }}
+          onPress={isCall ? handleHangUp : handleToggle}
+        >
+          <Text style={styles.micButtonText}>
+            {isCall
+              ? "Hang up"
+              : isJournal
+                ? sessionActive
+                  ? "Stop Journal"
+                  : "Start Journal"
+                : isRoom
+                  ? sessionActive
+                    ? "Stop Room Assistant"
+                    : "Start Room Assistant"
+                : sessionActive
+                  ? "Stop Listening"
+                  : "Start Listening"}
+          </Text>
+        </TouchableOpacity>
+      )}
+      {/* Everything above the Start/Stop button scrolls: the setup content
+          (mode, toggles, sliders, pre-flight card, tips) is taller than the
+          screen on a phone, and before this it was clipped under the tab bar
+          with no way to reach it (regression found on a Pixel 10, 2026-08-26).
+          The Start/Stop button stays OUTSIDE the ScrollView as a fixed footer
+          so the primary action is always reachable. */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        testID="live-coach-scroll"
+      >
       {/* Identity chip: which diarized voice is the user's. Shown once there's
           a session or a first transcript line — before that the toggle would
           be meaningless. Until the voiceprint or the user says which voice is
@@ -833,16 +881,37 @@ export default function LiveCoachScreen({
       ) : null}
 
       <DevOptionsBanner />
+      {keepAudio && !isJournal && !isRoom ? (
+        <Text style={styles.audioSavedNote} testID="live-audio-saved-note">
+          Audio from this session is saved
+        </Text>
+      ) : null}
 
       {/* The one choice that shapes the session: who's on the mic and whether
           the coach speaks. Locked while a session runs (the loop reads it at
           start). Persisted per account. */}
+      <View style={styles.modeLine} testID="live-mode-line">
+        <Text style={styles.modeLineText} numberOfLines={1}>
+          Mode: {modeLabel}
+        </Text>
+        <TouchableOpacity
+          testID="live-mode-change"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: modePickerOpen }}
+          style={styles.linkButton}
+          onPress={() => setModePickerOpen((v) => !v)}
+        >
+          <Text style={styles.linkButtonText}>{modePickerOpen ? "Done" : "Change"}</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={modePickerOpen ? undefined : styles.hidden} testID="live-mode-picker-wrap">
       <LiveModePicker
         value={mode}
         onChange={handleModeChange}
         disabled={sessionActive}
         hiddenModes={hiddenModes}
       />
+      </View>
 
       {/* A guest who followed a call-invite link (or whose remembered mode
           was Call) gets told why there is no Call chip, rather than being
@@ -1043,18 +1112,28 @@ export default function LiveCoachScreen({
           session starts or any transcript arrives. */}
       {idle && !isJournal && !isRoom ? (
         <>
-          <LivePreflightPanel
-            liveCapable={liveCapable}
-            liveCapabilityReason={liveCapabilityReason ?? ""}
-            liveMode={Boolean(liveMode)}
-            preflight={preflight ?? null}
-            people={people}
-            peopleError={peopleError}
-            isCall={isCall}
-            iceProbe={iceProbe}
-            iceProbing={iceProbing}
-          />
-          <View style={styles.explainerCard} testID="idle-explainer">
+          {/* Default view: at most two short lines. The full pre-flight card
+              (capabilities, Who's here incl. any load error) lives under
+              More options; a call keeps it here (peer-connection check). */}
+          {isCall ? preflightPanel : null}
+          <Text style={styles.readyLine} testID="live-ready-line">
+            Ready when you are — tap Start and speak first.
+          </Text>
+          {people && people.length > 0 ? (
+            <Text style={styles.readyLine} testID="live-people-line" numberOfLines={1}>
+              Here: {people.map((p) => p.displayName).join(", ")}
+            </Text>
+          ) : null}
+          <TouchableOpacity
+            testID="live-how-toggle"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: howOpen }}
+            style={styles.linkButton}
+            onPress={() => setHowOpen((v) => !v)}
+          >
+            <Text style={styles.linkButtonText}>{howOpen ? "How this works ▾" : "How this works ▸"}</Text>
+          </TouchableOpacity>
+          <View style={howOpen || isCall ? styles.explainerCard : [styles.explainerCard, styles.hidden]} testID="idle-explainer">
             {isTherapist ? (
               <Text style={styles.explainerLine}>
                 Place the phone between the two of them and tap Start — you&apos;ll
@@ -1226,6 +1305,11 @@ export default function LiveCoachScreen({
       {/* Everything else lives under one collapsed expander so the default
           view is just Start/Stop, status, nudges and Mark this moment. */}
       <LiveCoachMoreOptions>
+        {idle && !isJournal && !isRoom && !isCall ? (
+        <MoreOptionsGroup title="Before you start">
+          {preflightPanel}
+        </MoreOptionsGroup>
+        ) : null}
         {isJournal || isRoom ? null : (
         <MoreOptionsGroup title="Coaching">
       <TouchableOpacity
@@ -1365,38 +1449,6 @@ export default function LiveCoachScreen({
 
       </ScrollView>
 
-      {/* Start/Stop button — fixed footer, outside the ScrollView so it is
-          always reachable. Call mode starts from the call panel (Start a
-          call / Join / Answer) and stops by hanging up. */}
-      {isCall && !sessionActive ? null : (
-        <TouchableOpacity
-          testID="mic-toggle"
-          style={[
-            styles.micButton,
-            isRecording && styles.micButtonRecording,
-            journalBlocked && styles.micButtonDisabled,
-          ]}
-          disabled={journalBlocked}
-          accessibilityState={{ disabled: journalBlocked }}
-          onPress={isCall ? handleHangUp : handleToggle}
-        >
-          <Text style={styles.micButtonText}>
-            {isCall
-              ? "Hang up"
-              : isJournal
-                ? sessionActive
-                  ? "Stop Journal"
-                  : "Start Journal"
-                : isRoom
-                  ? sessionActive
-                    ? "Stop Room Assistant"
-                    : "Start Room Assistant"
-                : sessionActive
-                  ? "Stop Listening"
-                  : "Start Listening"}
-          </Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
@@ -1569,6 +1621,18 @@ const styles = StyleSheet.create({
   hidden: {
     display: "none",
   },
+  modeLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    minHeight: 44,
+  },
+  modeLineText: { flex: 1, fontSize: 14, fontWeight: "600", color: "#374151" },
+  linkButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 16 },
+  linkButtonText: { fontSize: 14, fontWeight: "600", color: "#2563EB" },
+  readyLine: { paddingHorizontal: 16, fontSize: 13.5, color: "#4B5563", marginBottom: 2 },
+  audioSavedNote: { paddingHorizontal: 16, fontSize: 12.5, color: "#6B7280", marginBottom: 4 },
   optionsHeader: {
     flexDirection: "row",
     alignItems: "center",

@@ -110,6 +110,8 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   emptyText: {
+    paddingHorizontal: 16,
+    textAlign: "center",
     fontSize: 15,
     color: "#9CA3AF",
     fontStyle: "italic",
