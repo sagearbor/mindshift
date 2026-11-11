@@ -36,6 +36,7 @@ import PushedScreenChrome from "./src/components/PushedScreenChrome";
 import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
 import { PRIMARY_ELIGIBLE_DESTINATIONS, type DestScreen } from "./src/nav/destinations";
 import { useAuthStore, initAuth } from "./src/store/authStore";
+import { startEmotionDevFromPrefs } from "./src/emotion/hub";
 import { useLayoutStore } from "./src/store/layoutStore";
 import { useAvatarStore } from "./src/store/avatarStore";
 import { useDevModeStore } from "./src/store/devModeStore";
@@ -384,6 +385,14 @@ export default function App({ initialUrl }: AppProps = {}) {
   }, [user?.uid]);
   const initializing = useAuthStore((s) => s.initializing);
   const signOut = useAuthStore((s) => s.signOut);
+
+  // Emotion dev tester: apply the SAVED switches at app start (not only when
+  // Settings > Advanced is opened), so a restart + Start Listening records with
+  // the saved settings. Waits for auth so it reads the right account's key.
+  useEffect(() => {
+    if (initializing) return;
+    void startEmotionDevFromPrefs(user?.uid ?? null).catch(() => {});
+  }, [user?.uid, initializing]);
   const avatarUri = useAvatarStore((s) => s.uri);
 
   // N7 fix round 1 (IMPORTANT 3): avatarStore's persisted uri has no uid in

@@ -23,6 +23,7 @@ import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop, SpeakerBinding } from "../live/fastLoop";
 import { emotionDevHub } from "../emotion/hub";
+import { buildRecordContext } from "../emotion/context";
 import { formatLatencyLog } from "../live/fastLoop";
 import { LIVE_COACH_FLAGS } from "../live/liveCoachFlags";
 import { PleasantnessTracker, type Scoreboard } from "../live/pleasantness";
@@ -1357,6 +1358,8 @@ export function useAudioStream(
 
   const stopFastLoop = useCallback(async () => {
     emotionDevHub.sessionEnded(); // finish any pending Emotion-dev flag clips
+    emotionDevHub.setContextProvider(null);
+    releaseMicHold(); // the Emotion-dev background hold, if one was taken
     const loop = fastLoopRef.current;
     // The kept audio is settled by the SAME call that posts the session (the
     // first one — later calls find no loop): taken here so a re-entrant stop
@@ -1530,7 +1533,7 @@ export function useAudioStream(
     // none). Awaited so a stop that completes has settled the file; an
     // upload failure never fails the session — it leaves a retry.
     await settleAudioKeep(keeper, episodeOf(result));
-  }, [settleAudioKeep]);
+  }, [settleAudioKeep, releaseMicHold]);
 
   /**
    * Start the fast loop for this session. Any failure (native module absent,
@@ -1744,6 +1747,10 @@ export function useAudioStream(
         prerollRef.current = null;
         if (during && during.samples > 0) build.loop.pushSamples(joinPreroll(during));
         fastLoopRef.current = build.loop;
+        // Emotion dev tester: hand it a cheap snapshot of what the loop knows (talk share,
+        // pace, mode, last coaching line) for each record it saves. Reads finished turns only.
+        const ctxLoop = build.loop;
+        emotionDevHub.setContextProvider(() => buildRecordContext(ctxLoop.turnsSoFar, ctxLoop.audioClock, sessionModeRef.current));
         lastLoopRef.current = null;
         liveActiveRef.current = true;
         loopUpAtRef.current = new Date().toISOString();
@@ -3078,6 +3085,10 @@ export function useAudioStream(
       interjectRef.current = interjectLevel;
       reconnectAttempts.current = 0;
 
+      // Emotion dev tester: build its runtime now so a missing model / bad config shows on the
+      // Live Coach status line at Start, never first at the first audio frame (or not at all).
+      emotionDevHub.sessionStarting();
+
       setTranscript([]);
       setSuggestions([]);
       setSpeakerLabel("");
@@ -3230,6 +3241,19 @@ export function useAudioStream(
       streamingRef.current = true;
       beginAudioKeep(sessionId);
       setIsRecording(true);
+
+      // Save audio is on (family-dinner recording): take the same best-effort Android
+      // microphone foreground-service hold the Journal uses, so the OS does not silence the mic
+      // when the screen locks. Taken AFTER the stream is up so it can never block it. Unverified
+      // on a device; if it cannot start the session simply runs in the foreground as before.
+      if (emotionDevHub.enabled && emotionDevHub.userSettings.saveAudio && !micHoldRef.current) {
+        void holdBackgroundMicRef.current()
+          .then((hold) => {
+            if (sessionActiveRef.current && !micHoldRef.current) micHoldRef.current = hold;
+            else void hold?.release();
+          })
+          .catch(() => {});
+      }
 
       if (liveModeRef.current && liveCapability.capable && modeRunsCoachingLoop(sessionModeRef.current)) {
         // Native mic is flowing: bring up the on-device loop alongside the

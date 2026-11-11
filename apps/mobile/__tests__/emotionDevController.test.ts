@@ -87,15 +87,17 @@ describe("EmotionDevController", () => {
     expect(s.store.readWindows()[0].small).toBeNull();
   });
 
-  it("disagreement saves a short clip, rate-capped per day", async () => {
+  it("disagreement saves ONE merged episode clip, rate-capped per day", async () => {
     const s = setup({ maxDisagreeClipsPerDay: 2 }, { tinyOut: P(0, 0, 0.1, 0.7, 0.2, 0), smallOut: P(0.1, 0, 0, 0, 0.1, 0.8) });
     await s.feed(3 * 5);
+    s.ctl.stop();
     const withClip = s.store.readRecords().filter((r) => r.clip);
-    expect(withClip).toHaveLength(2); // 5 disagreeing windows, cap 2 (some of them also nudged)
+    expect(withClip).toHaveLength(1); // 5 disagreeing windows, cap 2 -> the 2 allowed ones merge into one episode
     expect(withClip[0].clip).toMatch(/disagree\.wav$/);
-    expect(s.store.listClips()).toHaveLength(2);
-    // clip is <= disagreeClipS seconds of 16 kHz int16 (+44 byte header)
-    expect(s.store.listClips()[0].bytes).toBeLessThanOrEqual(44 + EMOTION_DEV_DEFAULTS.disagreeClipS * SR * 2);
+    expect(withClip[0].episode!.windows.filter((w) => w.triggers.length)).toHaveLength(2);
+    expect(s.store.listClips()).toHaveLength(1);
+    // windows end at 3 s and 6 s; clip = 0..6 s + 3 s tail
+    expect(s.store.listClips()[0].bytes).toBe(44 + 9 * SR * 2);
   });
 
   it("no disagreement clip when both models agree", async () => {
@@ -220,19 +222,27 @@ describe("EmotionDevController", () => {
 });
 
 describe("EmotionDevStore", () => {
-  it("evicts oldest clips past the byte cap and never exceeds it", () => {
+  it("at the cap only RATED clips are evicted; unrated clips are never deleted", () => {
     const fs = new MemoryFs();
     const st = new EmotionDevStore(fs, "file:///doc/e", { ...EMOTION_DEV_DEFAULTS, maxClipBytes: 3 * (44 + 2000) });
-    for (let i = 0; i < 6; i++) st.saveClip({ id: `i${i}`, reason: "x", atMs: i + 1, pcm: new Int16Array(1000) });
-    const clips = st.listClips();
-    expect(clips.length).toBe(3);
-    expect(clips[0].name).toMatch(/i3/); // oldest three evicted
-    expect(st.usage().clipBytes).toBeLessThanOrEqual(3 * 2044);
-  });
-
-  it("refuses a single clip bigger than the cap", () => {
-    const st = new EmotionDevStore(new MemoryFs(), "file:///doc/e", { ...EMOTION_DEV_DEFAULTS, maxClipBytes: 100 });
-    expect(st.saveClip({ id: "a", reason: "x", atMs: 1, pcm: new Int16Array(1000) })).toBeNull();
+    st.setClipCapBytes(3 * 2044);
+    for (let i = 0; i < 3; i++) {
+      st.addRecord({ id: `i${i}`, t: i, kind: "saved", tiny: [0, 0, 0, 0, 1, 0], small: null, nudged: false });
+      expect(st.saveClip({ id: `i${i}`, reason: "x", atMs: i + 1, pcm: new Int16Array(1000) })).not.toBeNull();
+    }
+    // full of unrated clips: a new save is REFUSED, nothing is deleted, the refusal is on record
+    expect(st.saveClip({ id: "i3", reason: "x", atMs: 4, pcm: new Int16Array(1000) })).toBeNull();
+    expect(st.listClips()).toHaveLength(3);
+    expect(st.lastSkipReason).toBe("storage-full");
+    expect(st.usage()).toMatchObject({ clips: 3, unrated: 3, skipped: 1, state: "full" });
+    // rate the oldest: now it makes room for the next save
+    st.setFlag("i0", "good");
+    expect(st.saveClip({ id: "i4", reason: "x", atMs: 5, pcm: new Int16Array(1000) })).not.toBeNull();
+    const names = st.listClips().map((c) => c.name);
+    expect(names).toHaveLength(3);
+    expect(names.some((n) => n.includes("-i0-"))).toBe(false);
+    expect(names.some((n) => n.includes("-i1-")) && names.some((n) => n.includes("-i2-"))).toBe(true);
+    expect(st.readRecords().find((r) => r.id === "i0")!.flag).toBe("good"); // label survives its audio
   });
 
   it("trims the oldest half of a log that outgrows its cap", () => {
@@ -253,7 +263,7 @@ describe("EmotionDevStore", () => {
     expect(st.listClips()).toEqual([]);
     expect(st.readRecords()).toEqual([]);
     expect(st.readWindows()).toEqual([]);
-    expect(st.usage()).toEqual({ clips: 0, clipBytes: 0, logBytes: 0 });
+    expect(st.usage()).toMatchObject({ clips: 0, clipBytes: 0, logBytes: 0, unrated: 0, skipped: 0 });
   });
 
   it("survives a torn last log line", () => {

@@ -9,9 +9,37 @@
 import type { RecorderFs } from "../recorder/types";
 import { buildWavHeader, int16ToBytes } from "../recorder/wav";
 import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type Probs } from "./config";
+import type { RecordContext } from "./context";
 
 export type FlagValue = "bad" | "good" | "ignore" | "unrated";
-export type RecordKind = "window" | "nudge" | "disagree" | "scripted" | "saved" | "mark" | "watch";
+export type RecordKind = "window" | "nudge" | "disagree" | "scripted" | "saved" | "mark" | "watch" | "neutral-sample";
+
+/** One classified window inside an episode clip (raw probabilities of both models). */
+export interface EpisodeWindow {
+  t: number;
+  tiny: number[];
+  small: number[] | null;
+  /** Why this window counted: "disagree" | "heard" | "nudge"; empty = a lead/tail window that did not trigger. */
+  triggers: string[];
+  nudged: boolean;
+}
+
+/** An episode clip: consecutive triggered windows merged into one recording. Additive field. */
+export interface EpisodeInfo {
+  startT: number;
+  endT: number;
+  /** Seconds of audio in the clip (as intended; the file is the truth). */
+  clipS: number;
+  windows: EpisodeWindow[];
+  peakTiny: { label: string; prob: number };
+  peakSmall: { label: string; prob: number } | null;
+  /** A nudge fired while this episode was open (the emotion buzz, not Live Coach advice). */
+  nudge: boolean;
+  nudgeIds: string[];
+  triggers: string[];
+}
+
+export type CapState = "ok" | "warn" | "full";
 
 export interface EmotionRecord {
   id: string;
@@ -32,13 +60,20 @@ export interface EmotionRecord {
   /** Scripted test only: the emotion the owner was asked to act, and the round. */
   expect?: string;
   round?: number;
+  /** Episode clips only (kind saved/disagree): the merged windows, peaks and nudge flag. */
+  episode?: EpisodeInfo;
+  /** What the Live Coach session knew at that moment (talk share, pace, mode, coaching line). */
+  context?: RecordContext;
+  /** Set when the clip could NOT be saved (storage full, write error): the reason. */
+  clipSkipped?: string;
 }
 
 type LogLine =
   | ({ op: "rec" } & Omit<EmotionRecord, "flag"> & { flag: FlagValue | null })
   | { op: "flag"; id: string; flag: FlagValue; t: number }
   | { op: "clip"; id: string; clip: string }
-  | { op: "truth"; id: string; truth: string };
+  | { op: "truth"; id: string; truth: string }
+  | { op: "skip"; id: string; reason: string; t: number; bytes: number };
 
 const enc = new TextEncoder();
 const round4 = (p: Probs | null): number[] | null => (p ? Array.from(p, (v) => Math.round(v * 1e4) / 1e4) : null);
@@ -78,7 +113,10 @@ export class EmotionDevStore {
   private append(line: LogLine, uri: string = this.logUri): void {
     this.fs.ensureDir(this.dir);
     this.fs.appendBytes(uri, enc.encode(JSON.stringify(line) + "\n"));
-    this.trimLogIfNeeded(uri);
+    // Only the rolling per-window log is ever trimmed. The main log holds the
+    // records, labels and clip links the owner has yet to review: losing the
+    // oldest half of it would silently orphan unreviewed clips.
+    if (uri === this.windowLogUri) this.trimLogIfNeeded(uri);
   }
 
   private trimLogIfNeeded(uri: string): void {
@@ -112,6 +150,8 @@ export class EmotionDevStore {
     nudgeReason?: string;
     expect?: string;
     round?: number;
+    episode?: EpisodeInfo;
+    context?: RecordContext | null;
   }): void {
     this.append({
       op: "rec",
@@ -124,6 +164,8 @@ export class EmotionDevStore {
       nudged: r.nudged,
       ...(r.nudgeReason ? { nudgeReason: r.nudgeReason } : {}),
       ...(r.expect ? { expect: r.expect, round: r.round } : {}),
+      ...(r.episode ? { episode: r.episode } : {}),
+      ...(r.context ? { context: r.context } : {}),
       // A nudge is "unrated" until the owner says otherwise (✓ is optional).
       flag: r.nudged ? "unrated" : null,
     });
@@ -155,10 +197,19 @@ export class EmotionDevStore {
     return `${this.clipDir}/${name}`;
   }
 
-  /** Raise/lower the clip storage cap (save-audio mode); evicts at once if now over. */
+  /** Raise/lower the clip storage cap. Only RATED clips are ever evicted. */
   setClipCapBytes(bytes: number): void {
     this.capBytes = Math.max(1, bytes);
-    this.evictClips();
+    this.evictRated(0, this.capBytes);
+  }
+
+  /** Adopt the cap for reporting/saving WITHOUT evicting anything (a freshly opened store defaults to 150 MB). */
+  useCapBytes(bytes: number): void {
+    this.capBytes = Math.max(1, bytes);
+  }
+
+  get clipCapBytes(): number {
+    return this.capBytes;
   }
 
   /** Records with later flag/clip lines folded in, oldest first. */
@@ -191,6 +242,9 @@ export class EmotionDevStore {
       } else if (line.op === "clip") {
         const r = byId.get(line.id);
         if (r) r.clip = line.clip;
+      } else if (line.op === "skip") {
+        const r = byId.get(line.id);
+        if (r) r.clipSkipped = line.reason;
       }
     }
     return order.map((id) => byId.get(id)!).filter(Boolean);
@@ -208,12 +262,17 @@ export class EmotionDevStore {
 
   // -- clips ----------------------------------------------------------------
 
-  /** Save a clip as `<epoch>-<id>-<reason>.wav`; evicts oldest clips past the byte cap.
-   *  Returns the file name, or null when a single clip alone exceeds the cap. */
-  saveClip(p: { id: string; reason: string; atMs: number; pcm: Int16Array; sampleRate?: number }): string | null {
+  /** Save a clip as `<epoch>-<id>-<reason>.wav`.
+   *  Storage rule: at the cap, RATED clips are evicted oldest-first to make room;
+   *  UNRATED and marked clips are never deleted. If there is still no room the clip is
+   *  NOT saved: returns null and appends a `skip` line (with the reason) so the loss is
+   *  on record. A user-initiated clip (mark/flag) may exceed the cap by `capUserOverageFraction`. */
+  saveClip(p: { id: string; reason: string; atMs: number; pcm: Int16Array; sampleRate?: number; userInitiated?: boolean }): string | null {
     const sr = p.sampleRate ?? 16000;
     const bytes = 44 + p.pcm.length * 2;
-    if (bytes > this.capBytes) return null;
+    const limit = Math.floor(this.capBytes * (1 + (p.userInitiated ? this.cfg.capUserOverageFraction : 0)));
+    if (bytes > limit) return this.skip(p.id, "clip-larger-than-cap", bytes);
+    if (!this.evictRated(bytes, limit)) return this.skip(p.id, "storage-full", bytes);
     this.fs.ensureDir(this.clipDir);
     const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, "_");
     const name = `${String(p.atMs).padStart(13, "0")}-${safe(p.id)}-${safe(p.reason)}.wav`;
@@ -224,9 +283,21 @@ export class EmotionDevStore {
     all.set(header, 0);
     all.set(data, header.length);
     this.fs.writeBytes(uri, all);
-    this.evictClips();
     this.append({ op: "clip", id: p.id, clip: name });
     return name;
+  }
+
+  /** Why the most recent save was refused (null = none since this store opened). */
+  lastSkipReason: string | null = null;
+
+  private skip(id: string, reason: string, bytes: number): null {
+    this.lastSkipReason = reason;
+    try {
+      this.append({ op: "skip", id, reason, t: this.now(), bytes });
+    } catch {
+      // The skip note is best effort; the null return is what callers act on.
+    }
+    return null;
   }
 
   listClips(): { name: string; bytes: number }[] {
@@ -238,25 +309,69 @@ export class EmotionDevStore {
       .map((name) => ({ name, bytes: this.fs.sizeOf(`${this.clipDir}/${name}`) ?? 0 }));
   }
 
-  usage(): { clips: number; clipBytes: number; logBytes: number } {
+  usage(): {
+    clips: number;
+    clipBytes: number;
+    logBytes: number;
+    capBytes: number;
+    state: CapState;
+    /** Clips with no rating yet (they are never auto-deleted). */
+    unrated: number;
+    /** Saves refused so far because storage was full (counted from the log). */
+    skipped: number;
+  } {
     const clips = this.listClips();
+    const clipBytes = clips.reduce((a, c) => a + c.bytes, 0);
+    const { unrated, skipped } = this.scanLog(clips.length);
     return {
       clips: clips.length,
-      clipBytes: clips.reduce((a, c) => a + c.bytes, 0),
+      clipBytes,
       logBytes: (this.fs.sizeOf(this.logUri) ?? 0) + (this.fs.sizeOf(this.windowLogUri) ?? 0),
+      capBytes: this.capBytes,
+      state: this.capStateOf(clipBytes),
+      unrated,
+      skipped,
     };
   }
 
-  /** Over the cap: delete oldest UNRATED clips first, rated ones only if that is not enough. */
-  private evictClips(): void {
+  /** ok / warn (>= 80% of the cap) / full (>= 98%, new clips will not fit). */
+  capState(): CapState {
+    return this.capStateOf(this.listClips().reduce((a, c) => a + c.bytes, 0));
+  }
+
+  private capStateOf(clipBytes: number): CapState {
+    const f = clipBytes / this.capBytes;
+    return f >= 0.98 ? "full" : f >= this.cfg.capWarnFraction ? "warn" : "ok";
+  }
+
+  private scanCache: { key: string; unrated: number; skipped: number } | null = null;
+  private scanLog(clipCount: number): { unrated: number; skipped: number } {
+    const key = `${this.fs.sizeOf(this.logUri) ?? 0}:${clipCount}`;
+    if (this.scanCache?.key === key) return this.scanCache;
+    let unrated = 0;
+    for (const r of this.readRecords()) {
+      if (r.clip && (r.flag === null || r.flag === "unrated") && this.fs.exists(this.clipUri(r.clip))) unrated++;
+    }
+    const text = this.fs.exists(this.logUri) ? this.fs.readText(this.logUri) : "";
+    const skipped = text.split('"op":"skip"').length - 1;
+    this.scanCache = { key, unrated, skipped };
+    return this.scanCache;
+  }
+
+  /** Make `needed` bytes of room under `limit` by deleting the oldest RATED clips
+   *  (their labels and log rows stay). Never touches unrated or marked clips.
+   *  Returns whether `needed` now fits. */
+  private evictRated(needed: number, limit: number): boolean {
     const clips = this.listClips(); // oldest first (epoch-prefixed names)
     let total = clips.reduce((a, c) => a + c.bytes, 0);
-    if (total <= this.capBytes) return;
-    const rated = new Set<string>();
-    for (const r of this.readRecords()) if (r.clip && r.flag !== null && r.flag !== "unrated") rated.add(r.clip);
-    const order = [...clips.filter((c) => !rated.has(c.name)), ...clips.filter((c) => rated.has(c.name))];
-    for (const c of order) {
-      if (total <= this.capBytes) break;
+    if (total + needed <= limit) return true;
+    const evictable = new Set<string>();
+    for (const r of this.readRecords()) {
+      if (r.clip && r.kind !== "mark" && r.flag !== null && r.flag !== "unrated") evictable.add(r.clip);
+    }
+    for (const c of clips) {
+      if (total + needed <= limit) break;
+      if (!evictable.has(c.name)) continue;
       try {
         this.fs.deleteRecursive(`${this.clipDir}/${c.name}`);
         total -= c.bytes;
@@ -264,6 +379,7 @@ export class EmotionDevStore {
         break;
       }
     }
+    return total + needed <= limit;
   }
 
   /** The "delete all" control: every clip and the whole log. */
