@@ -88,7 +88,7 @@ function clock(t: number): string {
 }
 
 /** "7:42 pm · 12 s · emotion · nudge fired: take a breath" (only fields that exist). */
-export function contextLine(item: Partial<ReviewItemFull> & { t: number; kind: string }): string {
+export function contextLine(item: Partial<Omit<ReviewItemFull, "kind">> & { t: number; kind: string }): string {
   const parts = [clock(item.t)];
   if (item.durationS) parts.push(`${item.durationS} s`);
   parts.push(kindLabel(item.kind));
