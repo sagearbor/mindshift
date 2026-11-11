@@ -88,7 +88,26 @@ class EmotionLocalService : Service() {
     private fun loop() {
         val diag = DiagLog { l, t, m -> runCatching { Telemetry.log(l, t, m) } }
         val ctx = applicationContext
-        val found = findTinyModel(modelDirs(ctx))
+        var found = findTinyModel(modelDirs(ctx))
+        if (found is ModelLookup.Missing) {
+            // No sideloaded file: fetch the pinned, sha256-verified copy from Hosting into the same folder.
+            LocalEmotionBus.update { it.copy(running = true, text = "Downloading model...") }
+            var lastPct = -1
+            val r = ModelDownloader().download(modelDirs(ctx).first()) { bytes ->
+                val pct = (bytes * 100 / 9_942_329L).toInt().coerceAtMost(99) / 5 * 5
+                if (pct != lastPct) {
+                    lastPct = pct
+                    LocalEmotionBus.update { it.copy(text = "Downloading model... $pct%") }
+                }
+            }
+            if (r is DownloadResult.Failed) {
+                LocalEmotionBus.update { it.copy(running = false, text = "Model download failed: ${r.reason}. Toggle off/on to retry, or adb push.") }
+                diag.log("warn", TAG, "model download failed: ${r.reason}")
+                stopSelf()
+                return
+            }
+            found = findTinyModel(modelDirs(ctx))
+        }
         if (found is ModelLookup.Missing) {
             LocalEmotionBus.update { it.copy(running = false, text = "Model missing: ${found.reason}") }
             diag.log("warn", TAG, "model missing: ${found.reason}")

@@ -96,6 +96,26 @@ ECAPA_BYTES=$(wc -c < "$ECAPA_SRC" | tr -d ' ')
 mkdir -p "$DIST/models"
 cp "$ECAPA_SRC" "$DIST/models/ecapa_$ECAPA_REV.onnx"
 echo "web_deploy: ECAPA model included (${ECAPA_BYTES} bytes)"
+# The watch downloads the TINY emotion model from Hosting (apps/watch/.../emotion/ModelDownloader.kt
+# TinyModelSpec). Same replace-the-whole-site rule as ECAPA: it must be in every export. The pinned
+# name and sha256 are read from that Kotlin file. Source: TINY_ONNX_SRC, else the local sideload copy.
+SPEC="$ROOT/apps/watch/wearApp/src/main/kotlin/app/gauge/wear/emotion/ModelDownloader.kt"
+TINY_NAME=$(grep -o 'FILE_NAME = "[^"]*"' "$SPEC" | cut -d'"' -f2)
+TINY_SHA=$(grep -o 'SHA256 = "[0-9a-f]\{64\}"' "$SPEC" | cut -d'"' -f2)
+[ -n "$TINY_NAME" ] && [ -n "$TINY_SHA" ] || { echo "web_deploy: cannot read TinyModelSpec from $SPEC" >&2; exit 1; }
+TINY_SRC="${TINY_ONNX_SRC:-}"
+if [ -z "$TINY_SRC" ]; then
+  for f in "$ROOT/tmp/model-send/emotion-tiny-int8.onnx" "$HOME/projects/githubs/mindshift/tmp/model-send/emotion-tiny-int8.onnx"; do
+    [ -f "$f" ] && TINY_SRC="$f" && break
+  done
+fi
+[ -f "$TINY_SRC" ] || { echo "web_deploy: TINY model not found (set TINY_ONNX_SRC)" >&2; exit 1; }
+TINY_BYTES=$(wc -c < "$TINY_SRC" | tr -d ' ')
+[ "$TINY_BYTES" -gt 5000000 ] || { echo "web_deploy: $TINY_SRC is only $TINY_BYTES bytes — not the model" >&2; exit 1; }
+TINY_GOT=$(shasum -a 256 "$TINY_SRC" | cut -d' ' -f1)
+[ "$TINY_GOT" = "$TINY_SHA" ] || { echo "web_deploy: $TINY_SRC sha256 $TINY_GOT != pinned $TINY_SHA" >&2; exit 1; }
+cp "$TINY_SRC" "$DIST/models/$TINY_NAME"
+echo "web_deploy: TINY emotion model included (${TINY_BYTES} bytes)"
 echo "web_deploy: export verified ($(du -sh "$DIST" | cut -f1))"
 
 # 2b. Headless-Chrome smoke (mount + self-hosted ONNX Runtime) when Chrome exists.

@@ -32,22 +32,25 @@ six probabilities (anger, disgust, fear, happiness, neutral, sadness).
   (neutral 0.520 vs 0.520). The residual is int8 kernel / runtime-version noise.
 * `NudgeGateTest` pins the nudge defaults to the phone's `EMOTION_DEV_DEFAULTS`.
 
-## Getting the model onto the watch: sideload, not bundle
+## Getting the model onto the watch: Hosting download, sideload as fallback
 
-The two weights are private (see `modelFiles.ts`: "never in the repo, the app bundle or the
-server"). There is therefore no hosted download to reuse - the phone gets them by `adb push` too.
-Bundling the 10 MB file would fit any size limit but would publish private weights inside a Play
-APK, which the phone design deliberately avoids. So the watch uses the same route:
+Owner approved hosting the tiny int8 file on Firebase Hosting, like the ECAPA model. `TinyModelSpec`
+(ModelDownloader.kt) pins the filename `emotion-tiny-int8-<sha12>.onnx` and its sha256.
+`scripts/web_deploy.sh` reads that pin, copies the local file into `dist/models/` (aborts if missing,
+<= 5 MB, or the hash differs) - so the next normal web deploy publishes it:
+`https://arborfam-hub.web.app/models/emotion-tiny-int8-ae4d75f72b2b.onnx`.
+
+On the watch, turning the toggle on with no model present downloads that URL (status row shows
+"Downloading model... N%"), verifies size and sha256, and installs it as `emotion-tiny-int8.onnx` in
+the app files folder; a bad download (e.g. Hosting's SPA index.html) is deleted, never installed.
+A file already there (sideload) is used as-is:
 
 ```
-adb -s <watch> shell mkdir -p /sdcard/Android/data/com.sagearbor.mindshift.app.debug/files/emotion
 adb -s <watch> push emotion-tiny-int8.onnx /sdcard/Android/data/com.sagearbor.mindshift.app.debug/files/emotion/
 ```
 
-(`.debug` is the sideloaded dev build; the Play build id is `com.sagearbor.mindshift.app`.) If the
-external folder is not writable on the watch, push to `/data/local/tmp` and
-`adb shell run-as <pkg> cp ... files/emotion/` (debug builds only). A missing or truncated file
-(< 5 MB) is a status line in Settings ("Model missing: ..."), never an error or fake output.
+(`.debug` = sideloaded dev build; Play id is `com.sagearbor.mindshift.app`.) Failures show in Settings
+("Model download failed: ...").
 
 ## Size cost
 
