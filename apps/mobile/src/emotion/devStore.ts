@@ -32,13 +32,16 @@ export interface EmotionRecord {
   /** Scripted test only: the emotion the owner was asked to act, and the round. */
   expect?: string;
   round?: number;
+  /** Review mode: one label per rater (see REVIEW-LABELS block at the end of the file). */
+  reviews?: ReviewLabel[];
 }
 
 type LogLine =
   | ({ op: "rec" } & Omit<EmotionRecord, "flag"> & { flag: FlagValue | null })
   | { op: "flag"; id: string; flag: FlagValue; t: number }
   | { op: "clip"; id: string; clip: string }
-  | { op: "truth"; id: string; truth: string };
+  | { op: "truth"; id: string; truth: string }
+  | ReviewLogLine;
 
 const enc = new TextEncoder();
 const round4 = (p: Probs | null): number[] | null => (p ? Array.from(p, (v) => Math.round(v * 1e4) / 1e4) : null);
@@ -151,6 +154,43 @@ export class EmotionDevStore {
     return out;
   }
 
+  // -- REVIEW-LABELS block (additive; per-rater labels) ----------------------
+
+  /** Every clip with its labels (any rater), oldest first; the UI filters by rater. */
+  reviewItems(): ReviewItemFull[] {
+    const out: ReviewItemFull[] = [];
+    for (const r of this.readRecords()) {
+      if (!r.clip) continue;
+      const uri = this.clipUri(r.clip);
+      if (!this.fs.exists(uri)) continue;
+      const bytes = this.fs.sizeOf(uri);
+      out.push({
+        id: r.id, clip: r.clip, uri, t: r.t, kind: r.kind, tiny: r.tiny, small: r.small,
+        reviews: r.reviews ?? [], flag: r.flag, truth: r.truth, nudged: r.nudged, nudgeReason: r.nudgeReason,
+        durationS: bytes && bytes > 44 ? Math.round((bytes - 44) / 32000) : undefined,
+      });
+    }
+    return out;
+  }
+
+  /** Save (or replace) one rater's label. The owner ("me") also writes the legacy flag/truth. */
+  setReview(id: string, label: ReviewLabel): void {
+    this.append({ op: "review", id, label });
+    if (label.rater === "me") {
+      if (label.truth) this.setTruth(id, label.truth);
+      this.setFlag(id, label.rating);
+    }
+  }
+
+  /** Undo: remove one rater's label (and the legacy fields when that rater is "me"). */
+  clearReview(id: string, rater: string): void {
+    this.append({ op: "unreview", id, rater });
+    if (rater === "me") {
+      this.setTruth(id, "");
+      this.setFlag(id, "unrated");
+    }
+  }
+
   clipUri(name: string): string {
     return `${this.clipDir}/${name}`;
   }
@@ -177,6 +217,10 @@ export class EmotionDevStore {
         line = JSON.parse(raw) as LogLine;
       } catch {
         continue; // a torn last line after a crash
+      }
+      if (isReviewLine(line)) {
+        applyReviewLine(byId, line);
+        continue;
       }
       if (line.op === "rec") {
         const { op: _op, ...rec } = line;
@@ -253,7 +297,7 @@ export class EmotionDevStore {
     let total = clips.reduce((a, c) => a + c.bytes, 0);
     if (total <= this.capBytes) return;
     const rated = new Set<string>();
-    for (const r of this.readRecords()) if (r.clip && r.flag !== null && r.flag !== "unrated") rated.add(r.clip);
+    for (const r of this.readRecords()) if (r.clip && isRatedRecord(r)) rated.add(r.clip);
     const order = [...clips.filter((c) => !rated.has(c.name)), ...clips.filter((c) => rated.has(c.name))];
     for (const c of order) {
       if (total <= this.capBytes) break;
@@ -272,4 +316,38 @@ export class EmotionDevStore {
       if (this.fs.exists(uri)) this.fs.deleteRecursive(uri);
     }
   }
+}
+
+// -- REVIEW-LABELS block (additive) -------------------------------------------
+
+export type NudgeWarranted = "yes" | "no" | "unsure";
+/** One rater's verdict on a clip. rating = "good" when the shown (TINY) label was right. */
+export interface ReviewLabel {
+  rater: string;
+  rating: "good" | "bad";
+  truth?: string | null;
+  nudgeWarranted?: NudgeWarranted;
+  t: number;
+}
+export type ReviewLogLine = { op: "review"; id: string; label: ReviewLabel } | { op: "unreview"; id: string; rater: string };
+export interface ReviewItemFull extends ReviewItem {
+  reviews: ReviewLabel[];
+  flag?: FlagValue | null;
+  truth?: string;
+  nudged?: boolean;
+  nudgeReason?: string;
+  durationS?: number;
+}
+function isReviewLine(l: LogLine): l is ReviewLogLine {
+  return l.op === "review" || l.op === "unreview";
+}
+function applyReviewLine(byId: Map<string, EmotionRecord>, line: ReviewLogLine): void {
+  const r = byId.get(line.id);
+  if (!r) return;
+  const rater = line.op === "review" ? line.label.rater : line.rater;
+  const rest = (r.reviews ?? []).filter((x) => x.rater !== rater);
+  r.reviews = line.op === "review" ? [...rest, line.label] : rest;
+}
+function isRatedRecord(r: EmotionRecord): boolean {
+  return (r.flag !== null && r.flag !== "unrated") || (r.reviews?.length ?? 0) > 0;
 }
