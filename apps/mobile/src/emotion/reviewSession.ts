@@ -76,6 +76,7 @@ const KIND_LABEL: Record<string, string> = {
   "neutral-sample": "neutral sample",
   nudge: "nudge",
 };
+export const NEUTRAL_SAMPLE_PROMPT = "Neutral sample — did we miss anything?";
 export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind;
 }
@@ -93,6 +94,23 @@ export function contextLine(item: Partial<Omit<ReviewItemFull, "kind">> & { t: n
   if (item.durationS) parts.push(`${item.durationS} s`);
   parts.push(kindLabel(item.kind));
   if (item.nudged) parts.push(item.nudgeReason ? `nudge fired: ${item.nudgeReason}` : "nudge fired");
+  return parts.join(" · ");
+}
+
+/** Second line from the Live Coach context, when the clip has one:
+ *  "You 62% of the last 2 min · pace 140 wpm · coach: slow down". */
+export function contextDetail(item: Pick<ReviewItemFull, "context">): string {
+  const c = item.context;
+  if (!c) return "";
+  const parts: string[] = [];
+  const share = c.talk?.selfShare;
+  if (typeof share === "number") {
+    const mins = Math.round((c.talk.windowS || 120) / 60);
+    parts.push(`You ${Math.round(share * 100)}% of the last ${mins} min`);
+  }
+  const pace = c.lastTurn?.paceWpm;
+  if (typeof pace === "number") parts.push(`pace ${Math.round(pace)} wpm`);
+  if (c.coach?.text) parts.push(`coach: ${c.coach.text}`);
   return parts.join(" · ");
 }
 

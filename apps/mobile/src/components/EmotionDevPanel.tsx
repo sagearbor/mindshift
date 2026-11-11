@@ -12,6 +12,7 @@ import type { DevStatus } from "../emotion/devHub";
 import { emotionDevHub } from "../emotion/hub";
 import type { ModelKind, ModelStatus } from "../emotion/modelFiles";
 import { describePrerequisites } from "../emotion/modelImport";
+import { storageLine, storageWarning } from "../emotion/storageText";
 import { EmotionReview } from "./EmotionReview";
 import { ScriptedEmotionTest } from "./ScriptedEmotionTest";
 
@@ -48,7 +49,7 @@ export function EmotionDevPanel({
   const [settings, setSettings] = useState<EmotionDevUserSettings>(DEFAULT_USER_SETTINGS);
   const [status, setStatus] = useState<DevStatus>({ state: "off" });
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [usage, setUsage] = useState<{ clips: number; clipBytes: number; logBytes: number } | null>(null);
+  const [usage, setUsage] = useState<ReturnType<typeof emotionDevHub.usage>>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,8 +229,9 @@ export function EmotionDevPanel({
             <View style={styles.switchText}>
               <Text style={styles.label}>Save audio</Text>
               <Text style={styles.sub} testID="emotion-dev-save-consent">
-                Keeps a 6-second recording whenever either model hears a non-neutral emotion, so you can listen and rate it later. Audio stays on this
-                phone only and is never uploaded. Only record people who know and have agreed (family dinners: tell everyone first). Off by default.
+                Keeps a recording (a few seconds before to a few seconds after) whenever either model hears a non-neutral emotion; back-to-back hits are merged
+                into one clip. Also keeps a short sample of "neutral" speech now and then, so missed emotions can be measured. You listen and rate later.
+                Audio stays on this phone only and is never uploaded. Only record people who know and have agreed (family dinners: tell everyone first). Off by default.
               </Text>
             </View>
             <Switch testID="emotion-dev-save-audio" value={settings.saveAudio} onValueChange={(v) => update({ ...settings, saveAudio: v })} />
@@ -249,20 +251,37 @@ export function EmotionDevPanel({
                 </View>
               </View>
               <View style={styles.line}>
-                <Text style={styles.label}>Storage cap (oldest unrated deleted first)</Text>
+                <Text style={styles.label}>Storage cap (at the cap, new clips stop saving; unrated clips are never deleted)</Text>
                 <View style={styles.stepper}>
-                  <TouchableOpacity testID="emotion-dev-cap-less" onPress={() => update({ ...settings, storageCapMb: Math.max(100, settings.storageCapMb - 100) })}>
+                  <TouchableOpacity testID="emotion-dev-cap-less" onPress={() => update({ ...settings, storageCapMb: Math.max(100, settings.storageCapMb - 256) })}>
                     <Text style={styles.stepBtn}>−</Text>
                   </TouchableOpacity>
                   <Text style={styles.stepVal} testID="emotion-dev-cap">{settings.storageCapMb} MB</Text>
-                  <TouchableOpacity testID="emotion-dev-cap-more" onPress={() => update({ ...settings, storageCapMb: Math.min(5000, settings.storageCapMb + 100) })}>
+                  <TouchableOpacity testID="emotion-dev-cap-more" onPress={() => update({ ...settings, storageCapMb: Math.min(20000, settings.storageCapMb + 256) })}>
                     <Text style={styles.stepBtn}>+</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-              <Text style={styles.sub} testID="emotion-dev-storage-used">
-                {`Storage used: ${mb(usage?.clipBytes ?? 0)} MB of ${settings.storageCapMb} MB (${usage?.clips ?? 0} clips)`}
+              <View style={styles.line}>
+                <Text style={styles.label}>Neutral sample: one clip per this many minutes of speech (0 = off)</Text>
+                <View style={styles.stepper}>
+                  <TouchableOpacity testID="emotion-dev-neutral-less" onPress={() => update({ ...settings, neutralSampleEveryMin: Math.max(0, settings.neutralSampleEveryMin - 1) })}>
+                    <Text style={styles.stepBtn}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.stepVal} testID="emotion-dev-neutral">{settings.neutralSampleEveryMin}</Text>
+                  <TouchableOpacity testID="emotion-dev-neutral-more" onPress={() => update({ ...settings, neutralSampleEveryMin: Math.min(120, settings.neutralSampleEveryMin + 1) })}>
+                    <Text style={styles.stepBtn}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={[styles.sub, storageWarning(usage) && styles.warnText]} testID="emotion-dev-storage-used">
+                {storageLine(usage, settings.storageCapMb)}
               </Text>
+              {storageWarning(usage) ? (
+                <Text style={styles.warnText} testID="emotion-dev-storage-warning">
+                  {storageWarning(usage)}
+                </Text>
+              ) : null}
             </>
           ) : null}
 
@@ -296,7 +315,7 @@ export function EmotionDevPanel({
           </Text>
 
           <Text style={styles.sub} testID="emotion-dev-usage">
-            {usage ? `${usage.clips} clips · ${mb(usage.clipBytes)} MB audio · ${mb(usage.logBytes)} MB log` : "No data stored."}
+            {usage ? `${usage.clips} clips (${usage.unrated} unrated) · ${mb(usage.clipBytes)} MB audio · ${mb(usage.logBytes)} MB log` : "No data stored."}
           </Text>
           <View style={styles.buttons}>
             <TouchableOpacity testID="emotion-dev-export" style={styles.btn} onPress={exportLog}>
@@ -324,6 +343,7 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: "row", alignItems: "center", gap: 14 },
   stepBtn: { fontSize: 24, color: "#2563EB", paddingHorizontal: 8 },
   stepVal: { fontSize: 17, fontWeight: "600", minWidth: 24, textAlign: "center" },
+  warnText: { marginTop: 4, fontSize: 13.5, lineHeight: 19, color: "#B91C1C", fontWeight: "600" },
   buttons: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   btn: { backgroundColor: "#2563EB", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 },
   startBtn: { marginTop: 12, minHeight: 48, justifyContent: "center", alignItems: "center" },

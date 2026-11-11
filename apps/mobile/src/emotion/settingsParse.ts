@@ -18,7 +18,9 @@ export function parseSettings(raw: string | null): EmotionDevUserSettings {
       nudgeRule: o.nudgeRule === "tiny" ? "tiny" : "both",
       saveAudio: o.saveAudio === true,
       saveAudioMinProb: inRange(o.saveAudioMinProb, 0.1, 0.95, DEFAULT_USER_SETTINGS.saveAudioMinProb),
-      storageCapMb: inRange(o.storageCapMb, 50, 5000, DEFAULT_USER_SETTINGS.storageCapMb),
+      // 500 was the old default (it silently deleted unrated clips); treat a saved 500 as "never chose" and use the new default.
+      storageCapMb: Number(o.storageCapMb) === 500 ? DEFAULT_USER_SETTINGS.storageCapMb : inRange(o.storageCapMb, 50, 20000, DEFAULT_USER_SETTINGS.storageCapMb),
+      neutralSampleEveryMin: inRange(o.neutralSampleEveryMin, 0, 120, DEFAULT_USER_SETTINGS.neutralSampleEveryMin),
     };
   } catch {
     return DEFAULT_USER_SETTINGS;

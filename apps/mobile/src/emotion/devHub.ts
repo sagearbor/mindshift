@@ -9,6 +9,7 @@
  */
 import type { DevSnapshot, DevFlag, EmotionDevController } from "./devController";
 import type { EmotionDevStore, ReviewItem } from "./devStore";
+import type { RecordContext } from "./context";
 import { DEFAULT_USER_SETTINGS, type EmotionDevUserSettings, type EmotionLabel } from "./config";
 
 export interface EmotionRuntime {
@@ -32,12 +33,43 @@ export type DevStatus =
   | { state: "error"; message: string }
   | { state: "running"; models: EmotionRuntime["models"]; snapshot: DevSnapshot };
 
+export interface RecorderLine {
+  text: string;
+  /** ok = recording; warn = recording but needs attention; error = NOT recording. */
+  level: "ok" | "warn" | "error";
+}
+
+/**
+ * The one-line recorder status for the Live Coach default view. A failed start
+ * is never silent: every reason the tester is not keeping clips says so.
+ * Returns null when the tester is off (nothing to report).
+ */
+export function describeRecorder(status: DevStatus, settings: EmotionDevUserSettings): RecorderLine | null {
+  if (status.state === "off" || !settings.enabled) return null;
+  if (status.state === "models-missing") return { level: "error", text: `Not recording: ${status.message}` };
+  if (status.state === "error") return { level: "error", text: `Not recording: ${status.message}` };
+  if (!settings.saveAudio) return { level: "error", text: "Not recording: Save audio is off (the tester is on, no clips are kept)" };
+  if (status.state === "starting") return { level: "warn", text: "Starting the emotion recorder…" };
+  if (status.state === "waiting-for-audio") return { level: "warn", text: "Emotion recorder ready, waiting for microphone audio" };
+  const sn = status.snapshot;
+  if (sn.paused) return { level: "warn", text: `Emotion recorder paused (${sn.clipsSaved} saved)` };
+  if (sn.storage === "full" || (sn.skippedSaves > 0 && sn.lastSkipReason === "storage-full")) {
+    return { level: "error", text: `Not recording: storage full, ${sn.skippedSaves} clip${sn.skippedSaves === 1 ? "" : "s"} skipped. Review and rate clips to free space.` };
+  }
+  if (sn.skippedSaves > 0 && sn.lastSkipReason === "write-error") {
+    return { level: "error", text: `Recording problem: ${sn.skippedSaves} clip(s) failed to save${sn.lastError ? ` (${sn.lastError})` : ""}` };
+  }
+  if (sn.storage === "warn") return { level: "warn", text: `Recording emotion clips: ${sn.clipsSaved} saved. Storage is over 80% full.` };
+  return { level: "ok", text: `Recording emotion clips: ${sn.clipsSaved} saved` };
+}
+
 export class EmotionDevHub {
   private settings: EmotionDevUserSettings = DEFAULT_USER_SETTINGS;
   private runtime: EmotionRuntime | null = null;
   private building = false;
   private failed: DevStatus | null = null;
   private listeners = new Set<(s: DevStatus) => void>();
+  private contextProvider: (() => RecordContext | null) | null = null;
 
   constructor(
     private readonly build: (settings: EmotionDevUserSettings) => Promise<RuntimeBuild>,
@@ -47,7 +79,10 @@ export class EmotionDevHub {
   ) {}
 
   private store(): EmotionDevStore | null {
-    return this.runtime?.store ?? this.openStore();
+    const st = this.runtime?.store ?? this.openStore();
+    // A store opened without the runtime knows only the default cap; report against the saved one.
+    st?.useCapBytes?.(this.settings.storageCapMb * 1024 * 1024);
+    return st;
   }
 
   subscribe(fn: (s: DevStatus) => void): () => void {
@@ -98,6 +133,18 @@ export class EmotionDevHub {
     if (!this.building) void this.start();
   }
 
+  /** Live Coach hands the tester what it knows (talk share, pace, mode); null clears it. */
+  setContextProvider(fn: (() => RecordContext | null) | null): void {
+    this.contextProvider = fn;
+  }
+
+  /** A Live Coach session is starting: build the runtime NOW (retrying a past failure) so a
+   *  missing model shows on the status line immediately instead of at the first audio frame. */
+  sessionStarting(): void {
+    if (!this.settings.enabled) return;
+    void this.ensureRuntime().then(() => this.emit());
+  }
+
   /** Retry after fixing a "models missing" state (e.g. the owner pushed the files). */
   retry(): void {
     this.failed = null;
@@ -116,6 +163,8 @@ export class EmotionDevHub {
       if (r.ok) {
         this.runtime = r.runtime;
         r.runtime.controller.applySettings(this.settings);
+        r.runtime.controller.setContextProvider(() => this.contextProvider?.() ?? null);
+        r.runtime.controller.setSnapshotListener(() => this.emit());
       } else {
         this.failed = r.code === "models-missing" ? { state: "models-missing", message: r.message } : { state: "error", message: r.message };
       }

@@ -4,7 +4,7 @@ import { EmotionDevHub } from "../src/emotion/devHub";
 import { EmotionDevStore, type ReviewItemFull, type ReviewLabel } from "../src/emotion/devStore";
 import type { EmotionEngine } from "../src/emotion/engine";
 import { NudgeGate } from "../src/emotion/logic";
-import { ALL_DAYS, ReviewSession, buildQueue, contextLine, defaultDay, defaultHideGuess, describeItem, listDays, raterKey, type ReviewMode } from "../src/emotion/reviewSession";
+import { ALL_DAYS, ReviewSession, buildQueue, contextDetail, contextLine, defaultDay, defaultHideGuess, describeItem, listDays, raterKey, type ReviewMode } from "../src/emotion/reviewSession";
 import { parseSettings } from "../src/emotion/settingsParse";
 import { FakeWatchLink } from "../src/emotion/watchLink";
 import { MemoryFs } from "../src/recorder/memoryFs";
@@ -86,7 +86,7 @@ describe("settings parse", () => {
       saveAudio: true, saveAudioMinProb: 0.7, storageCapMb: 200, nudgeRule: "tiny",
     });
     const junk = parseSettings(JSON.stringify({ saveAudio: "yes", saveAudioMinProb: 5, storageCapMb: -1, nudgeRule: "x" }));
-    expect(junk).toMatchObject({ saveAudio: false, saveAudioMinProb: 0.5, storageCapMb: 500, nudgeRule: "both" });
+    expect(junk).toMatchObject({ saveAudio: false, saveAudioMinProb: 0.5, storageCapMb: 2048, nudgeRule: "both" });
   });
   it("save-audio defaults OFF", () => {
     expect(DEFAULT_USER_SETTINGS.saveAudio).toBe(false);
@@ -103,11 +103,13 @@ describe("save-audio mode", () => {
   it("ON: either model at >= threshold saves a 6 s wav with both models' probabilities", async () => {
     const s = setup(P(0, 0, 0, 0, 0.9, 0.1), P(0, 0, 0, 0.55, 0.45, 0), { saveAudio: true });
     await s.feed(12);
+    s.ctl.stop();
     const clips = s.store.listClips();
-    expect(clips.length).toBeGreaterThanOrEqual(3);
-    expect(clips[clips.length - 1].bytes).toBe(44 + 6 * SR * 2);
-    const rec = s.store.readRecords().find((r) => r.kind === "saved" && r.clip === clips[clips.length - 1].name)!;
+    expect(clips).toHaveLength(1); // 4 back-to-back hits merge into ONE episode clip
+    expect(clips[0].bytes).toBe(44 + 12 * SR * 2);
+    const rec = s.store.readRecords().find((r) => r.kind === "saved" && r.clip === clips[0].name)!;
     expect(rec).toBeTruthy();
+    expect(rec.episode!.windows).toHaveLength(4);
     expect(rec.small![3]).toBeCloseTo(0.55, 4);
     expect(rec.tiny[4]).toBeCloseTo(0.9, 4);
   });
@@ -122,29 +124,27 @@ describe("save-audio mode", () => {
   });
 
   it("ON: the 20/day disagreement-clip cap no longer applies", async () => {
+    const triggered = (st: EmotionDevStore) => st.readRecords().flatMap((r) => r.episode?.windows ?? []).filter((w) => w.triggers.length).length;
     const off = setup(P(0.8, 0, 0, 0, 0.2, 0), P(0, 0, 0, 0, 0.1, 0.9), {}, { maxDisagreeClipsPerDay: 2 });
     await off.feed(30);
-    expect(off.store.listClips()).toHaveLength(2);
+    off.ctl.stop();
+    expect(triggered(off.store)).toBe(2);
     const on = setup(P(0.8, 0, 0, 0, 0.2, 0), P(0, 0, 0, 0, 0.1, 0.9), { saveAudio: true }, { maxDisagreeClipsPerDay: 2 });
     await on.feed(30);
-    expect(on.store.listClips().length).toBeGreaterThan(5);
+    on.ctl.stop();
+    expect(triggered(on.store)).toBeGreaterThan(5);
   });
 
-  it("storage cap evicts the oldest UNRATED clips first and usage reports bytes", async () => {
+  it("a full store stops saving new clips, keeps every unrated one, and says so", async () => {
     const s = setup(P(0, 0, 0, 0.9, 0.1, 0), NOT_SURE, { saveAudio: true, storageCapMb: 50 });
-    await s.feed(15);
-    const before = s.store.listClips();
-    expect(before.length).toBeGreaterThanOrEqual(4);
-    // rate the OLDEST clip, then shrink the cap to ~2 clips
-    const oldest = s.store.readRecords().find((r) => r.clip === before[0].name)!;
-    s.store.setFlag(oldest.id, "good");
-    s.store.setClipCapBytes(2 * 192044 + 10);
-    const after = s.store.listClips().map((c) => c.name);
-    expect(after).toContain(before[0].name); // rated survives
-    expect(after.length).toBeLessThan(before.length);
-    expect(after).not.toContain(before[1].name); // oldest unrated went first
-    expect(after).toContain(before[before.length - 1].name); // newest kept
-    expect(s.store.usage().clipBytes).toBeLessThanOrEqual(2 * 192044 + 10);
+    s.store.setClipCapBytes(100_000); // far smaller than one 12 s episode (384 KB)
+    await s.feed(12);
+    s.ctl.stop();
+    expect(s.store.listClips()).toHaveLength(0);
+    const rec = s.store.readRecords().find((r) => r.kind === "saved")!;
+    expect(rec.clipSkipped).toBe("clip-larger-than-cap"); // the probabilities are still logged
+    expect(s.ctl.snapshot()).toMatchObject({ skippedSaves: 1, clipsSaved: 0, lastSkipReason: "clip-larger-than-cap" });
+    expect(s.store.usage().skipped).toBe(1);
   });
 });
 
@@ -183,6 +183,9 @@ describe("review ratings in the log", () => {
   it("queue holds unrated clips only; thumbs set the flag; truth is logged and exported", async () => {
     const s = withClips();
     await s.feed(9);
+    s.ctl.stop(); // close episode 1
+    await s.feed(9);
+    s.ctl.stop(); // episode 2
     const q = s.store.reviewQueue();
     expect(q.length).toBeGreaterThanOrEqual(2);
     s.store.setTruth(q[0].id, "sadness");
@@ -281,6 +284,10 @@ describe("review queue helpers", () => {
     );
     expect(contextLine({ t: D(10, 9), kind: "neutral-sample", durationS: 45 })).toBe("9:05 am · 45 s · neutral sample");
     expect(contextLine({ t: D(10, 9), kind: "future-kind" })).toBe("9:05 am · future-kind");
+    const context = { mode: "room", sessionS: 10, turns: 3, talk: { windowS: 120, selfS: 74, otherS: 40, unknownS: 0, selfShare: 0.62 }, lastTurn: { speaker: "a", isSelf: true, durationS: 4, words: 10, paceWpm: 141.6, overlapped: false, endedAgoS: 2 }, coach: { text: "slow down", kind: null, spoken: false } };
+    expect(contextDetail({ context })).toBe("You 62% of the last 2 min · pace 142 wpm · coach: slow down");
+    expect(contextDetail({})).toBe("");
+    expect(contextDetail({ context: { ...context, talk: { ...context.talk, selfShare: null }, lastTurn: null, coach: null } })).toBe("");
   });
 });
 
@@ -374,6 +381,9 @@ describe("hub review controls work with the store alone", () => {
   it("rate() writes flag + truth and the queue shrinks", async () => {
     const s = setup(P(0, 0, 0, 0.9, 0.1, 0), NOT_SURE, { saveAudio: true });
     await s.feed(9);
+    s.ctl.stop();
+    await s.feed(9);
+    s.ctl.stop();
     const hub = new EmotionDevHub(async () => ({ ok: false, code: "error", message: "n/a" }), () => s.store);
     const q = hub.reviewQueue();
     expect(q.length).toBeGreaterThan(1);

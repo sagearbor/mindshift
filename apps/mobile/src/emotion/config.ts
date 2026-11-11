@@ -49,7 +49,20 @@ export const EMOTION_DEV_DEFAULTS = {
   /** --- Save-audio mode (default OFF) --- */
   saveAudioClipS: 6,
   saveAudioDefaultMinProb: 0.5,
-  saveAudioDefaultCapMb: 500,
+  saveAudioDefaultCapMb: 2048,
+  /** Storage warning fraction: the panel and Live Coach status warn from here. */
+  capWarnFraction: 0.8,
+  /** A user mark/flag may still save this far past the cap (their explicit act). */
+  capUserOverageFraction: 0.1,
+
+  /** --- Episode clips: consecutive triggered windows merge into ONE clip --- */
+  episodeLeadS: 5,
+  episodeTailS: 3,
+  episodeMaxS: 45,
+
+  /** --- Neutral sampling (measure MISSED emotions): one clip per N min of speech --- */
+  neutralSampleClipS: 10,
+  neutralSampleDefaultEveryMin: 5,
 
   /** --- Flag capture --- */
   flagBeforeS: 45,
@@ -81,8 +94,10 @@ export interface EmotionDevUserSettings {
   /** Save-audio mode: keep a 6 s clip whenever either model hears a non-neutral emotion. */
   saveAudio: boolean;
   saveAudioMinProb: number;
-  /** Storage cap for saved clips, in MB (oldest unrated deleted first). */
+  /** Storage cap for saved clips, in MB. At the cap NEW clips stop saving (unrated clips are never deleted). */
   storageCapMb: number;
+  /** Save a ~10 s clip of both-models-neutral speech about once per this many minutes of speech (0 = off). Needs saveAudio. */
+  neutralSampleEveryMin: number;
 }
 
 export type NudgeRule = "both" | "tiny";
@@ -95,6 +110,7 @@ export const DEFAULT_USER_SETTINGS: EmotionDevUserSettings = {
   saveAudio: false,
   saveAudioMinProb: EMOTION_DEV_DEFAULTS.saveAudioDefaultMinProb,
   storageCapMb: EMOTION_DEV_DEFAULTS.saveAudioDefaultCapMb,
+  neutralSampleEveryMin: EMOTION_DEV_DEFAULTS.neutralSampleDefaultEveryMin,
 };
 
 export const MODEL_FILES = {
