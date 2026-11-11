@@ -15,6 +15,12 @@ import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.ToggleChip
+import androidx.wear.compose.material.ToggleChipDefaults
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import app.gauge.wear.emotion.EmotionLocalService
+import app.gauge.wear.emotion.LocalEmotionBus
 import androidx.wear.compose.material.rememberScalingLazyListState
 import app.gauge.shared.NudgeVocabulary
 import app.gauge.wear.control.DiagLog
@@ -50,6 +56,16 @@ fun SettingsScreen(modifier: Modifier = Modifier, onOpenEmotion: () -> Unit = {}
     val listState = rememberScalingLazyListState()
     val emotionActive by app.gauge.wear.emotion.EmotionDevBus.model.state.collectAsState()
 
+    // On-watch emotion (Phase 2): default OFF, persisted, and the service follows the pref.
+    var emotionLocal by remember { mutableStateOf(GaugePrefs.emotionLocalEnabled(context)) }
+    val emotionLocalStatus by LocalEmotionBus.status.collectAsState()
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Denied: keep the toggle off rather than show "on" with nothing listening.
+        GaugePrefs.setEmotionLocalEnabled(context, granted)
+        emotionLocal = granted
+        EmotionLocalService.apply(context)
+    }
+
     var pulseInterval by remember { mutableStateOf(GaugePrefs.pulseIntervalMs(context)) }
     var centerDisplay by remember { mutableStateOf(GaugePrefs.centerDisplay(context)) }
 
@@ -81,6 +97,27 @@ fun SettingsScreen(modifier: Modifier = Modifier, onOpenEmotion: () -> Unit = {}
                     onClick = onOpenEmotion,
                 )
             }
+        }
+        item {
+            ToggleChip(
+                modifier = Modifier.fillMaxWidth(),
+                checked = emotionLocal,
+                onCheckedChange = { on ->
+                    if (on && !EmotionLocalService.hasMicPermission(context)) {
+                        micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        GaugePrefs.setEmotionLocalEnabled(context, on)
+                        emotionLocal = on
+                        EmotionLocalService.apply(context)
+                    }
+                },
+                label = { Text("Emotion on watch") },
+                secondaryLabel = { Text("Experimental. Uses mic + battery") },
+                toggleControl = { androidx.wear.compose.material.Switch(checked = emotionLocal) },
+            )
+        }
+        if (emotionLocal) {
+            item { Text(text = emotionLocalSummary(emotionLocalStatus), style = MaterialTheme.typography.caption3) }
         }
         item { Text(text = "Feel the buzzes", style = MaterialTheme.typography.caption1) }
         for ((level, label) in DEMO_NUDGE_LEVELS) {
@@ -212,3 +249,14 @@ private val CENTER_DISPLAY_OPTIONS = listOf(
     "SPARKLINE" to "Center: Sparkline",
     "DIAL" to "Center: Dial",
 )
+
+/** One readable block for the Settings row: state, counts, latency, unsent rows. Pure, JVM-tested. */
+internal fun emotionLocalSummary(s: app.gauge.wear.emotion.LocalEmotionStatus): String = buildString {
+    append(s.text)
+    if (s.windows > 0 || s.skippedSilent > 0) {
+        append("\n${s.windows} heard, ${s.skippedSilent} silent, ${s.nudges} buzzes")
+        append("\n${s.avgMs} ms avg, ${s.maxMs} ms max")
+        s.lastLabel?.let { append("\nlast: $it ${((s.lastProb ?: 0.0) * 100).toInt()}%") }
+    }
+    if (s.unsynced > 0) append("\n${s.unsynced} unsynced" + if (s.lastSyncOk == false) " (offline)" else "")
+}

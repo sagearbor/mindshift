@@ -45,6 +45,11 @@ android {
             "\"https://mindshift-api-664594784582.us-central1.run.app\"",
         )
         buildConfigField("boolean", "TELEMETRY_ENABLED", "true")
+
+        // ONNX Runtime ships 4 ABIs (~41 MB AAR). Watches are arm64-v8a (Pixel Watch, Galaxy
+        // Watch 4+) or armeabi-v7a (older Snapdragon Wear); x86 is emulator-only, so it is left out
+        // of the shipped APK/AAB. An x86_64 emulator therefore cannot run this mode (the toggle reports it).
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Play rejects debug-mode signatures even on the internal track, so release
@@ -150,9 +155,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.health.services.client)
+    implementation(libs.onnxruntime.android) // on-watch emotion (TINY) inference
     implementation(libs.guava) // see libs.versions.toml comment: compile-time guava/listenablefuture fix
 
     testImplementation(kotlin("test"))
     testImplementation(libs.okhttp.mockwebserver)
+    // Desktop ORT: lets a JVM test run the REAL tiny model (only when the file is supplied, see EmotionModelParityTest).
+    testImplementation(libs.onnxruntime.jvm)
     testImplementation(libs.kotlinx.coroutines.test)
 }

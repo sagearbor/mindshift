@@ -33,7 +33,7 @@ from watch.relay import live_session_for, _schedule_coro
 
 EMOTION_LABELS = ("anger", "disgust", "fear", "happiness", "neutral", "sadness")
 FLAGS = ("bad", "good", "ignore")
-ACTIONS = ("pause", "resume", "flag")
+ACTIONS = ("pause", "resume", "flag", "windows")
 
 MAX_QUEUE = 100
 QUEUE_TTL_S = 15 * 60
@@ -50,6 +50,25 @@ class EmotionEvent(BaseModel):
     nudge: bool = False
     paused: bool = False
     suggestion: str | None = Field(default=None, max_length=80)
+
+
+MAX_WATCH_ROWS = 200
+
+
+class WatchWindow(BaseModel):
+    """One window the watch classified ON THE WATCH (Phase 2): numbers only, no audio."""
+
+    t: int = Field(ge=0)
+    p: list[float] = Field(min_length=6, max_length=6)
+    ms: int = Field(default=0, ge=0, le=600_000)
+    b: int = Field(default=-1, ge=-1, le=100)
+    n: bool = False
+    why: str = Field(default="", max_length=24)
+
+
+class WatchWindowsBatch(BaseModel):
+    v: int = 1
+    rows: list[WatchWindow] = Field(max_length=MAX_WATCH_ROWS)
 
 
 class CtlQueue:
@@ -119,7 +138,22 @@ def parse_ctl(payload: dict[str, Any]) -> dict[str, Any] | None:
     return item
 
 
+def push_watch_windows(account: str, batch: WatchWindowsBatch) -> int:
+    """Queue a batch of on-watch classifications for the phone to drain. Probabilities must be a
+    probability vector (each in [0,1]); anything else is dropped, never repaired. Returns rows kept."""
+    rows = [
+        r.model_dump()
+        for r in batch.rows
+        if all(0.0 <= v <= 1.0 for v in r.p) and abs(sum(r.p) - 1.0) < 0.01
+    ]
+    if rows:
+        _queue.push(account, {"action": "windows", "rows": rows})
+    return len(rows)
+
+
 def push_ctl(account: str, payload: dict[str, Any]) -> bool:
+    if payload.get("action") == "windows":  # only via POST /emotion/watch-windows
+        return False
     item = parse_ctl(payload)
     if item is None:
         return False
@@ -133,6 +167,11 @@ def make_emotion_router(auth_dep) -> APIRouter:
     @router.post("/emotion/event")
     async def post_event(event: EmotionEvent, principal=Depends(auth_dep)) -> dict[str, bool]:
         return {"delivered": push_emotion(principal.account_id, event)}
+
+    @router.post("/emotion/watch-windows")
+    async def post_watch_windows(batch: WatchWindowsBatch, principal=Depends(auth_dep)) -> dict[str, int]:
+        """Phase 2: the watch uploads per-window probabilities it computed itself."""
+        return {"accepted": push_watch_windows(principal.account_id, batch)}
 
     @router.get("/emotion/ctl")
     async def get_ctl(after: int = Query(0, ge=0), principal=Depends(auth_dep)) -> dict[str, Any]:

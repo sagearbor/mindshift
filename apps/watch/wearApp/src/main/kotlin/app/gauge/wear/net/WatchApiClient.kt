@@ -108,6 +108,12 @@ open class WatchApiClient(
             wireJson.decodeFromString(Capture.serializer(), it)
         }
 
+    /** On-watch emotion mode: one batch of per-window probabilities (numbers only, no audio) for
+     * the phone's Emotion dev log. `POST /emotion/watch-windows` (server/watch/emotion_bridge.py);
+     * [json] is [app.gauge.wear.emotion.WindowLog.syncBody]. Ok only when the server accepted it. */
+    open suspend fun postEmotionWindows(json: String): ApiResult<Boolean> =
+        call("POST", "/emotion/watch-windows", body = json.toRequestBody(JSON_MEDIA_TYPE)) { true }
+
     open suspend fun claimLegacy(): ApiResult<ClaimLegacyResponse> =
         call("POST", "/me/claim-legacy", body = "{}".toRequestBody(JSON_MEDIA_TYPE)) {
             wireJson.decodeFromString(ClaimLegacyResponse.serializer(), it)
