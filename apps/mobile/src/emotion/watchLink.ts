@@ -29,7 +29,7 @@ export interface WatchEmotionState {
   suggestion: string | null;
 }
 
-export type WatchControlAction = "pause" | "resume" | "flag" | "windows";
+export type WatchControlAction = "pause" | "resume" | "flag" | "mark" | "windows";
 
 /** One window the WATCH classified itself (Phase 2, on-watch TINY). Numbers only. */
 export interface WatchWindowRow {

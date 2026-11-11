@@ -125,8 +125,8 @@ describe("EmotionDevHub", () => {
       controller: {
         pushPcm: () => { rt.pushed++; },
         stop: () => { rt.stopped++; },
-        setMaxNudgesPerHour: (n: number) => { rt.maxPerHour = n; },
-        snapshot: () => ({ paused: false, windows: 0, skippedSilent: 0, errors: 0, lastLabel: null, lastProb: null, lastSmallLabel: null, nudges: 0, lastNudgeId: null, lastError: null }),
+        applySettings: (s: { maxNudgesPerHour: number }) => { rt.maxPerHour = s.maxNudgesPerHour; },
+        snapshot: () => ({ paused: false, windows: 0, skippedSilent: 0, errors: 0, lastLabel: null, lastProb: null, lastSmallLabel: null, nudges: 0, marks: 0, lastNudgeId: null, lastError: null }),
         setPaused: () => {},
         flag: () => "id",
       },
@@ -213,7 +213,7 @@ describe("EmotionDevHub", () => {
   });
 
   it("status text is honest about SMALL missing and about pause", () => {
-    const snap = { paused: true, windows: 3, skippedSilent: 0, errors: 0, lastLabel: "anger" as const, lastProb: 0.6, lastSmallLabel: null, nudges: 1, lastNudgeId: null, lastError: null };
+    const snap = { paused: true, windows: 3, skippedSilent: 0, errors: 0, lastLabel: "anger" as const, lastProb: 0.6, lastSmallLabel: null, nudges: 1, marks: 0, lastNudgeId: null, lastError: null };
     const t = describeStatus({ state: "running", models: { tiny: true, small: false, smallReason: "small not found" }, snapshot: snap });
     expect(t).toMatch(/PAUSED/);
     expect(t).toMatch(/SMALL off \(small not found\)/);

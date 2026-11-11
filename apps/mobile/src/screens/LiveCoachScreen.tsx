@@ -23,6 +23,7 @@ import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisShe
 import CallPanel from "../components/CallPanel";
 import JournalPanel, { type JournalGate } from "../components/JournalPanel";
 import RoomPanel from "../components/RoomPanel";
+import { MarkMomentButton } from "../components/MarkMomentButton";
 import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
@@ -913,6 +914,8 @@ export default function LiveCoachScreen({
           </Text>
         </View>
       ) : null}
+
+      {devMode && sessionActive && !isJournal ? <MarkMomentButton /> : null}
 
       {/* What the loop actually loaded (or why it isn't running). */}
       {devMode && liveStatus && !isJournal && !isRoom ? (

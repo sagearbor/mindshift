@@ -9,7 +9,7 @@
  * speech energy, turned into ONE log-mel, and run through TINY (which may
  * nudge) and SMALL (silent). Raw probabilities of both are logged.
  */
-import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type EmotionLabel, type Probs } from "./config";
+import { EMOTION_DEV_DEFAULTS, type EmotionDevConfig, type EmotionDevUserSettings, type EmotionLabel, type Probs } from "./config";
 import type { EmotionEngine } from "./engine";
 import { computeLogMel, int16ToFloat32, waveformProblem } from "./logMel";
 import { DailyCap, NudgeGate, applyOffsets, isProbVector, modelsDisagree, topClass, windowHasSpeechEnergy } from "./logic";
@@ -38,6 +38,7 @@ export interface DevSnapshot {
   lastProb: number | null;
   lastSmallLabel: EmotionLabel | null;
   nudges: number;
+  marks: number;
   lastNudgeId: string | null;
   lastError: string | null;
 }
@@ -78,6 +79,8 @@ export class EmotionDevController {
   private lastSent: { label: string; atMs: number } | null = null;
   private recent: RecentWindow[] = [];
   private flaggedIds = new Set<string>();
+  private saveAudio = false;
+  private saveAudioMinProb = EMOTION_DEV_DEFAULTS.saveAudioDefaultMinProb;
   private nudgeIds = new Set<string>();
   private lastNudge: { id: string; t: number } | null = null;
   private snap: DevSnapshot = {
@@ -89,6 +92,7 @@ export class EmotionDevController {
     lastProb: null,
     lastSmallLabel: null,
     nudges: 0,
+    marks: 0,
     lastNudgeId: null,
     lastError: null,
   };
@@ -116,6 +120,15 @@ export class EmotionDevController {
 
   setMaxNudgesPerHour(n: number): void {
     this.gate.setMaxPerHour(n);
+  }
+
+  /** Apply the tester's switches: nudge rule, buzz budget, save-audio mode and its storage cap. */
+  applySettings(s: EmotionDevUserSettings): void {
+    this.gate.setMaxPerHour(s.maxNudgesPerHour);
+    this.gate.setRule(s.nudgeRule);
+    this.saveAudio = s.saveAudio;
+    this.saveAudioMinProb = s.saveAudioMinProb;
+    this.d.store.setClipCapBytes(s.saveAudio ? s.storageCapMb * 1024 * 1024 : this.cfg.maxClipBytes);
   }
 
   // -- pause ----------------------------------------------------------------
@@ -250,9 +263,9 @@ export class EmotionDevController {
     const adjusted = applyOffsets(tinyRaw, this.d.offsets);
     const adjustedDiffers = adjusted.some((v, i) => v !== tinyRaw[i]);
     const top = topClass(adjusted);
-    const decision = this.gate.decide(adjusted, t);
-
     const small = smallRaw && isProbVector(smallRaw) ? smallRaw : null;
+    const decision = this.gate.decide(adjusted, t, small);
+
     const disagree = small !== null && modelsDisagree(tinyRaw, small, this.cfg.disagreeMinProb);
 
     this.snap.windows++;
@@ -262,7 +275,9 @@ export class EmotionDevController {
     this.d.store.addWindow({ id, t, tiny: tinyRaw, small });
     this.remember({ id, t, tiny: tinyRaw, small });
 
-    const clipDisagreement = disagree && this.disagreeCap.tryFire(t);
+    // Save-audio mode lifts the 20/day disagreement cap (the storage cap bounds it instead).
+    const clipDisagreement = disagree && (this.saveAudio || this.disagreeCap.tryFire(t));
+    const heard = this.saveAudio ? this.heardEmotion(tinyRaw, small) : null;
     if (decision.nudge) {
       this.snap.nudges++;
       this.snap.lastNudgeId = id;
@@ -276,9 +291,14 @@ export class EmotionDevController {
     } else if (clipDisagreement) {
       this.d.store.addRecord({ id, t, kind: "disagree", tiny: tinyRaw, small, nudged: false, nudgeReason: decision.reason });
     }
-    if (clipDisagreement) {
+    if (heard && !decision.nudge && !clipDisagreement) {
+      this.d.store.addRecord({ id, t, kind: "saved", tiny: tinyRaw, small, nudged: false, nudgeReason: decision.reason });
+    }
+    if (clipDisagreement || heard) {
       // Independent of whether TINY also buzzed: the disagreement itself is the finding.
-      this.persistClip(id, "disagree", t, windowPcm.subarray(Math.max(0, windowPcm.length - this.cfg.disagreeClipS * RING_SAMPLE_RATE)));
+      // One clip per window even when several reasons apply.
+      const secs = heard && !clipDisagreement ? this.cfg.saveAudioClipS : this.cfg.disagreeClipS;
+      this.persistClip(id, clipDisagreement ? "disagree" : "heard", t, windowPcm.subarray(Math.max(0, windowPcm.length - secs * RING_SAMPLE_RATE)));
     }
     this.publish();
     void this.pushState({
@@ -288,6 +308,16 @@ export class EmotionDevController {
       suggestion: decision.nudge && this.d.showSuggestion ? SUGGESTIONS[top.label] ?? null : null,
       id,
     });
+  }
+
+  /** Save-audio trigger: EITHER model's top class is non-neutral with prob >= threshold. */
+  private heardEmotion(tiny: Probs, small: Probs | null): { model: "tiny" | "small"; label: EmotionLabel; prob: number } | null {
+    for (const [model, p] of [["tiny", tiny], ["small", small]] as const) {
+      if (!p) continue;
+      const top = topClass(p);
+      if (top.label !== "neutral" && top.prob >= this.saveAudioMinProb) return { model, label: top.label, prob: top.prob };
+    }
+    return null;
   }
 
   private remember(w: RecentWindow): void {
@@ -350,6 +380,23 @@ export class EmotionDevController {
     return targetId;
   }
 
+  /**
+   * "Mark this moment": keep the previous 45 s and next 15 s with a user mark,
+   * independent of any model output. The record carries the latest window's
+   * probabilities (empty when nothing was classified yet). Null when paused.
+   */
+  mark(): string | null {
+    if (this.paused) return null;
+    const t = this.now();
+    const id = `mark-${this.id()}`;
+    const w = this.recent[this.recent.length - 1];
+    this.d.store.addRecord({ id, t, kind: "mark", tiny: w?.tiny ?? [], small: w?.small ?? null, nudged: false });
+    this.clips.request({ id, reason: "mark", atMs: t }, this.cfg.flagBeforeS, this.cfg.flagAfterS);
+    this.snap.marks++;
+    this.publish();
+    return id;
+  }
+
   /** Apply a control that arrived from the watch. */
   handleControl(c: WatchControl): void {
     if (c.action === "pause") this.setPaused(true);
@@ -362,6 +409,7 @@ export class EmotionDevController {
         this.d.store.addRecord({ id: `watch-${r.t}`, t: r.t, kind: "watch", tiny: r.p, small: null, nudged: r.nudged });
       }
     }
+    else if (c.action === "mark") this.mark();
   }
 
   /** Session ended / mode turned off: finish pending flag clips with the audio that exists. */
