@@ -175,8 +175,10 @@ TARGET_SR = 16000
 
 # A speaker cluster shorter than this (total pooled speech) is too little signal
 # for a trustworthy embedding — we skip it (no score, no label) rather than
-# guess. ~1s is plenty for pooled matching; enrollment wants a touch more.
-MIN_MATCH_SECONDS = 1.0
+# guess. Wearer-identity rule (2026-11-05): judge only >= 1.5 s (a shorter
+# slice abstains; on held-out data judging only >= 1.5 s turns lifts AUC
+# 0.77 -> 0.87). audio_pipeline reads this constant at call time.
+MIN_MATCH_SECONDS = float(os.getenv("MINDSHIFT_VOICE_MIN_JUDGE_SECONDS", "1.5"))
 MIN_ENROLL_SECONDS = 3.0
 
 # Guided (direct-upload) enrollment measures ACTUAL speech, not clip length —

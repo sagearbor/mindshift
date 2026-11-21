@@ -49,6 +49,10 @@ function harness(opts: {
   earlyTurnLocal?: boolean;
   /** Quiet coach (FastLoopDeps.quietCoach, default off). */
   quietCoach?: boolean;
+  /** FastLoopDeps.selfSpeakerFallback. These tests predate the wearer rule's
+   *  'no Speaker-A guess' default, so the harness opts into the old
+   *  convention unless a test passes the key explicitly (even as undefined). */
+  selfSpeakerFallback?: string | null;
 } = {}): Harness {
   const rec = opts.recognizer === undefined ? new FakeSpeechRecognizer() : opts.recognizer;
   const h: Harness = {
@@ -65,6 +69,7 @@ function harness(opts: {
     embedder: opts.embedder ?? null,
     labeler: opts.labeler ?? null,
     overlapProbe: opts.overlapProbe ?? false,
+    selfSpeakerFallback: "selfSpeakerFallback" in opts ? opts.selfSpeakerFallback : "Speaker A",
     // The dark acoustic tier (live/instantTier.ts) is off here. These tests
     // run the loop on a REAL clock with a 150 ms STT grace and a 5 ms poll,
     // and an 11 ms burst of arithmetic once per audio second is enough to
@@ -227,7 +232,7 @@ describe("FastLoop", () => {
     // Embedder answers from a queue: self, self, self (loud).
     const queue = [unitVector(D, 0, 0.2, 3), unitVector(D, 0, 0.2, 4), unitVector(D, 0, 0.2, 5)];
     const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
-    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([you, mom]) });
+    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([you, mom], { minJudgeSeconds: 0 }) });
     await h.loop.start({ sessionId: "s4", mode: "earpiece", empathy: 50 });
 
     for (const dbfs of [-30, -30, -10]) {
@@ -254,7 +259,25 @@ describe("FastLoop", () => {
     await h.loop.stop();
   });
 
-  it("without a voiceprint verdict, the 'Speaker A is you' convention decides the coaching kind (never is_self on the wire)", async () => {
+  it("nobody enrolled and no explicit choice: no turn is coached as the wearer (no Speaker-A guess)", async () => {
+    const D = 192;
+    const queue = [unitVector(D, 0), unitVector(D, 5)];
+    const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
+    const h = harness({ provider: variedProvider(), embedder, labeler: new SpeakerLabeler([]), selfSpeakerFallback: undefined });
+    await h.loop.start({ sessionId: "s5b", mode: "earpiece", empathy: 50 });
+    for (let i = 0; i < 2; i++) {
+      push(h.loop, toneInt16(2.0, -20));
+      h.rec.emit({ text: "some words here", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+    expect(h.turns.map((t) => t.speaker)).toEqual(["Speaker A", "Speaker B"]);
+    expect(h.turns.map((t) => t.suggestionKind)).toEqual(["response", "response"]);
+    expect(h.haptic).toEqual([]);
+    await h.loop.stop();
+  });
+
+  it("with the 'Speaker A is you' convention chosen, it decides the coaching kind (never is_self on the wire)", async () => {
     const D = 192;
     const queue = [unitVector(D, 0), unitVector(D, 5)];
     const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
@@ -278,7 +301,7 @@ describe("FastLoop", () => {
     const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
     const queue: Float32Array[] = [unitVector(D, 0), unitVector(D, 5), unitVector(D, 0)];
     const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 5) };
-    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([you]) });
+    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([you], { minJudgeSeconds: 0 }) });
     // Cooldown 20 s: after a level-2 tone nudge, a turn > 20 s later decays it.
     (h.loop as unknown as { policy: unknown }).policy = phoneNudgePolicy(20);
     await h.loop.start({ sessionId: "s5d", mode: "earpiece", empathy: 50 });
@@ -315,7 +338,7 @@ describe("FastLoop", () => {
         return base.suggest(req);
       },
     };
-    const h = harness({ provider: slow, embedder, labeler: new SpeakerLabeler([you]) });
+    const h = harness({ provider: slow, embedder, labeler: new SpeakerLabeler([you], { minJudgeSeconds: 0 }) });
     await h.loop.start({ sessionId: "s-instant", mode: "earpiece", empathy: 50 });
     // Two calm turns build the personal loudness baseline (median -30 dBFS).
     for (const dbfs of [-30, -30]) {
@@ -360,7 +383,7 @@ describe("FastLoop", () => {
     const D = 192;
     const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
     const embedder: Embedder = { embed: async () => unitVector(D, 0, 0.2, 3) };
-    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you], { minJudgeSeconds: 0 }) });
     await h.loop.start({ sessionId: "s-hold", mode: "earpiece", empathy: 50 });
     for (const dbfs of [-30, -30]) {
       push(h.loop, toneInt16(1.0, dbfs));

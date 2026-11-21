@@ -1,0 +1,10 @@
+{
+  "extends": "../../apps/mobile/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "react-native": ["./stubs/react-native.ts"],
+      "expo-secure-store": ["./stubs/expo-secure-store.ts"]
+    }
+  }
+}
