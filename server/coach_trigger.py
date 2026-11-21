@@ -82,6 +82,20 @@ def _lexicon() -> tuple[tuple[re.Pattern, float, str], ...]:
     )
 
 
+def heat_evidence(text: str) -> list[str]:
+    """The words that matched the lexicon, in order of appearance (for the
+    v3 prompt, which names the trigger evidence to the model)."""
+    if not text:
+        return []
+    t = text.lower()
+    spans = []
+    for rx, _w, _cat in _lexicon():
+        m = rx.search(t)
+        if m and m.group(0).strip():
+            spans.append((m.start(), m.group(0).strip()))
+    return [s for _, s in sorted(spans)]
+
+
 def heat_score(text: str) -> tuple[float, list[str]]:
     """(score, sorted unique categories) - same rule as scoreHeatText on the
     phone: the sum of the weights of every pattern that matches once."""
@@ -222,6 +236,9 @@ class TriggerVerdict:
 
     triggers: tuple[str, ...]
     heat: float = 0.0
+    # Why each trigger fired, for the v3 prompt: heat -> matched words,
+    # floor -> seconds held, question -> the question sentence.
+    evidence: tuple[tuple[str, str], ...] = ()
 
     @property
     def fires(self) -> bool:
@@ -243,18 +260,22 @@ def evaluate(
     wearer asks is not a question to the wearer; an unknown voice's is).
     """
     found: list[str] = []
+    evidence: list[tuple[str, str]] = []
     score, _ = heat_score(text)
     phone = {t for t in (phone_triggers or ()) if t in TRIGGERS}
     if _flag("MINDSHIFT_TRIGGER_HEAT") and (score >= _num("MINDSHIFT_TRIGGER_HEAT_MIN", 1.5) or "heat" in phone):
         found.append("heat")
+        evidence.append(("heat", ", ".join(heat_evidence(text)[:4])))
     floor_x = _num("MINDSHIFT_TRIGGER_FLOOR_S", 45.0)
     crossed = is_wearer and wearer_floor_s >= floor_x and (
         wearer_floor_before_s is None or wearer_floor_before_s < floor_x
     )
     if _flag("MINDSHIFT_TRIGGER_FLOOR") and (crossed or "floor" in phone):
         found.append("floor")
+        evidence.append(("floor", f"{round(wearer_floor_s)}s" if wearer_floor_s else ""))
     if _flag("MINDSHIFT_TRIGGER_QUESTION") and not is_wearer and is_direct_question(text):
         found.append("question")
+        evidence.append(("question", _last_sentence(text)))
     if _flag("MINDSHIFT_TRIGGER_LIBRARY") and library_hit(text, library):
         found.append("library")
-    return TriggerVerdict(triggers=tuple(found), heat=score)
+    return TriggerVerdict(triggers=tuple(found), heat=score, evidence=tuple(evidence))

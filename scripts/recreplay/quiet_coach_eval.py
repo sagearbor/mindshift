@@ -26,8 +26,10 @@ WT = str(Path(__file__).resolve().parents[2])
 REC = (sys.argv[sys.argv.index("--rec") + 1] if "--rec" in sys.argv
        else os.environ.get("MINDSHIFT_RECORDINGS") or f"{WT}/tmp/recordings")
 sys.path.insert(0, f"{WT}/server")
-import coach_gate  # noqa: E402
-import coach_trigger  # noqa: E402
+import coach_gate  # noqa: E402,F401
+import coach_trigger  # noqa: E402,F401
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from quiet_sim import simulate, tone_ctx  # noqa: E402,F401
 
 ph_dir, out_path = [a for a in sys.argv[1:] if a != "--rec" and a != REC][:2]
 splits = json.load(open(f"{REC}/landscape/splits.json"))
@@ -45,62 +47,6 @@ def group_of(it):
 def llm_calls(bundle):
     llm = (bundle.get("server") or {}).get("llm") or {}
     return int(llm.get("hits") or 0) + int(llm.get("misses") or 0) + int(llm.get("offline_misses") or 0)
-
-
-def tone_ctx(ev):
-    tt = ev.get("text_tone") or {}
-    pr = ev.get("prosody") or {}
-    if not any(v is not None for v in tt.values()) and not pr:
-        return None
-    return {**{k: v for k, v in tt.items() if v is not None}, **({"prosody": pr} if pr else {})}
-
-
-def simulate(sent, after_by_uid):
-    """Per sent turn (in order): skipped? identity, floor, triggers."""
-    self_labels, other_labels = set(), set()
-    utts = []
-    rows = []
-    for ev in sent:
-        text = ev.get("text") or ""
-        start, end = float(ev["start_time"]), float(ev["end_time"])
-        label, is_self = ev["speaker"], ev.get("is_self")
-        if is_self is True:
-            self_labels.add(label)
-            other_labels.discard(label)
-            ident = "self"
-        elif is_self is False:
-            other_labels.add(label)
-            self_labels.discard(label)
-            ident = "other"
-        elif label in self_labels:
-            ident = "self"
-        elif label in other_labels or self_labels:
-            ident = "other"
-        else:
-            ident = "unknown"
-        row = {"uid": ev.get("turn_uid"), "end": end, "text": text, "ident": ident, "skip": None, "triggers": ()}
-        if text.strip():
-            recent = [(u[0], u[1], u[2]) for u in utts[-6:]]
-            row["skip"] = coach_gate.skip_reason(text, start, end, recent, tone_ctx(ev))
-            if row["skip"] is None:
-                floor = 0.0
-                if ident == "self":
-                    fs = start
-                    for u in reversed(utts):
-                        if not u[2].strip():
-                            continue
-                        if u[3] not in self_labels or u[0] > end:
-                            break
-                        fs = min(fs, u[0])
-                    floor = end - fs
-                a = after_by_uid.get(ev.get("turn_uid")) or {}
-                v = coach_trigger.evaluate(text, is_wearer=ident == "self", wearer_floor_s=floor,
-                                           wearer_floor_before_s=max(0.0, floor - (end - start)),
-                                           phone_triggers=a.get("triggers"))
-                row["triggers"] = v.triggers
-        utts.append((start, end, text, label))
-        rows.append(row)
-    return rows
 
 
 def regate(lines, rows_by_uid, triggered_only):
